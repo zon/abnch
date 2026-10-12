@@ -1,3 +1,8 @@
+# Docs
+
+* [Read me](README.md) - A general description of this repo
+* [Stack](docs/stack.md) - Dependencies this project uses. Keep up to date
+
 ## Zpecs
 
 * [Milestones](docs/milestones.md) - High level objectives
@@ -12,3 +17,12 @@
 * [Glossary](docs/zpecs/glossary.md) - Read when a term is unclear
 * [Process](docs/zpecs/process.md) - Read before planning milestones, projects, or regressions
 * [Design](docs/zpecs/design.md) - Read before writing a high level design doc
+
+## Design
+
+High level design docs.
+
+* [Auth](docs/design/auth.md) - Authentication, authorization roles, and role assignment
+* [CLI](docs/design/cli.md) - The `abnch` command line interface
+* [Deployment](docs/design/deployment.md) - Deployment access and secrets
+* [Schema](docs/design/schema.md) - Repos, tasks, tests, data, models, agents, results, graders, and scores
