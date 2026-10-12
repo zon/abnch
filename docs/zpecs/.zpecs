@@ -1,0 +1,16 @@
+doc docs/zpecs/README.md
+doc docs/zpecs/architecture-outline.md
+doc docs/zpecs/architecture.md
+doc docs/zpecs/code.md
+doc docs/zpecs/dependencies.md
+doc docs/zpecs/design.md
+doc docs/zpecs/glossary.md
+doc docs/zpecs/process.md
+doc docs/zpecs/project.md
+doc docs/zpecs/prompts.md
+doc docs/zpecs/prose.md
+doc docs/zpecs/regressions.md
+doc docs/zpecs/requirements.md
+doc docs/zpecs/specs.md
+feature design
+feature process
