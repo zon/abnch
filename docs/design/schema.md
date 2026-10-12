@@ -33,6 +33,7 @@ A collection of data that can be executed and graded as a group.
 
 JSON data passed to agents. Represents a single task the agent should perform.
 
+* Stub - A short randomly generated string, like a Git ref
 * JSON
 
 ### Files

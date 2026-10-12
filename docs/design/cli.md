@@ -48,3 +48,17 @@ List tests.
 ## `abnch get test <stub>`
 
 Outputs a test as YAML.
+
+## `abnch get data <task stub>/<test stub>`
+
+Lists a test's data.
+
+## `abnch get data <task stub>/<test stub>/<stub>`
+
+Outputs a datum as JSON.
+
+## `abnch add data <task stub>/<test stub>`
+
+Adds test data. Expects stdin or `--file` containing valid JSON.
+
+* --file: relative path - a valid JSON file
