@@ -24,5 +24,6 @@ High level design docs.
 
 * [Auth](docs/design/auth.md) - Authentication, authorization roles, and role assignment
 * [CLI](docs/design/cli.md) - The `abnch` command line interface
+* [Config](docs/design/config.md) - The `.abnch/config.yaml` file
 * [Deployment](docs/design/deployment.md) - Deployment access and secrets
 * [Schema](docs/design/schema.md) - Repos, tasks, tests, data, models, agents, results, graders, and scores

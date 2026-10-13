@@ -8,68 +8,32 @@
 
 ## `abnch set config`
 
-Create or updates an `.abnch/config.yaml` file in the repo under the working dir.
+Create or updates an `.abnch/config.yaml` file in the repo under the working dir. See [Config Design](config.md).
 
-### Config Schema
-
-```yaml
-url: string - abnch service url
-```
+* --url: string - abnch service url
 
 ## `abnch set model <provider>/<name>`
 
-Create or updates model config. Adds a model option to the config file.
+Create or updates model config. Adds a model option to the config file. See [Config Design](config.md).
 
 * --stub: optional string - override the auto generated stub
 * --variant: optional string
 
-### Config Schema
-
-```yaml
-models:
-  <stub>:
-    name: string
-    provider: string
-    variant: string
-```
-
 ## `abnch set agent <task stub>`
 
-Creates or updates agent config for a task.
+Creates or updates agent config for a task. See [Config Design](config.md).
 
 * --version-cmd: string
 * --build-cmd: string
 * --run-cmd: string
-
-### Config Schema
-
-```yaml
-tasks:
-  <task stub>:
-    agent:
-      versionCmd: string
-      buildCmd: string
-      runCmd: string
-```
 
 ## `abnch set grader <task stub>`
 
-Creates or updates grader config for a task.
+Creates or updates grader config for a task. See [Config Design](config.md).
 
 * --version-cmd: string
 * --build-cmd: string
 * --run-cmd: string
-
-### Config Schema
-
-```yaml
-tasks:
-  <task stub>:
-    grader:
-      versionCmd: string
-      buildCmd: string
-      runCmd: string
-```
 
 ## `abnch set task <stub>`
 
@@ -79,14 +43,6 @@ Create or updates a task. Can recieve options or a YAML file with matching prope
 * --description: string - task description
 * --move: optional string - renames task from <stub> to --move value
 * --model: optional string - sets the task's default model in config
-
-### Config Schema
-
-```yaml
-tasks:
-  <task stub>:
-    model: <model stub>
-```
 
 ## `abnch get tasks` | `abnch get task`
 
