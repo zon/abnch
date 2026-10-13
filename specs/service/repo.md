@@ -12,7 +12,7 @@ The service SHALL expose resources over HTTP and exchange JSON bodies.
 
 Successful responses SHALL use a `2xx` status and a JSON body. Error responses SHALL use a `4xx` or `5xx` status and a body shaped `{ "error": { "message": string } }`.
 
-Routes SHALL be relative to the service URL in the [config](../../docs/design/cli-config.md).
+Routes SHALL be relative to the service URL in the [config](../../docs/design/app/abnch-config.md).
 
 #### Scenario: Error body
 

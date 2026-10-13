@@ -47,7 +47,7 @@ On success the command SHALL exit zero. On failure it SHALL exit non-zero, write
 
 ### Requirement: Service URL
 
-The CLI SHALL take the service URL from `--url` when given, and from the [config](../../docs/design/cli-config.md) otherwise. When neither provides one, `abnch login` and `abnch logout` SHALL fail.
+The CLI SHALL take the service URL from `--url` when given, and from the [config](../../docs/design/app/abnch-config.md) otherwise. When neither provides one, `abnch login` and `abnch logout` SHALL fail.
 
 #### Scenario: URL from config
 

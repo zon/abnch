@@ -12,13 +12,13 @@ A service running locally trusts a dev issuer. `just config` writes a local CLI 
 
 Signs in a human user. The CLI runs the OIDC authorization code flow in a browser, receives the callback on a loopback address, and stores the resulting session for the service URL.
 
-* --url: optional string - service url. Defaults to the [config](cli-config.md) url
+* --url: optional string - service url. Defaults to the [config](abnch-config.md) url
 
 ## `abnch logout`
 
 Removes the stored session for the service URL.
 
-* --url: optional string - service url. Defaults to the [config](cli-config.md) url
+* --url: optional string - service url. Defaults to the [config](abnch-config.md) url
 
 ## `set` Commands
 
@@ -28,7 +28,7 @@ Removes the stored session for the service URL.
 
 ## `abnch set config`
 
-Create or updates an `.abnch/config.yaml` file in the repo under the working dir. See [CLI Config Design](cli-config.md).
+Create or updates an `.abnch/config.yaml` file in the repo under the working dir. See [CLI Config Design](abnch-config.md).
 
 * --url: string - abnch service url
 
@@ -38,7 +38,7 @@ Outputs the effective config as YAML.
 
 ## `abnch set model <provider>/<name>`
 
-Create or updates model config. Adds a model option to the config file. See [CLI Config Design](cli-config.md).
+Create or updates model config. Adds a model option to the config file. See [CLI Config Design](abnch-config.md).
 
 * --stub: optional string - override the auto generated stub
 * --variant: optional string
@@ -53,7 +53,7 @@ Outputs a model as YAML.
 
 ## `abnch set agent <task stub>`
 
-Creates or updates agent config for a task. See [CLI Config Design](cli-config.md).
+Creates or updates agent config for a task. See [CLI Config Design](abnch-config.md).
 
 * --version-cmd: string
 * --build-cmd: string
@@ -65,7 +65,7 @@ Outputs the task's agent config as YAML.
 
 ## `abnch set grader <task stub>`
 
-Creates or updates grader config for a task. See [CLI Config Design](cli-config.md).
+Creates or updates grader config for a task. See [CLI Config Design](abnch-config.md).
 
 * --version-cmd: string
 * --build-cmd: string

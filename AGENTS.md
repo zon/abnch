@@ -23,8 +23,8 @@
 High level design docs.
 
 * [Auth](docs/design/auth.md) - Authentication, authorization roles, and role assignment
-* [CLI](docs/design/cli.md) - The `abnch` command line interface
-* [CLI Config](docs/design/cli-config.md) - The `.abnch/config.yaml` file
+* [CLI](docs/design/app/abnch.md) - The `abnch` command line interface
+* [CLI Config](docs/design/app/abnch-config.md) - The `.abnch/config.yaml` file
 * [Deployment](docs/design/deployment.md) - Deployment access, secrets, and the Helm chart
 * [Dev Config](docs/design/dev-config.md) - Local service config, collected by `just config`
 * [Schema](docs/design/schema.md) - Repos, tasks, tests, data, models, agents, results, graders, and scores
