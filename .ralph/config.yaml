@@ -1,1 +1,3 @@
 mode: worktree
+model: deepseek/deepseek-flash
+variant: high
