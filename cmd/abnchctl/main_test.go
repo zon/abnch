@@ -155,6 +155,55 @@ func TestSetLocalAuthWritesTopLevelURLAndPostgres(t *testing.T) {
 	}
 }
 
+func TestSetLocalAuthWritesDevIssuer(t *testing.T) {
+	repo := t.TempDir()
+	in := strings.NewReader("db.example\n5433\nabnch\nadmin\ns3cret\nrequire\nAmerica/New_York\n")
+
+	if err := runIn([]string{"set", "local-auth", "--port", "9090"}, repo, t.TempDir(), in, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(repo, "service-config.local.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		t.Fatal(err)
+	}
+
+	oauth, ok := doc["oauth"].(map[string]any)
+	if !ok {
+		t.Fatalf("oauth = %#v, want a top-level oauth mapping", doc["oauth"])
+	}
+	issuers, ok := oauth["issuers"].([]any)
+	if !ok {
+		t.Fatalf("oauth.issuers = %#v, want a list", oauth["issuers"])
+	}
+	if len(issuers) != 1 {
+		t.Fatalf("got %d issuers, want one dev issuer", len(issuers))
+	}
+	iss, ok := issuers[0].(map[string]any)
+	if !ok {
+		t.Fatalf("issuer = %#v, want a mapping", issuers[0])
+	}
+	if iss["issuer"] != "http://localhost:9090/dev" {
+		t.Errorf("issuer = %#v, want http://localhost:9090/dev", iss["issuer"])
+	}
+	if iss["audience"] != "abnch" {
+		t.Errorf("audience = %#v, want abnch", iss["audience"])
+	}
+	if iss["roleClaim"] != "sub" {
+		t.Errorf("roleClaim = %#v, want sub", iss["roleClaim"])
+	}
+	want := map[string]any{"local-cli": "Admin", "local-runtime": "Service"}
+	if roleMap, ok := iss["roleMap"].(map[string]any); !ok {
+		t.Errorf("roleMap = %#v, want a mapping", iss["roleMap"])
+	} else if !reflect.DeepEqual(roleMap, want) {
+		t.Errorf("roleMap = %#v, want %#v", roleMap, want)
+	}
+}
+
 func TestSetLocalAuthPortSetsURL(t *testing.T) {
 	cases := []struct {
 		name string
