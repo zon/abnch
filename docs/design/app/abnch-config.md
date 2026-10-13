@@ -5,7 +5,7 @@ The CLI creates and updates an `.abnch/config.yaml` file in the repo under the w
 ## Schema
 
 ```yaml
-url: string - abnch service url
+url: string - abnchd service url
 models:
   <stub>:
     name: string
