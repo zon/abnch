@@ -60,6 +60,41 @@ func TestSetLocalAuthPortSetsURL(t *testing.T) {
 	}
 }
 
+func TestSetLocalAuthPromptsForEachPostgresFieldInTurn(t *testing.T) {
+	repo := t.TempDir()
+	var out bytes.Buffer
+	in := strings.NewReader("db.example\n5432\nabnch\nadmin\ns3cret\n\n\n")
+
+	if err := runIn([]string{"set", "local-auth"}, repo, t.TempDir(), in, &out); err != nil {
+		t.Fatal(err)
+	}
+
+	prompts := out.String()
+	assertPromptsInOrder(t, prompts, "host", "port", "dbname", "user", "password", "sslmode", "timeZone")
+
+	if strings.Contains(prompts, "s3cret") {
+		t.Errorf("the password prompt reveals the typed secret:\n%s", prompts)
+	}
+	if !strings.Contains(prompts, "sslmode [disable]") {
+		t.Errorf("sslmode prompt does not default to disable:\n%s", prompts)
+	}
+	if !strings.Contains(prompts, "timeZone [UTC]") {
+		t.Errorf("timeZone prompt does not default to UTC:\n%s", prompts)
+	}
+}
+
+func assertPromptsInOrder(t *testing.T, out string, labels ...string) {
+	t.Helper()
+	at := 0
+	for _, label := range labels {
+		i := strings.Index(out[at:], label)
+		if i < 0 {
+			t.Fatalf("prompt %q is missing or out of order in %q", label, out)
+		}
+		at += i + len(label)
+	}
+}
+
 func TestCheckConfigConfirmsWrittenConfig(t *testing.T) {
 	repo := t.TempDir()
 	home := t.TempDir()
