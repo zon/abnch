@@ -37,6 +37,35 @@ func TestJustfileDelegatesToAbnchctl(t *testing.T) {
 	}
 }
 
+func TestJustConfigDefaultsToPort8080(t *testing.T) {
+	out := dryRunConfig(t)
+	if !strings.Contains(out, "abnchctl set local-auth --port 8080") {
+		t.Errorf("just config does not default to port 8080:\n%s", out)
+	}
+}
+
+func TestJustConfigForwardsGivenPort(t *testing.T) {
+	out := dryRunConfig(t, "9090")
+	if !strings.Contains(out, "abnchctl set local-auth --port 9090") {
+		t.Errorf("just config does not forward the given port:\n%s", out)
+	}
+}
+
+// dryRunConfig renders the config recipe's commands without running them.
+func dryRunConfig(t *testing.T, args ...string) string {
+	t.Helper()
+	just, err := exec.LookPath("just")
+	if err != nil {
+		t.Skip("just is not installed")
+	}
+	cmdArgs := append([]string{"--justfile", filepath.Join(repoRoot(t), "Justfile"), "--dry-run", "config"}, args...)
+	out, err := exec.Command(just, cmdArgs...).CombinedOutput()
+	if err != nil {
+		t.Fatalf("just --dry-run config: %v\n%s", err, out)
+	}
+	return string(out)
+}
+
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)

@@ -199,6 +199,18 @@ func TestSetLocalAuthKeepsOtherCredentials(t *testing.T) {
 	}
 }
 
+func TestLocalServiceURL(t *testing.T) {
+	cases := map[int]string{
+		8080: "http://localhost:8080",
+		9000: "http://localhost:9000",
+	}
+	for port, want := range cases {
+		if got := LocalServiceURL(port); got != want {
+			t.Errorf("LocalServiceURL(%d) = %q, want %q", port, got, want)
+		}
+	}
+}
+
 func TestSetLocalAuthRejectsBadPostgresPort(t *testing.T) {
 	repo := t.TempDir()
 	in := strings.NewReader("db\nnot-a-port\nabnch\nadmin\npw\n\n\n")
