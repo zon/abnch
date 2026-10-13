@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Authenticate the `abnch` CLI to the service. Covers human sign-in and sign-out, the stored session, and how commands present credentials. Authentication and roles are defined in the [Auth Service API](../service/auth.md). Authorization decisions belong to the service. Error output and exit codes follow the [Task CLI spec](task.md#requirement-cli-error-reporting).
+Authenticate the `abnch` CLI to the service. Covers human sign-in and sign-out, the stored session, local credentials, and how commands present credentials. Authentication and roles are defined in the [Auth Service API](../service/auth.md). Authorization decisions belong to the service. Error output and exit codes follow the [Task CLI spec](task.md#requirement-cli-error-reporting).
 
 ## Requirements
 
@@ -100,7 +100,7 @@ Logging in again for the same service URL SHALL replace the stored session.
 
 ### Requirement: Session Reuse
 
-A command that reaches the service SHALL read the stored session for the service URL and present it. A command with no stored session, or an expired one, SHALL fail and tell the user to run `abnch login`.
+A command that reaches a service without a local credential SHALL read the stored session for the service URL and present it. A command with no stored session, or an expired one, SHALL fail and tell the user to run `abnch login`.
 
 #### Scenario: Command after login
 
@@ -122,6 +122,29 @@ A command that reaches the service SHALL read the stored session for the service
 - WHEN the user runs a command that reaches the service
 - THEN the command exits non-zero
 - AND an error tells the user to run `abnch login`
+
+### Requirement: Local Credentials
+
+The CLI SHALL read a local credential that `just config` wrote for a local service and present it to that service. The credential SHALL live in the credential store, keyed by the local service URL.
+
+A command that reaches a local service with a local credential SHALL NOT require `abnch login`.
+
+#### Scenario: Local credential presented
+
+- GIVEN `just config` wrote a local credential for the service URL
+- WHEN the user runs a command that reaches the service
+- THEN the CLI presents the local credential
+- AND the command does not require a sign-in
+
+### Requirement: Local Runtime Token
+
+When the CLI starts a local runtime, it SHALL pass the runtime a workload token for the local service. The CLI SHALL pass the token in the runtime's environment.
+
+#### Scenario: Runtime receives a token
+
+- GIVEN the CLI starts a local runtime against a local service
+- WHEN the runtime starts
+- THEN the CLI passes it a workload token
 
 ### Requirement: Rejected Credentials
 

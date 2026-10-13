@@ -13,3 +13,7 @@ Behavior contracts for the Agent Benchmark system.
 - [Auth](cli/auth.md) — signing a human user in and out, storing a session, and presenting credentials
 - [Repo](cli/repo.md) — deriving the repo a command acts on from the working directory
 - [Task](cli/task.md) — creating, updating, and reading tasks
+
+## Dev
+
+- [Config](dev/config.md) — configuring a local service for development

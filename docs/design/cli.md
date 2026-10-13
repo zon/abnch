@@ -6,6 +6,8 @@ Commands that reach the service authenticate a caller. The caller signs in with 
 
 Sessions live in a user-level `~/.abnch/credentials.yaml` file, keyed by service URL, outside any repo. A command that needs a session and finds none, or finds an expired one, fails and tells the user to run `abnch login`.
 
+A service running locally trusts a dev issuer. `just config` writes a local CLI credential, which the CLI reads like a session. A runtime the CLI starts gets a Service token. `--local` chooses where agent or grader code runs, not how the caller authenticates. See the [Dev Config Design](dev-config.md).
+
 ## `abnch login`
 
 Signs in a human user. The CLI runs the OIDC authorization code flow in a browser, receives the callback on a loopback address, and stores the resulting session for the service URL.

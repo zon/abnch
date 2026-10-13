@@ -44,6 +44,12 @@ The service SHALL accept a workload token only from an issuer and audience confi
 - WHEN it sends a request
 - THEN the service authenticates the caller
 
+#### Scenario: Local dev issuer
+
+- GIVEN a local client with a token signed by a dev issuer configured in a local service config
+- WHEN it sends a request
+- THEN the service authenticates the caller
+
 #### Scenario: Unknown issuer
 
 - GIVEN a workload token from an issuer the service does not trust
