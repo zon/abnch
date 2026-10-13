@@ -204,6 +204,63 @@ func TestSetLocalAuthWritesDevIssuer(t *testing.T) {
 	}
 }
 
+func TestSetLocalAuthRerunSamePortKeepsOneDevIssuer(t *testing.T) {
+	repo := t.TempDir()
+	home := t.TempDir()
+
+	first := strings.NewReader("db.example\n5433\nabnch\nadmin\ns3cret\nrequire\nAmerica/New_York\n")
+	if err := runIn([]string{"set", "local-auth", "--port", "9090"}, repo, home, first, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := countDevIssuers(t, repo); got != 1 {
+		t.Fatalf("first run wrote %d issuers, want one dev issuer", got)
+	}
+
+	// Accept the stored defaults for a second run against the same port.
+	second := strings.NewReader("\n\n\n\n\n\n\n")
+	if err := runIn([]string{"set", "local-auth", "--port", "9090"}, repo, home, second, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := countDevIssuers(t, repo); got != 1 {
+		t.Errorf("rerun for the same port wrote %d issuers, want one dev issuer", got)
+	}
+}
+
+// countDevIssuers reads the written YAML and counts the literal entries under
+// oauth.issuers, so a duplicate entry shows up even when the typed config would
+// collapse it.
+func countDevIssuers(t *testing.T, repo string) int {
+	t.Helper()
+
+	data, err := os.ReadFile(filepath.Join(repo, "service-config.local.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		t.Fatal(err)
+	}
+
+	oauth, ok := doc["oauth"].(map[string]any)
+	if !ok {
+		t.Fatalf("oauth = %#v, want a top-level oauth mapping", doc["oauth"])
+	}
+	issuers, ok := oauth["issuers"].([]any)
+	if !ok {
+		t.Fatalf("oauth.issuers = %#v, want a list", oauth["issuers"])
+	}
+	for _, raw := range issuers {
+		iss, ok := raw.(map[string]any)
+		if !ok {
+			t.Fatalf("issuer = %#v, want a mapping", raw)
+		}
+		if iss["issuer"] != "http://localhost:9090/dev" {
+			t.Errorf("issuer = %#v, want http://localhost:9090/dev", iss["issuer"])
+		}
+	}
+	return len(issuers)
+}
+
 func TestSetLocalAuthPortSetsURL(t *testing.T) {
 	cases := []struct {
 		name string
