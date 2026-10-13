@@ -10,4 +10,4 @@ Generates local `abnchd` and `abnch` auth config.
 
 ## `abnchctl check config`
 
-Confirms local `abnchd` config is ready.
+Confirms local `abnchd` config is ready. At least one oidc or oauth entry and postgres connection config should be required.

@@ -1,16 +1,16 @@
 # Dev Config Design
 
-Developers run the service locally against Postgres. The [Just](https://just.systems/) recipe `just config` collects the [Postgres](service-config.md#postgres) connection details, generates a dev signing key, and writes a local [service config](service-config.md) file. The file stays out of git.
+Developers run the service locally against Postgres. The [Just](https://just.systems/) recipe `just config` collects the [Postgres](app/abnchd-config.md#postgres) connection details, generates a dev signing key, and writes a local [service config](app/abnchd-config.md) file. The file stays out of git.
 
 ## Local Service Config
 
-`just config` writes `service-config.local.yaml` in the repo root. The file is a [service config](service-config.md) and holds only the values a local run needs. Git ignores it.
+`just config` writes `service-config.local.yaml` in the repo root. The file is a [service config](app/abnchd-config.md) and holds only the values a local run needs. Git ignores it.
 
 ## `just config`
 
 The recipe takes an optional port for the local service and defaults to `8080`. The port sets the local service URL, `http://localhost:<port>`.
 
-The recipe prompts for each [Postgres](service-config.md#postgres) field:
+The recipe prompts for each [Postgres](app/abnchd-config.md#postgres) field:
 
 * host - database host
 * port - database port
@@ -36,4 +36,4 @@ The password prompt hides input. A value already in `service-config.local.yaml` 
 
 ## Running the Service
 
-A local run points the service at `service-config.local.yaml`. The service then connects to Postgres with the collected details. See [Service Config Design](service-config.md).
+A local run points the service at `service-config.local.yaml`. The service then connects to Postgres with the collected details. See [Service Config Design](app/abnchd-config.md).

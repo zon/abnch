@@ -4,7 +4,7 @@ Specific deployments are expected to provide access to any model providers or fi
 
 ## Helm Chart
 
-The service provides a Helm chart that installs it into a Kubernetes cluster. The chart values supply the [Service Config](service-config.md).
+The service provides a Helm chart that installs it into a Kubernetes cluster. The chart values supply the [Service Config](app/abnchd-config.md).
 
 ## Secrets
 

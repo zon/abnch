@@ -22,6 +22,8 @@
 
 High level design docs.
 
+Read [Service Config](docs/design/app/abnchd-config.md) when setting up a local dev environment.
+
 * [Auth](docs/design/auth.md) - Authentication, authorization roles, and role assignment
 * [CLI](docs/design/app/abnch.md) - The `abnch` command line interface
 * [CLI Config](docs/design/app/abnch-config.md) - The `.abnch/config.yaml` file
@@ -30,4 +32,4 @@ High level design docs.
 * [Dev Tooling](docs/design/app/abnchctl.md) - The `abnchctl` developer CLI
 * [Schema](docs/design/schema.md) - Repos, tasks, tests, data, models, agents, results, graders, and scores
 * [Service App](docs/design/app/abnchd.md) - The `abnchd` service application
-* [Service Config](docs/design/service-config.md) - The service configuration file, including OIDC integration
+* [Service Config](docs/design/app/abnchd-config.md) - The service configuration file, including OIDC integration

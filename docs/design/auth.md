@@ -38,7 +38,7 @@ The CLI is a client on the same machine. `just config` generates its local crede
 
 ### Role Assignment
 
-The service derives roles from claims on the authenticated credential. Each credential source has a role claim and a role map, configured in the [Service Config Design](service-config.md). A claim value with no mapping grants no role.
+The service derives roles from claims on the authenticated credential. Each credential source has a role claim and a role map, configured in the [Service Config Design](app/abnchd-config.md). A claim value with no mapping grants no role.
 
 Humans map to Reader or Admin. Workloads map to Service, Agent, or Grader.
 

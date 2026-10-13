@@ -30,7 +30,7 @@ A request with no credentials or with credentials the service cannot verify SHAL
 
 The service SHALL authenticate non-human callers with OAuth, without an interactive sign-in. A workload token SHALL identify the caller.
 
-The service SHALL accept a workload token only from an issuer and audience configured in the [Service Config Design](../../docs/design/service-config.md). A token with an unknown issuer, a wrong audience, a bad signature, or an expiry in the past SHALL be rejected.
+The service SHALL accept a workload token only from an issuer and audience configured in the [Service Config Design](../../docs/design/app/abnchd-config.md). A token with an unknown issuer, a wrong audience, a bad signature, or an expiry in the past SHALL be rejected.
 
 #### Scenario: Kubernetes service account
 
@@ -73,7 +73,7 @@ The service SHALL accept a workload token only from an issuer and audience confi
 
 ### Requirement: Human Authentication
 
-The service SHALL sign in human users through an OIDC provider using the authorization code flow, as configured in the [Service Config Design](../../docs/design/service-config.md). On success the service SHALL grant a session that identifies the user and carries the user's roles. A failed sign-in SHALL grant no session.
+The service SHALL sign in human users through an OIDC provider using the authorization code flow, as configured in the [Service Config Design](../../docs/design/app/abnchd-config.md). On success the service SHALL grant a session that identifies the user and carries the user's roles. A failed sign-in SHALL grant no session.
 
 #### Scenario: Successful sign-in
 
