@@ -1,5 +1,23 @@
 # CLI Design
 
+## Credentials
+
+Commands that reach the service authenticate a caller. The caller signs in with `abnch login`, which stores a session for the service URL. Later commands read the session and present it to the service. See the [Auth Design](auth.md).
+
+Sessions live in a user-level `~/.abnch/credentials.yaml` file, keyed by service URL, outside any repo. A command that needs a session and finds none, or finds an expired one, fails and tells the user to run `abnch login`.
+
+## `abnch login`
+
+Signs in a human user. The CLI runs the OIDC authorization code flow in a browser, receives the callback on a loopback address, and stores the resulting session for the service URL.
+
+* --url: optional string - service url. Defaults to the [config](cli-config.md) url
+
+## `abnch logout`
+
+Removes the stored session for the service URL.
+
+* --url: optional string - service url. Defaults to the [config](cli-config.md) url
+
 ## `set` Commands
 
 `set` commands update if a matching resource already exists or create if the resource is missing. Updates are peformed by merging values passed to the command with the resource.

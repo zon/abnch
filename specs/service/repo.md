@@ -110,7 +110,7 @@ The service SHALL reject a repo whose org stub or repo stub is empty or not URL-
 
 Read operations SHALL be allowed for the Reader, Service, and Admin roles. Write operations SHALL be allowed for the Admin role only.
 
-The service SHALL return `401` for an unauthenticated request and `403` for a role without access. Roles are defined in the [Auth Design](../../docs/design/auth.md).
+The service SHALL return `401` for an unauthenticated request and `403` for a role without access. Roles and error handling follow the [Auth Service API](auth.md).
 
 #### Scenario: Reader lists repos
 
