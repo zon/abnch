@@ -162,6 +162,49 @@ func TestSetLocalAuthPromptsForEachPostgresFieldInTurn(t *testing.T) {
 	}
 }
 
+func TestSetLocalAuthRerunOffersStoredValues(t *testing.T) {
+	repo := t.TempDir()
+	home := t.TempDir()
+
+	stored := strings.NewReader("db.example\n5433\nabnch\nadmin\ns3cret\nrequire\nAmerica/New_York\n")
+	if err := runIn([]string{"set", "local-auth"}, repo, home, stored, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	// Change only the host and accept every other stored default.
+	rerun := strings.NewReader("db.internal\n\n\n\n\n\n\n")
+	if err := runIn([]string{"set", "local-auth"}, repo, home, rerun, &out); err != nil {
+		t.Fatal(err)
+	}
+
+	prompts := out.String()
+	for _, want := range []string{
+		"host [db.example]",
+		"port [5433]",
+		"dbname [abnch]",
+		"user [admin]",
+		"sslmode [require]",
+		"timeZone [America/New_York]",
+	} {
+		if !strings.Contains(prompts, want) {
+			t.Errorf("rerun prompt does not offer the stored value %q:\n%s", want, prompts)
+		}
+	}
+	if !strings.Contains(prompts, "password [stored]") {
+		t.Errorf("rerun password prompt does not offer the stored value:\n%s", prompts)
+	}
+	if strings.Contains(prompts, "s3cret") {
+		t.Errorf("rerun prompt reveals the stored secret:\n%s", prompts)
+	}
+
+	cfg := readConfig(t, filepath.Join(repo, "service-config.local.yaml"))
+	want := devconfig.Postgres{Host: "db.internal", Port: 5433, DBName: "abnch", User: "admin", Password: "s3cret", SSLMode: "require", TimeZone: "America/New_York"}
+	if !reflect.DeepEqual(cfg.Postgres, want) {
+		t.Errorf("postgres = %#v, want %#v", cfg.Postgres, want)
+	}
+}
+
 func assertPromptsInOrder(t *testing.T, out string, labels ...string) {
 	t.Helper()
 	at := 0
