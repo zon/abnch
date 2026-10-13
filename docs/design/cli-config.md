@@ -1,4 +1,4 @@
-# Config Design
+# CLI Config Design
 
 The CLI creates and updates an `.abnch/config.yaml` file in the repo under the working dir.
 
