@@ -37,6 +37,34 @@ func TestJustfileDelegatesToAbnchctl(t *testing.T) {
 	}
 }
 
+func TestJustConfigDelegatesEveryStepToAbnchctl(t *testing.T) {
+	steps := nonEmptyLines(dryRunConfig(t))
+	if len(steps) != 2 {
+		t.Fatalf("config recipe runs %d steps, want the two abnchctl commands:\n%q", len(steps), steps)
+	}
+	for _, step := range steps {
+		if !strings.Contains(step, "./cmd/abnchctl") {
+			t.Errorf("config recipe step %q does not drive the abnchctl CLI", step)
+		}
+	}
+	if !strings.Contains(steps[0], "set local-auth") {
+		t.Errorf("config recipe first step = %q, want set local-auth", steps[0])
+	}
+	if !strings.Contains(steps[1], "check config") {
+		t.Errorf("config recipe second step = %q, want check config", steps[1])
+	}
+}
+
+func nonEmptyLines(text string) []string {
+	var lines []string
+	for _, line := range strings.Split(text, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return lines
+}
+
 func TestJustConfigDefaultsToPort8080(t *testing.T) {
 	out := dryRunConfig(t)
 	if !strings.Contains(out, "abnchctl set local-auth --port 8080") {
