@@ -30,6 +30,8 @@ A request with no credentials or with credentials the service cannot verify SHAL
 
 The service SHALL authenticate non-human callers with OAuth, without an interactive sign-in. A workload token SHALL identify the caller.
 
+The service SHALL accept a workload token only from an issuer and audience configured in the [Service Config Design](../../docs/design/service-config.md). A token with an unknown issuer, a wrong audience, a bad signature, or an expiry in the past SHALL be rejected.
+
 #### Scenario: Kubernetes service account
 
 - GIVEN a workload with a Kubernetes service account token
@@ -41,6 +43,27 @@ The service SHALL authenticate non-human callers with OAuth, without an interact
 - GIVEN a GitHub workflow with a workflow token
 - WHEN it sends a request
 - THEN the service authenticates the caller
+
+#### Scenario: Unknown issuer
+
+- GIVEN a workload token from an issuer the service does not trust
+- WHEN it sends a request
+- THEN the status is `401`
+- AND no operation is performed
+
+#### Scenario: Wrong audience
+
+- GIVEN a workload token whose audience is not the service
+- WHEN it sends a request
+- THEN the status is `401`
+- AND no operation is performed
+
+#### Scenario: Rejected workload token
+
+- GIVEN a workload token with a bad signature or an expiry in the past
+- WHEN it sends a request
+- THEN the status is `401`
+- AND no operation is performed
 
 ### Requirement: Human Authentication
 
@@ -63,7 +86,7 @@ The service SHALL sign in human users through an OIDC provider using the authori
 
 The service SHALL derive roles from claims on the authenticated credential.
 
-For OIDC users, the service SHALL read the role claim and map each value through the role map. A claim value with no mapping SHALL grant no role.
+For OIDC users, the service SHALL read the role claim and map each value through the role map. For workloads, the service SHALL read the role claim and role map of the token's trusted issuer. A claim value with no mapping SHALL grant no role.
 
 Humans hold Reader or Admin. Workloads hold Service, Agent, or Grader.
 
@@ -73,17 +96,23 @@ Humans hold Reader or Admin. Workloads hold Service, Agent, or Grader.
 - WHEN the service assigns roles
 - THEN the caller holds the Admin role
 
-#### Scenario: Unmapped claim value
+#### Scenario: Unmapped user claim
 
 - GIVEN a signed-in user whose role claim value has no mapping
 - WHEN the service assigns roles
 - THEN the caller holds no role
 
-#### Scenario: Workload role
+#### Scenario: Mapped workload claim
 
-- GIVEN a credential from the agent tester service
+- GIVEN a workload whose role claim value maps to `Service`
 - WHEN the service assigns roles
 - THEN the caller holds the Service role
+
+#### Scenario: Unmapped workload claim
+
+- GIVEN a workload whose role claim value has no mapping
+- WHEN the service assigns roles
+- THEN the caller holds no role
 
 ### Requirement: Reader Role
 

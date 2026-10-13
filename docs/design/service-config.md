@@ -36,3 +36,23 @@ postgres:
 ```
 
 A deployment reads the password from a secret. Local development collects these values with `just config`. See [Dev Config Design](dev-config.md).
+
+## Workload Authentication
+
+Non-human callers authenticate with an OAuth token, without a sign-in. Workloads are Kubernetes service accounts and GitHub workflows. See [Auth Design](auth.md).
+
+A workload token is an OIDC JWT. The service discovers each trusted issuer's keys from its OIDC configuration, then checks the signature, the audience, and the expiry.
+
+```yaml
+oauth:
+  issuers:
+    - issuer: string - OIDC issuer URL. The service discovers endpoints from it
+      audience: string - audience a token must carry to be accepted
+      roleClaim: string - claim that carries the caller identity
+      roleMap:
+        <claim value>: <Service|Agent|Grader> - role granted for the claim value
+```
+
+The service rejects a token with an unknown issuer, a wrong audience, a bad signature, or an expiry in the past.
+
+A Kubernetes service account token carries the `sub` claim `system:serviceaccount:<namespace>:<name>`. A GitHub workflow token carries claims such as `repository` and `ref`.

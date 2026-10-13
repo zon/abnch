@@ -31,14 +31,12 @@
 
 ### Role Assignment
 
-* Humans
-  * Reader
-  * Admin
-* Agent tester service
-  * Service
-* GitHub workflows
-  * Admin
-* Agent workflows
-  * Agent
-* Grader workflows
-  * Grader
+The service derives roles from claims on the authenticated credential. Each credential source has a role claim and a role map, configured in the [Service Config Design](service-config.md). A claim value with no mapping grants no role.
+
+Humans map to Reader or Admin. Workloads map to Service, Agent, or Grader.
+
+For example:
+
+* An agent tester service account maps to Service
+* An agent workflow maps to Agent
+* A grader workflow maps to Grader
