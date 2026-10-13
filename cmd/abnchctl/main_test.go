@@ -2,6 +2,10 @@ package main
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/x509"
+	"encoding/pem"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -66,6 +70,42 @@ func TestSetLocalAuthFirstRunWritesCompleteConfig(t *testing.T) {
 	}
 	if len(cfg.OAuth.Issuers) != 1 {
 		t.Errorf("got %d issuers, want the one dev issuer", len(cfg.OAuth.Issuers))
+	}
+}
+
+func TestSetLocalAuthWritesAsymmetricDevKeyAtRepoRoot(t *testing.T) {
+	repo := t.TempDir()
+	home := t.TempDir()
+
+	if err := runIn([]string{"set", "local-auth"}, repo, home, strings.NewReader("db\n5432\nabnch\nadmin\npw\n\n\n"), &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+
+	keyPath := filepath.Join(repo, "dev-issuer.key")
+	data, err := os.ReadFile(keyPath)
+	if err != nil {
+		t.Fatalf("dev-issuer.key is not in the repo root: %v", err)
+	}
+
+	block, _ := pem.Decode(data)
+	if block == nil {
+		t.Fatalf("dev key is not PEM:\n%s", data)
+	}
+	parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		t.Fatalf("dev key is not a parseable private key: %v", err)
+	}
+	key, ok := parsed.(*ecdsa.PrivateKey)
+	if !ok {
+		t.Fatalf("dev key is %T, want an asymmetric ECDSA key pair", parsed)
+	}
+	if key.Curve != elliptic.P256() {
+		t.Errorf("curve = %v, want P-256", key.Curve)
+	}
+
+	// The public half is derivable, so a local service can serve the matching JWKS.
+	if _, err := x509.MarshalPKIXPublicKey(&key.PublicKey); err != nil {
+		t.Fatalf("dev key has no derivable public key: %v", err)
 	}
 }
 
