@@ -35,7 +35,7 @@ A collection of data that can be executed and graded as a group.
 
 JSON data passed to agents. Represents a single task the agent should perform.
 
-* Stub - A short randomly generated string, like a Git ref
+* Ref - A short, Git-ref-like identifier
 * JSON
 * Parent - Test
 
@@ -67,6 +67,7 @@ External code that can produce a task result. Runs in an Argo Workflow from a cl
 
 The JSON produced by an agent.
 
+* Ref
 * JSON
 * Logs
 * Input tokens
@@ -90,6 +91,7 @@ External code that can score a result. Runs in an Argo Workflow from a cloned Gi
 
 A key-number dictionary reporting how well an agent performed a task.
 
+* Ref
 * Key-number dictionary
 * Logs
 * Input tokens

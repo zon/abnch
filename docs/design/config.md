@@ -26,4 +26,4 @@ tasks:
 
 ## Commands
 
-The `set` commands in the [CLI Design](cli.md) write these values.
+The `set` commands in the [CLI Design](cli.md) write these values. The `get` commands read them.

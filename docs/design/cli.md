@@ -12,12 +12,24 @@ Create or updates an `.abnch/config.yaml` file in the repo under the working dir
 
 * --url: string - abnch service url
 
+## `abnch get config`
+
+Outputs the effective config as YAML.
+
 ## `abnch set model <provider>/<name>`
 
 Create or updates model config. Adds a model option to the config file. See [Config Design](config.md).
 
 * --stub: optional string - override the auto generated stub
 * --variant: optional string
+
+## `abnch get models` | `abnch get model`
+
+Lists models in the config.
+
+## `abnch get model <stub>`
+
+Outputs a model as YAML.
 
 ## `abnch set agent <task stub>`
 
@@ -27,6 +39,10 @@ Creates or updates agent config for a task. See [Config Design](config.md).
 * --build-cmd: string
 * --run-cmd: string
 
+## `abnch get agent <task stub>`
+
+Outputs the task's agent config as YAML.
+
 ## `abnch set grader <task stub>`
 
 Creates or updates grader config for a task. See [Config Design](config.md).
@@ -34,6 +50,10 @@ Creates or updates grader config for a task. See [Config Design](config.md).
 * --version-cmd: string
 * --build-cmd: string
 * --run-cmd: string
+
+## `abnch get grader <task stub>`
+
+Outputs the task's grader config as YAML.
 
 ## `abnch set task <stub>`
 
@@ -75,7 +95,7 @@ Outputs a test as YAML.
 
 Lists a test's data.
 
-## `abnch get data <task stub>/<test stub>/<stub>`
+## `abnch get data <task stub>/<test stub>/<ref>`
 
 Outputs a datum as JSON.
 
@@ -85,7 +105,7 @@ Adds test data. Expects stdin or `--file` containing valid JSON.
 
 * --file: relative path - a valid JSON file
 
-## `abnch run <task stub>/<test stub>` | `abnch run <task stub>/<test stub>/<data stub>`
+## `abnch run <task stub>/<test stub>` | `abnch run <task stub>/<test stub>/<data ref>`
 
 Run a test.
 
@@ -100,3 +120,19 @@ Score a result.
 
 * --model: string - override default model
 * --local: bool - run locally instead of using a workflow
+
+## `abnch get results` | `abnch get result`
+
+Lists results.
+
+## `abnch get result <result ref>`
+
+Outputs a result as JSON.
+
+## `abnch get scores` | `abnch get score`
+
+Lists scores.
+
+## `abnch get score <score ref>`
+
+Outputs a score as JSON.
