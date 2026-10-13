@@ -19,3 +19,20 @@ oidc:
 ```
 
 A claim value with no mapping grants no role.
+
+## Postgres
+
+The service stores domain data in Postgres through the [Gorm](https://gorm.io) Postgres driver. The service joins the values below into the driver's DSN. The keys match the DSN keywords, so `timeZone` maps to the driver's capitalized `TimeZone` keyword.
+
+```yaml
+postgres:
+  host: string - database host
+  port: int - database port
+  dbname: string - database name
+  user: string - database user
+  password: string - database password. A deployment reads it from a secret
+  sslmode: string - connection ssl mode
+  timeZone: string - session time zone, for example `UTC`
+```
+
+A deployment reads the password from a secret. Local development collects these values with `just config`. See [Dev Config Design](dev-config.md).

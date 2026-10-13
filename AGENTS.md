@@ -26,5 +26,6 @@ High level design docs.
 * [CLI](docs/design/cli.md) - The `abnch` command line interface
 * [CLI Config](docs/design/cli-config.md) - The `.abnch/config.yaml` file
 * [Deployment](docs/design/deployment.md) - Deployment access, secrets, and the Helm chart
+* [Dev Config](docs/design/dev-config.md) - Local service config, collected by `just config`
 * [Schema](docs/design/schema.md) - Repos, tasks, tests, data, models, agents, results, graders, and scores
 * [Service Config](docs/design/service-config.md) - The service configuration file, including OIDC integration
