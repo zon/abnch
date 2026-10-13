@@ -59,7 +59,7 @@ The command SHALL fail when the task is missing or when `<new>` is already taken
 
 ### Requirement: Default Model
 
-`abnch set task <stub> --model <model stub>` SHALL set the task's default model in the local [config](../../docs/design/config.md). It SHALL NOT change the task on the service.
+`abnch set task <stub> --model <model stub>` SHALL set the task's default model in the local [config](../../docs/design/cli-config.md). It SHALL NOT change the task on the service.
 
 #### Scenario: Set the default model
 

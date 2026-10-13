@@ -8,7 +8,7 @@
 
 ## `abnch set config`
 
-Create or updates an `.abnch/config.yaml` file in the repo under the working dir. See [Config Design](config.md).
+Create or updates an `.abnch/config.yaml` file in the repo under the working dir. See [CLI Config Design](cli-config.md).
 
 * --url: string - abnch service url
 
@@ -18,7 +18,7 @@ Outputs the effective config as YAML.
 
 ## `abnch set model <provider>/<name>`
 
-Create or updates model config. Adds a model option to the config file. See [Config Design](config.md).
+Create or updates model config. Adds a model option to the config file. See [CLI Config Design](cli-config.md).
 
 * --stub: optional string - override the auto generated stub
 * --variant: optional string
@@ -33,7 +33,7 @@ Outputs a model as YAML.
 
 ## `abnch set agent <task stub>`
 
-Creates or updates agent config for a task. See [Config Design](config.md).
+Creates or updates agent config for a task. See [CLI Config Design](cli-config.md).
 
 * --version-cmd: string
 * --build-cmd: string
@@ -45,7 +45,7 @@ Outputs the task's agent config as YAML.
 
 ## `abnch set grader <task stub>`
 
-Creates or updates grader config for a task. See [Config Design](config.md).
+Creates or updates grader config for a task. See [CLI Config Design](cli-config.md).
 
 * --version-cmd: string
 * --build-cmd: string
