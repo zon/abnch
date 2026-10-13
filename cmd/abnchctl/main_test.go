@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/zon/abnch/internal/devconfig"
+	"gopkg.in/yaml.v3"
 )
 
 func TestSetLocalAuthWritesConfigAndReportsPath(t *testing.T) {
@@ -33,6 +34,52 @@ func TestSetLocalAuthWritesConfigAndReportsPath(t *testing.T) {
 	want := devconfig.Postgres{Host: "db.example", Port: 5433, DBName: "abnch", User: "admin", Password: "s3cret", SSLMode: "require", TimeZone: "America/New_York"}
 	if !reflect.DeepEqual(cfg.Postgres, want) {
 		t.Errorf("postgres = %#v, want %#v", cfg.Postgres, want)
+	}
+}
+
+func TestSetLocalAuthWritesTopLevelURLAndPostgres(t *testing.T) {
+	repo := t.TempDir()
+	var out bytes.Buffer
+	in := strings.NewReader("db.example\n5433\nabnch\nadmin\ns3cret\nrequire\nAmerica/New_York\n")
+
+	if err := runIn([]string{"set", "local-auth", "--port", "9090"}, repo, t.TempDir(), in, &out); err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(repo, "service-config.local.yaml")
+	if !strings.Contains(out.String(), path) {
+		t.Errorf("output %q does not report the config path %q", out.String(), path)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc["url"] != "http://localhost:9090" {
+		t.Errorf("top-level url = %#v, want http://localhost:9090", doc["url"])
+	}
+
+	pg, ok := doc["postgres"].(map[string]any)
+	if !ok {
+		t.Fatalf("postgres = %#v, want a top-level postgres mapping", doc["postgres"])
+	}
+	want := map[string]any{
+		"host":     "db.example",
+		"port":     5433,
+		"dbname":   "abnch",
+		"user":     "admin",
+		"password": "s3cret",
+		"sslmode":  "require",
+		"timeZone": "America/New_York",
+	}
+	for key, wantValue := range want {
+		if pg[key] != wantValue {
+			t.Errorf("postgres.%s = %#v, want %#v", key, pg[key], wantValue)
+		}
 	}
 }
 
