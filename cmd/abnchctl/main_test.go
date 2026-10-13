@@ -37,6 +37,38 @@ func TestSetLocalAuthWritesConfigAndReportsPath(t *testing.T) {
 	}
 }
 
+func TestSetLocalAuthFirstRunWritesCompleteConfig(t *testing.T) {
+	repo := t.TempDir()
+	home := t.TempDir()
+
+	path := filepath.Join(repo, "service-config.local.yaml")
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("precondition: %s already exists", path)
+	}
+
+	var out bytes.Buffer
+	in := strings.NewReader("db.example\n5432\nabnch\nadmin\ns3cret\n\n\n")
+
+	if err := runIn([]string{"set", "local-auth"}, repo, home, in, &out); err != nil {
+		t.Fatalf("first run = %v, want no error", err)
+	}
+
+	cfg := readConfig(t, path)
+	if err := devconfig.Check(cfg); err != nil {
+		t.Errorf("first run wrote an incomplete config: %v", err)
+	}
+	if cfg.URL != "http://localhost:8080" {
+		t.Errorf("url = %q, want http://localhost:8080", cfg.URL)
+	}
+	want := devconfig.Postgres{Host: "db.example", Port: 5432, DBName: "abnch", User: "admin", Password: "s3cret", SSLMode: "disable", TimeZone: "UTC"}
+	if !reflect.DeepEqual(cfg.Postgres, want) {
+		t.Errorf("postgres = %#v, want %#v", cfg.Postgres, want)
+	}
+	if len(cfg.OAuth.Issuers) != 1 {
+		t.Errorf("got %d issuers, want the one dev issuer", len(cfg.OAuth.Issuers))
+	}
+}
+
 func TestSetLocalAuthWritesTopLevelURLAndPostgres(t *testing.T) {
 	repo := t.TempDir()
 	var out bytes.Buffer
