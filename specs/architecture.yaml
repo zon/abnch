@@ -1,0 +1,8 @@
+- path: Justfile
+  description: Sets up a local service for development.
+
+- path: cmd/abnchctl
+  description: Provides the local development CLI.
+
+- path: internal/devconfig
+  description: Collects and stores the local service configuration.
