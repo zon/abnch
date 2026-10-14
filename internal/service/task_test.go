@@ -101,20 +101,7 @@ func TestGetTasksMissingRepo(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusNotFound {
-		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusNotFound)
-	}
-	var body struct {
-		Error struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		t.Fatalf("decode body: %v", err)
-	}
-	if body.Error.Message == "" {
-		t.Error("error response body has no message")
-	}
+	assertServiceError(t, resp, http.StatusNotFound)
 }
 
 // TestGetTasksReportsStoreFailure checks a store failure returns the service
@@ -132,20 +119,7 @@ func TestGetTasksReportsStoreFailure(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusInternalServerError {
-		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusInternalServerError)
-	}
-	var body struct {
-		Error struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		t.Fatalf("decode body: %v", err)
-	}
-	if body.Error.Message == "" {
-		t.Error("error response body has no message")
-	}
+	assertServiceError(t, resp, http.StatusInternalServerError)
 }
 
 // TestGetTasksDeniedForUnpermittedRole checks a role without read access reaches
@@ -155,6 +129,115 @@ func TestGetTasksDeniedForUnpermittedRole(t *testing.T) {
 	base := startServiceWithStore(t, st, auth.RoleAgent)
 
 	resp, err := http.Get(base + "repos/acme/widgets/tasks")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusForbidden)
+	}
+}
+
+// TestGetTaskReturnsTask checks GET /repos/{org}/{repo}/tasks/{stub} returns one
+// task with its stub, name, description, and repo.
+func TestGetTaskReturnsTask(t *testing.T) {
+	st := &fakeDB{
+		repos: []store.Repo{{Org: "acme", Stub: "widgets", URL: "https://github.com/acme/widgets"}},
+		tasks: []store.Task{
+			{Org: "acme", Repo: "widgets", Stub: "add-feature", Name: "Add a feature", Description: "A new widget"},
+			{Org: "acme", Repo: "widgets", Stub: "fix-bug", Name: "Fix a bug", Description: "A broken widget"},
+		},
+	}
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets/tasks/fix-bug")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+
+	var got taskBody
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	want := taskBody{Stub: "fix-bug", Name: "Fix a bug", Description: "A broken widget", Repo: "widgets"}
+	if got != want {
+		t.Errorf("task = %#v, want %#v", got, want)
+	}
+}
+
+// TestGetTaskMissing checks a request for a task that does not exist returns the
+// service error response.
+func TestGetTaskMissing(t *testing.T) {
+	st := &fakeDB{
+		repos: []store.Repo{{Org: "acme", Stub: "widgets", URL: "https://github.com/acme/widgets"}},
+		tasks: []store.Task{
+			{Org: "acme", Repo: "widgets", Stub: "fix-bug", Name: "Fix a bug", Description: "A broken widget"},
+		},
+	}
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets/tasks/add-feature")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusNotFound)
+}
+
+// TestGetTaskMissingRepo checks a request for a task in a repo that does not
+// exist returns the service error response.
+func TestGetTaskMissingRepo(t *testing.T) {
+	st := &fakeDB{
+		repos: []store.Repo{{Org: "acme", Stub: "gadgets", URL: "https://github.com/acme/gadgets"}},
+		tasks: []store.Task{
+			{Org: "acme", Repo: "widgets", Stub: "fix-bug", Name: "Fix a bug", Description: "A broken widget"},
+		},
+	}
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets/tasks/fix-bug")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusNotFound)
+}
+
+// TestGetTaskReportsStoreFailure checks a store failure returns the service
+// error response instead of a task.
+func TestGetTaskReportsStoreFailure(t *testing.T) {
+	st := &fakeDB{
+		repos:      []store.Repo{{Org: "acme", Stub: "widgets", URL: "https://github.com/acme/widgets"}},
+		getTaskErr: errors.New("boom"),
+	}
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets/tasks/fix-bug")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusInternalServerError)
+}
+
+// TestGetTaskDeniedForUnpermittedRole checks a role without read access reaches
+// no task.
+func TestGetTaskDeniedForUnpermittedRole(t *testing.T) {
+	st := &fakeDB{repos: []store.Repo{{Org: "acme", Stub: "widgets", URL: "https://github.com/acme/widgets"}}}
+	base := startServiceWithStore(t, st, auth.RoleAgent)
+
+	resp, err := http.Get(base + "repos/acme/widgets/tasks/fix-bug")
 	if err != nil {
 		t.Fatal(err)
 	}

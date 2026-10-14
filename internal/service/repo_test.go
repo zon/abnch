@@ -92,20 +92,7 @@ func TestGetReposReportsStoreFailure(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusInternalServerError {
-		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusInternalServerError)
-	}
-	var body struct {
-		Error struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		t.Fatalf("decode body: %v", err)
-	}
-	if body.Error.Message == "" {
-		t.Error("error response body has no message")
-	}
+	assertServiceError(t, resp, http.StatusInternalServerError)
 }
 
 // TestGetReposDeniedForUnpermittedRole checks a role without read access
@@ -170,20 +157,7 @@ func TestGetRepoMissing(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusNotFound {
-		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusNotFound)
-	}
-	var body struct {
-		Error struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		t.Fatalf("decode body: %v", err)
-	}
-	if body.Error.Message == "" {
-		t.Error("error response body has no message")
-	}
+	assertServiceError(t, resp, http.StatusNotFound)
 }
 
 // TestGetRepoReportsStoreFailure checks a store failure returns the service
@@ -197,20 +171,7 @@ func TestGetRepoReportsStoreFailure(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusInternalServerError {
-		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusInternalServerError)
-	}
-	var body struct {
-		Error struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		t.Fatalf("decode body: %v", err)
-	}
-	if body.Error.Message == "" {
-		t.Error("error response body has no message")
-	}
+	assertServiceError(t, resp, http.StatusInternalServerError)
 }
 
 // TestGetRepoDeniedForUnpermittedRole checks a role without read access reaches

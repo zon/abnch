@@ -199,21 +199,7 @@ func TestRunRejectsUnverifiedRequests(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer resp.Body.Close()
-			if resp.StatusCode != http.StatusUnauthorized {
-				t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
-			}
-
-			var body struct {
-				Error struct {
-					Message string `json:"message"`
-				} `json:"error"`
-			}
-			if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-				t.Fatalf("decode body: %v", err)
-			}
-			if body.Error.Message == "" {
-				t.Error("error response body has no message")
-			}
+			assertServiceError(t, resp, http.StatusUnauthorized)
 		})
 	}
 }
@@ -231,21 +217,7 @@ func TestRunAuthenticatesRequests(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusNotFound {
-		t.Errorf("status = %d, want %d for a route the service does not serve", resp.StatusCode, http.StatusNotFound)
-	}
-
-	var body struct {
-		Error struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		t.Fatalf("decode body: %v", err)
-	}
-	if body.Error.Message == "" {
-		t.Error("error response body has no message")
-	}
+	assertServiceError(t, resp, http.StatusNotFound)
 }
 
 // TestRunEnforcesRoles starts the service with an authenticator that carries
@@ -355,6 +327,7 @@ type fakeDB struct {
 	listErr      error
 	getErr       error
 	saveErr      error
+	getTaskErr   error
 	listTasksErr error
 }
 
@@ -375,6 +348,18 @@ func (f *fakeDB) ListRepos() ([]store.Repo, error) {
 		return nil, f.listErr
 	}
 	return f.repos, nil
+}
+
+func (f *fakeDB) GetTask(org, repo, stub string) (store.Task, error) {
+	if f.getTaskErr != nil {
+		return store.Task{}, f.getTaskErr
+	}
+	for _, t := range f.tasks {
+		if t.Org == org && t.Repo == repo && t.Stub == stub {
+			return t, nil
+		}
+	}
+	return store.Task{}, store.ErrNotFound
 }
 
 func (f *fakeDB) ListTasks(org, repo string) ([]store.Task, error) {
@@ -443,4 +428,24 @@ func waitForService(t *testing.T, url string) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("service at %s did not start", url)
+}
+
+// assertServiceError checks a response is the service error response with the
+// given status and a message.
+func assertServiceError(t *testing.T, resp *http.Response, want int) {
+	t.Helper()
+	if resp.StatusCode != want {
+		t.Errorf("status = %d, want %d", resp.StatusCode, want)
+	}
+	var body struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.Error.Message == "" {
+		t.Error("error response body has no message")
+	}
 }

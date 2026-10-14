@@ -41,6 +41,35 @@ func listTasks(st Store) http.HandlerFunc {
 	}
 }
 
+// getTask writes one task as JSON, or the service error response when the repo
+// or the task does not exist.
+func getTask(st Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		org, repo := r.PathValue("org"), r.PathValue("repo")
+
+		_, err := st.GetRepo(org, repo)
+		switch {
+		case errors.Is(err, store.ErrNotFound):
+			httpx.WriteError(w, http.StatusNotFound, "repo not found")
+			return
+		case err != nil:
+			httpx.WriteError(w, http.StatusInternalServerError, "failed to get repo")
+			return
+		}
+
+		t, err := st.GetTask(org, repo, r.PathValue("stub"))
+		if errors.Is(err, store.ErrNotFound) {
+			httpx.WriteError(w, http.StatusNotFound, "task not found")
+			return
+		}
+		if err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "failed to get task")
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, taskJSON(t))
+	}
+}
+
 // tasksJSON returns the tasks as the API represents them.
 func tasksJSON(tasks []store.Task) []task {
 	out := make([]task, 0, len(tasks))
