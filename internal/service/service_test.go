@@ -156,6 +156,7 @@ func TestRunServesUntilContextCanceled(t *testing.T) {
 
 	waitForService(t, fmt.Sprintf("http://127.0.0.1:%d/", port))
 
+	http.DefaultClient.CloseIdleConnections()
 	cancel()
 	select {
 	case err := <-done:
@@ -219,7 +220,9 @@ func TestRunRejectsUnverifiedRequests(t *testing.T) {
 // TestRunAuthenticatesRequests checks an authenticated request reaches the
 // handler the service hosts.
 func TestRunAuthenticatesRequests(t *testing.T) {
-	allow := func(*http.Request) (auth.Caller, error) { return auth.Caller{Subject: "caller"}, nil }
+	allow := func(*http.Request) (auth.Caller, error) {
+		return auth.Caller{Subject: "caller", Roles: []string{auth.RoleAdmin}}, nil
+	}
 	base := startService(t, Options{Authenticator: allow})
 
 	resp, err := http.Get(base)
@@ -241,6 +244,52 @@ func TestRunAuthenticatesRequests(t *testing.T) {
 	}
 	if body.Error.Message == "" {
 		t.Error("error response body has no message")
+	}
+}
+
+// TestRunEnforcesRoles starts the service with an authenticator that carries
+// the roles a request asks for, and checks reads and writes are allowed only
+// for the roles that permit them.
+func TestRunEnforcesRoles(t *testing.T) {
+	role := func(r *http.Request) (auth.Caller, error) {
+		return auth.Caller{Subject: "caller", Roles: r.Header.Values("X-Role")}, nil
+	}
+	base := startService(t, Options{Authenticator: role})
+
+	for _, tc := range []struct {
+		name   string
+		method string
+		role   string
+		want   int
+	}{
+		{name: "reader reads", method: http.MethodGet, role: auth.RoleReader, want: http.StatusNotFound},
+		{name: "service reads", method: http.MethodGet, role: auth.RoleService, want: http.StatusNotFound},
+		{name: "admin reads", method: http.MethodGet, role: auth.RoleAdmin, want: http.StatusNotFound},
+		{name: "admin writes", method: http.MethodPut, role: auth.RoleAdmin, want: http.StatusNotFound},
+		{name: "reader writes", method: http.MethodPut, role: auth.RoleReader, want: http.StatusForbidden},
+		{name: "service writes", method: http.MethodPut, role: auth.RoleService, want: http.StatusForbidden},
+		{name: "agent reads", method: http.MethodGet, role: auth.RoleAgent, want: http.StatusForbidden},
+		{name: "grader writes", method: http.MethodPut, role: auth.RoleGrader, want: http.StatusForbidden},
+		{name: "no role", method: http.MethodGet, want: http.StatusForbidden},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := http.NewRequest(tc.method, base, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.role != "" {
+				req.Header.Set("X-Role", tc.role)
+			}
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode != tc.want {
+				t.Errorf("status = %d, want %d", resp.StatusCode, tc.want)
+			}
+		})
 	}
 }
 
@@ -273,6 +322,7 @@ func startServiceWith(t *testing.T, port int, opts Options) string {
 	waitForService(t, base)
 
 	t.Cleanup(func() {
+		http.DefaultClient.CloseIdleConnections()
 		cancel()
 		select {
 		case err := <-done:

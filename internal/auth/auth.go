@@ -2,6 +2,7 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -46,16 +47,34 @@ func Any(authenticators ...Authenticator) Authenticator {
 	}
 }
 
-// Middleware authenticates each request with a, then calls next. A request
-// whose credentials a cannot verify receives 401 and never reaches next.
+// Middleware authenticates each request with a, then calls next with the
+// caller it identified. A request whose credentials a cannot verify receives
+// 401 and never reaches next.
 func Middleware(a Authenticator, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if _, err := a(r); err != nil {
+		caller, err := a(r)
+		if err != nil {
 			httpx.WriteError(w, http.StatusUnauthorized, "unauthenticated")
 			return
 		}
-		next.ServeHTTP(w, r)
+		next.ServeHTTP(w, r.WithContext(callerContext(r.Context(), caller)))
 	})
+}
+
+// callerKey is the request context key a request's authenticated caller is
+// stored under.
+type callerKey struct{}
+
+// callerContext returns a context carrying an authenticated caller, so a later
+// authorization step reads the same caller the request identified.
+func callerContext(ctx context.Context, caller Caller) context.Context {
+	return context.WithValue(ctx, callerKey{}, caller)
+}
+
+// CallerFrom returns the caller an authenticated request carries.
+func CallerFrom(ctx context.Context) (Caller, bool) {
+	caller, ok := ctx.Value(callerKey{}).(Caller)
+	return caller, ok
 }
 
 // BearerToken returns the bearer token a request carries.

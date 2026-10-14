@@ -26,6 +26,28 @@ func TestMiddlewareAuthenticatesRequest(t *testing.T) {
 	}
 }
 
+// TestMiddlewareStoresCaller checks an authenticated request carries its caller
+// to the next handler, where authorization reads it.
+func TestMiddlewareStoresCaller(t *testing.T) {
+	var got Caller
+	var ok bool
+	next := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		got, ok = CallerFrom(r.Context())
+	})
+	allow := func(*http.Request) (Caller, error) {
+		return Caller{Subject: "caller", Roles: []string{RoleAdmin}}, nil
+	}
+
+	Middleware(allow, next).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
+
+	if !ok {
+		t.Fatal("the next handler saw no caller")
+	}
+	if got.Subject != "caller" || len(got.Roles) != 1 || got.Roles[0] != RoleAdmin {
+		t.Errorf("caller = %#v, want the authenticated caller", got)
+	}
+}
+
 func TestMiddlewareRejectsUnverifiedRequest(t *testing.T) {
 	next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Error("the next handler ran for an unverified request")

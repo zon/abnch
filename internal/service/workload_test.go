@@ -158,7 +158,8 @@ func TestRunAuthenticatesWorkloadToken(t *testing.T) {
 
 // TestRunAcceptsWorkloadCredentials checks the service accepts a Kubernetes
 // service account token, a GitHub workflow token, and a token from the local
-// dev issuer as workload credentials.
+// dev issuer as workload credentials, and enforces the role each maps to. A
+// rejected credential would answer 401.
 func TestRunAcceptsWorkloadCredentials(t *testing.T) {
 	kubernetes := newWorkloadIssuer(t)
 	github := newWorkloadIssuer(t)
@@ -166,8 +167,14 @@ func TestRunAcceptsWorkloadCredentials(t *testing.T) {
 	port := freePort(t)
 	url := fmt.Sprintf("http://127.0.0.1:%d", port)
 	path := writeConfig(t, configYAML(t, url, []devconfig.Issuer{
-		{Issuer: kubernetes.url, Audience: "abnch", RoleClaim: "sub"},
-		{Issuer: github.url, Audience: "abnch", RoleClaim: "repository"},
+		{
+			Issuer: kubernetes.url, Audience: "abnch", RoleClaim: "sub",
+			RoleMap: map[string]string{"system:serviceaccount:abnch:agent-runner": "Service"},
+		},
+		{
+			Issuer: github.url, Audience: "abnch", RoleClaim: "repository",
+			RoleMap: map[string]string{"zon/abnch": "Agent"},
+		},
 		devconfig.DevIssuer(url),
 	}))
 	if err := devconfig.EnsureDevKey(devconfig.KeyPath(path)); err != nil {
@@ -183,6 +190,7 @@ func TestRunAcceptsWorkloadCredentials(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		token string
+		want  int
 	}{
 		{
 			name: "kubernetes service account",
@@ -190,6 +198,7 @@ func TestRunAcceptsWorkloadCredentials(t *testing.T) {
 				"aud": []string{"abnch"},
 				"sub": "system:serviceaccount:abnch:agent-runner",
 			})),
+			want: http.StatusNotFound,
 		},
 		{
 			name: "github workflow",
@@ -197,10 +206,12 @@ func TestRunAcceptsWorkloadCredentials(t *testing.T) {
 				"sub":        "repo:zon/abnch:ref:refs/heads/main",
 				"repository": "zon/abnch",
 			})),
+			want: http.StatusForbidden,
 		},
 		{
 			name:  "local dev issuer",
 			token: signDevToken(t, devKey, url+"/dev"),
+			want:  http.StatusNotFound,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -215,8 +226,8 @@ func TestRunAcceptsWorkloadCredentials(t *testing.T) {
 				t.Fatal(err)
 			}
 			resp.Body.Close()
-			if resp.StatusCode != http.StatusNotFound {
-				t.Errorf("status = %d, want %d for an authenticated request", resp.StatusCode, http.StatusNotFound)
+			if resp.StatusCode != tc.want {
+				t.Errorf("status = %d, want %d for an authenticated request", resp.StatusCode, tc.want)
 			}
 		})
 	}

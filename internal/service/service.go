@@ -91,7 +91,8 @@ func Run(ctx context.Context, opts Options) error {
 }
 
 // serviceHandler builds the service's routes: the local dev issuer it hosts,
-// when its config trusts one, the human sign-in, and the authenticated API.
+// when its config trusts one, the human sign-in, and the authenticated API,
+// which enforces the access each request needs.
 func serviceHandler(cfg devconfig.Config, configPath string, authenticator auth.Authenticator, human *auth.Human) (http.Handler, error) {
 	dev, err := devIssuer(cfg, configPath)
 	if err != nil {
@@ -105,7 +106,7 @@ func serviceHandler(cfg devconfig.Config, configPath string, authenticator auth.
 	if human != nil {
 		human.Register(mux)
 	}
-	mux.Handle("/", auth.Middleware(authenticator, api()))
+	mux.Handle("/", auth.Middleware(authenticator, auth.Authorize(api())))
 	return mux, nil
 }
 
