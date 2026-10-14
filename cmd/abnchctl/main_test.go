@@ -443,6 +443,61 @@ func TestParsePortRejectsInvalid(t *testing.T) {
 	}
 }
 
+func TestSetLocalAuthWritesLocalCredentialKeepingOtherURLs(t *testing.T) {
+	repo := t.TempDir()
+	home := t.TempDir()
+
+	credsPath := filepath.Join(home, ".abnch", "credentials.yaml")
+	if err := os.MkdirAll(filepath.Dir(credsPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	seed := "https://bench.example.com:\n    issuer: https://issuer.example.com\n    audience: abnch\n    subject: human\n    keyFile: /home/bench/dev-issuer.key\n"
+	if err := os.WriteFile(credsPath, []byte(seed), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runIn([]string{"set", "local-auth", "--port", "9090"}, repo, home, strings.NewReader("db\n5432\nabnch\nadmin\npw\n\n\n"), &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+
+	creds := readCredentials(t, credsPath)
+
+	other, ok := creds["https://bench.example.com"].(map[string]any)
+	if !ok {
+		t.Fatalf("credential for another service URL = %#v, want it kept", creds["https://bench.example.com"])
+	}
+	if other["subject"] != "human" {
+		t.Errorf("credential for another service URL changed: %#v", other)
+	}
+
+	local, ok := creds["http://localhost:9090"].(map[string]any)
+	if !ok {
+		t.Fatalf("local credential = %#v, want one keyed by the local service URL", creds["http://localhost:9090"])
+	}
+	if local["subject"] != "local-cli" {
+		t.Errorf("local credential subject = %#v, want local-cli", local["subject"])
+	}
+	if local["issuer"] != "http://localhost:9090/dev" {
+		t.Errorf("local credential issuer = %#v, want http://localhost:9090/dev", local["issuer"])
+	}
+	if local["audience"] != "abnch" {
+		t.Errorf("local credential audience = %#v, want abnch", local["audience"])
+	}
+}
+
+func readCredentials(t *testing.T, path string) map[string]any {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	creds := map[string]any{}
+	if err := yaml.Unmarshal(data, &creds); err != nil {
+		t.Fatal(err)
+	}
+	return creds
+}
+
 func readConfig(t *testing.T, path string) devconfig.Config {
 	t.Helper()
 	data, err := os.ReadFile(path)
