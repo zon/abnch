@@ -17,7 +17,7 @@ func TestSetLocalAuthWritesLocalAuthConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wantPath := filepath.Join(repo, ConfigFileName)
+	wantPath := ConfigPath(repo)
 	if path != wantPath {
 		t.Errorf("path = %q, want %q", path, wantPath)
 	}
@@ -53,7 +53,7 @@ func TestSetLocalAuthWritesLocalAuthConfig(t *testing.T) {
 	}
 
 	gitignore := readFile(t, filepath.Join(repo, gitignoreName))
-	if !strings.Contains(gitignore, ConfigFileName) || !strings.Contains(gitignore, KeyFileName) {
+	if !strings.Contains(gitignore, ConfigGitignore) || !strings.Contains(gitignore, KeyFileName) {
 		t.Errorf(".gitignore does not exclude the generated files:\n%s", gitignore)
 	}
 }
@@ -61,7 +61,7 @@ func TestSetLocalAuthWritesLocalAuthConfig(t *testing.T) {
 func TestSetLocalAuthPreservesPostgres(t *testing.T) {
 	repo := t.TempDir()
 	home := t.TempDir()
-	path := filepath.Join(repo, ConfigFileName)
+	path := ConfigPath(repo)
 
 	// A human or an agent writes the Postgres block before the command runs.
 	handwritten := "url: http://localhost:1111\n" +
@@ -73,7 +73,7 @@ func TestSetLocalAuthPreservesPostgres(t *testing.T) {
 		"  password: s3cret\n" +
 		"  sslmode: require\n" +
 		"  timeZone: America/New_York\n"
-	if err := os.WriteFile(path, []byte(handwritten), 0o600); err != nil {
+	if err := writeConfigFile(path, handwritten); err != nil {
 		t.Fatal(err)
 	}
 
@@ -101,7 +101,7 @@ func TestSetLocalAuthRerunKeepsOneDevIssuer(t *testing.T) {
 		}
 	}
 
-	cfg := readConfigFile(t, filepath.Join(repo, ConfigFileName))
+	cfg := readConfigFile(t, ConfigPath(repo))
 	if len(cfg.OAuth.Issuers) != 1 {
 		t.Errorf("got %d issuers, want 1", len(cfg.OAuth.Issuers))
 	}
@@ -177,6 +177,15 @@ func readConfigFile(t *testing.T, path string) Config {
 		t.Fatal(err)
 	}
 	return cfg
+}
+
+// writeConfigFile writes content to a local service config path, creating the
+// directory that holds it.
+func writeConfigFile(path, content string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(content), 0o600)
 }
 
 func readCredentialsFile(t *testing.T, path string) map[string]Credential {

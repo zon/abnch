@@ -15,12 +15,12 @@ func TestEnsureGitignoreAddsMissingLines(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := EnsureGitignore(path, ConfigFileName, KeyFileName); err != nil {
+	if err := EnsureGitignore(path, ConfigGitignore, KeyFileName); err != nil {
 		t.Fatal(err)
 	}
 
 	got := readFile(t, path)
-	for _, want := range []string{"bin/", ConfigFileName, KeyFileName} {
+	for _, want := range []string{"bin/", ConfigGitignore, KeyFileName} {
 		if !strings.Contains(got, want) {
 			t.Errorf(".gitignore missing %q:\n%s", want, got)
 		}
@@ -31,16 +31,16 @@ func TestEnsureGitignoreIsIdempotent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, gitignoreName)
 
-	if err := EnsureGitignore(path, ConfigFileName, KeyFileName); err != nil {
+	if err := EnsureGitignore(path, ConfigGitignore, KeyFileName); err != nil {
 		t.Fatal(err)
 	}
-	if err := EnsureGitignore(path, ConfigFileName, KeyFileName); err != nil {
+	if err := EnsureGitignore(path, ConfigGitignore, KeyFileName); err != nil {
 		t.Fatal(err)
 	}
 
 	got := readFile(t, path)
-	if strings.Count(got, ConfigFileName) != 1 {
-		t.Errorf("%s appears %d times, want 1:\n%s", ConfigFileName, strings.Count(got, ConfigFileName), got)
+	if strings.Count(got, ConfigGitignore) != 1 {
+		t.Errorf("%s appears %d times, want 1:\n%s", ConfigGitignore, strings.Count(got, ConfigGitignore), got)
 	}
 	if strings.Count(got, KeyFileName) != 1 {
 		t.Errorf("%s appears %d times, want 1:\n%s", KeyFileName, strings.Count(got, KeyFileName), got)
@@ -52,7 +52,7 @@ func TestEnsureGitignoreIsIdempotent(t *testing.T) {
 // run ever writes them.
 func TestRepoGitignoreExcludesGeneratedFiles(t *testing.T) {
 	content := readFile(t, filepath.Join(repoRoot(t), gitignoreName))
-	for _, name := range []string{ConfigFileName, KeyFileName} {
+	for _, name := range []string{ConfigGitignore, KeyFileName} {
 		if !hasGitignoreLine(content, name) {
 			t.Errorf("checked-in .gitignore does not exclude %s:\n%s", name, content)
 		}
@@ -82,12 +82,19 @@ func TestSetLocalAuthExcludesGeneratedFilesFromGit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, name := range []string{ConfigFileName, KeyFileName} {
-		if _, err := os.Stat(filepath.Join(repo, name)); err != nil {
-			t.Fatalf("%s was not written: %v", name, err)
+	files := []struct {
+		path string
+		rel  string
+	}{
+		{ConfigPath(repo), filepath.Join(ConfigDir, ConfigFileName)},
+		{filepath.Join(repo, KeyFileName), KeyFileName},
+	}
+	for _, file := range files {
+		if _, err := os.Stat(file.path); err != nil {
+			t.Fatalf("%s was not written: %v", file.path, err)
 		}
-		if _, err := runGit(t, git, repo, "check-ignore", name); err != nil {
-			t.Errorf("git does not exclude %s: %v", name, err)
+		if _, err := runGit(t, git, repo, "check-ignore", file.rel); err != nil {
+			t.Errorf("git does not exclude %s: %v", file.rel, err)
 		}
 	}
 
@@ -95,9 +102,9 @@ func TestSetLocalAuthExcludesGeneratedFilesFromGit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{ConfigFileName, KeyFileName} {
-		if strings.Contains(status, name) {
-			t.Errorf("git status lists the generated %s:\n%s", name, status)
+	for _, file := range files {
+		if strings.Contains(status, file.rel) {
+			t.Errorf("git status lists the generated %s:\n%s", file.rel, status)
 		}
 	}
 }

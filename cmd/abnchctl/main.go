@@ -12,8 +12,9 @@ import (
 
 // cli is the abnchctl command line.
 type cli struct {
-	Set   setCmd   `cmd:"" help:"Create or update local development resources."`
-	Check checkCmd `cmd:"" help:"Report on local development resources."`
+	Config string   `help:"Local service config path." type:"path" default:"${configPath}"`
+	Set    setCmd   `cmd:"" help:"Create or update local development resources."`
+	Check  checkCmd `cmd:"" help:"Report on local development resources."`
 }
 
 // setCmd holds the commands that write local development resources.
@@ -42,9 +43,10 @@ func (c localAuthCmd) Validate() error {
 // Run writes the local service config, the dev key, and the local CLI credential.
 func (c localAuthCmd) Run(deps deps) error {
 	path, err := devconfig.SetLocalAuth(devconfig.Options{
-		Port:     c.Port,
-		RepoRoot: deps.repoRoot,
-		HomeDir:  deps.homeDir,
+		Port:       c.Port,
+		RepoRoot:   deps.repoRoot,
+		HomeDir:    deps.homeDir,
+		ConfigPath: deps.configPath,
 	})
 	if err != nil {
 		return err
@@ -59,7 +61,7 @@ type checkConfigCmd struct{}
 
 // Run loads the local service config and confirms it is complete.
 func (checkConfigCmd) Run(deps deps) error {
-	path := devconfig.ConfigPath(deps.repoRoot)
+	path := deps.configPath
 
 	cfg, err := devconfig.LoadConfig(path)
 	if err != nil {
@@ -75,9 +77,10 @@ func (checkConfigCmd) Run(deps deps) error {
 
 // deps carries the directories and streams a command works with.
 type deps struct {
-	repoRoot string
-	homeDir  string
-	out      io.Writer
+	repoRoot   string
+	homeDir    string
+	out        io.Writer
+	configPath string
 }
 
 func main() {
@@ -108,12 +111,17 @@ func runIn(args []string, repoRoot, homeDir string, out io.Writer) error {
 }
 
 func runCLI(args []string, env deps, exit func(int)) error {
+	if env.configPath == "" {
+		env.configPath = devconfig.ConfigPath(env.repoRoot)
+	}
+
 	var cli cli
 	parser, err := kong.New(&cli,
 		kong.Name("abnchctl"),
 		kong.Description("Local development tooling for the Agent Benchmark service."),
 		kong.Writers(env.out, env.out),
 		kong.Exit(exit),
+		kong.Vars{"configPath": env.configPath},
 	)
 	if err != nil {
 		return err
@@ -124,5 +132,6 @@ func runCLI(args []string, env deps, exit func(int)) error {
 		return err
 	}
 
+	env.configPath = cli.Config
 	return ctx.Run(env)
 }

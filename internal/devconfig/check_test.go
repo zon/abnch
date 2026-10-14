@@ -84,7 +84,7 @@ func TestLoadConfigReadsWrittenConfig(t *testing.T) {
 		"  password: pw\n" +
 		"  sslmode: disable\n" +
 		"  timeZone: UTC\n"
-	if err := os.WriteFile(ConfigPath(repo), []byte(seed), 0o600); err != nil {
+	if err := writeConfigFile(ConfigPath(repo), seed); err != nil {
 		t.Fatal(err)
 	}
 

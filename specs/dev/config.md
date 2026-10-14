@@ -6,6 +6,25 @@ Configure a local service for development. The `just config` recipe drives the `
 
 ## Requirements
 
+### Requirement: Config Location
+
+`abnchctl` SHALL read and write the local service config at `.abnchd/config.yaml` under the repo root, and SHALL keep the file out of version control.
+
+The `--config` option SHALL override the path for both `set local-auth` and `check config`.
+
+#### Scenario: Default path
+
+- GIVEN a repo and no `--config` override
+- WHEN `abnchctl set local-auth` runs
+- THEN it writes the config to `.abnchd/config.yaml` under the repo root
+- AND git ignores the file
+
+#### Scenario: Path override
+
+- GIVEN the user passes `--config` a path
+- WHEN `abnchctl set local-auth` or `abnchctl check config` runs
+- THEN it uses that path instead of `.abnchd/config.yaml`
+
 ### Requirement: Service Port
 
 `just config` SHALL take an optional local service port and pass it to `abnchctl set local-auth`. The port SHALL set the local service URL, and `just config` SHALL use `8080` when no port is given.

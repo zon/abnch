@@ -7,8 +7,13 @@ import (
 )
 
 const (
-	// ConfigFileName is the local service config file in the repo root.
-	ConfigFileName = "service-config.local.yaml"
+	// ConfigDir is the directory in the repo root that holds the local service
+	// config.
+	ConfigDir = ".abnchd"
+	// ConfigFileName is the local service config file name.
+	ConfigFileName = "config.yaml"
+	// ConfigGitignore is the .gitignore entry for the config directory.
+	ConfigGitignore = ConfigDir + "/"
 	// KeyFileName is the dev signing key in the repo root.
 	KeyFileName     = "dev-issuer.key"
 	gitignoreName   = ".gitignore"
@@ -21,6 +26,9 @@ type Options struct {
 	Port     int
 	RepoRoot string
 	HomeDir  string
+	// ConfigPath overrides the local service config path. It defaults to
+	// ConfigPath(RepoRoot).
+	ConfigPath string
 }
 
 // SetLocalAuth writes the local auth config, the dev key, and the local CLI
@@ -29,7 +37,10 @@ type Options struct {
 // file path.
 func SetLocalAuth(opts Options) (string, error) {
 	url := LocalServiceURL(opts.Port)
-	configPath := ConfigPath(opts.RepoRoot)
+	configPath := opts.ConfigPath
+	if configPath == "" {
+		configPath = ConfigPath(opts.RepoRoot)
+	}
 
 	data, err := os.ReadFile(configPath)
 	if err != nil && !os.IsNotExist(err) {
@@ -46,6 +57,9 @@ func SetLocalAuth(opts Options) (string, error) {
 		return "", fmt.Errorf("failed to write dev key: %w", err)
 	}
 
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
+		return "", fmt.Errorf("failed to create %s: %w", filepath.Dir(configPath), err)
+	}
 	if err := os.WriteFile(configPath, updated, 0o600); err != nil {
 		return "", fmt.Errorf("failed to write %s: %w", configPath, err)
 	}
@@ -54,7 +68,7 @@ func SetLocalAuth(opts Options) (string, error) {
 		return "", fmt.Errorf("failed to write local credential: %w", err)
 	}
 
-	if err := EnsureGitignore(filepath.Join(opts.RepoRoot, gitignoreName), ConfigFileName, KeyFileName); err != nil {
+	if err := EnsureGitignore(filepath.Join(opts.RepoRoot, gitignoreName), ConfigGitignore, KeyFileName); err != nil {
 		return "", fmt.Errorf("failed to update %s: %w", gitignoreName, err)
 	}
 
@@ -68,7 +82,7 @@ func LocalServiceURL(port int) string {
 
 // ConfigPath returns the local service config path in a repo root.
 func ConfigPath(repoRoot string) string {
-	return filepath.Join(repoRoot, ConfigFileName)
+	return filepath.Join(repoRoot, ConfigDir, ConfigFileName)
 }
 
 func writeCredential(homeDir, url, keyPath string) error {

@@ -161,7 +161,7 @@ func runConfigRecipe(t *testing.T, seed string) (string, error) {
 
 	work := t.TempDir()
 	if seed != "" {
-		if err := os.WriteFile(filepath.Join(work, ConfigFileName), []byte(seed), 0o600); err != nil {
+		if err := writeConfigFile(ConfigPath(work), seed); err != nil {
 			t.Fatal(err)
 		}
 	}

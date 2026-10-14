@@ -36,7 +36,7 @@ func TestSetLocalAuthWritesConfigAndReportsPath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	path := filepath.Join(repo, "service-config.local.yaml")
+	path := devconfig.ConfigPath(repo)
 	if !strings.Contains(out.String(), path) {
 		t.Errorf("output %q does not report the config path %q", out.String(), path)
 	}
@@ -53,10 +53,8 @@ func TestSetLocalAuthWritesConfigAndReportsPath(t *testing.T) {
 func TestSetLocalAuthKeepsPostgresAndAddsAuth(t *testing.T) {
 	repo := t.TempDir()
 	home := t.TempDir()
-	path := filepath.Join(repo, "service-config.local.yaml")
-	if err := os.WriteFile(path, []byte(postgresSeed), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	path := devconfig.ConfigPath(repo)
+	writeConfigFile(t, repo, postgresSeed)
 
 	if err := runIn([]string{"set", "local-auth"}, repo, home, &bytes.Buffer{}); err != nil {
 		t.Fatalf("set local-auth = %v, want no error", err)
@@ -121,7 +119,7 @@ func TestSetLocalAuthWritesTopLevelURL(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	path := filepath.Join(repo, "service-config.local.yaml")
+	path := devconfig.ConfigPath(repo)
 	if !strings.Contains(out.String(), path) {
 		t.Errorf("output %q does not report the config path %q", out.String(), path)
 	}
@@ -139,7 +137,7 @@ func TestSetLocalAuthWritesDevIssuer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	doc := readYAMLDoc(t, filepath.Join(repo, "service-config.local.yaml"))
+	doc := readYAMLDoc(t, devconfig.ConfigPath(repo))
 	iss, ok := findIssuer(doc, "http://localhost:9090/dev")
 	if !ok {
 		t.Fatalf("service config does not trust the dev issuer:\n%#v", doc)
@@ -183,7 +181,7 @@ func TestSetLocalAuthRerunSamePortKeepsOneDevIssuer(t *testing.T) {
 func countDevIssuers(t *testing.T, repo string) int {
 	t.Helper()
 
-	data, err := os.ReadFile(filepath.Join(repo, "service-config.local.yaml"))
+	data, err := os.ReadFile(devconfig.ConfigPath(repo))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +226,7 @@ func TestSetLocalAuthPortSetsURL(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			cfg := readConfig(t, filepath.Join(repo, "service-config.local.yaml"))
+			cfg := readConfig(t, devconfig.ConfigPath(repo))
 			if cfg.URL != tc.want {
 				t.Errorf("url = %q, want %q", cfg.URL, tc.want)
 			}
@@ -239,9 +237,7 @@ func TestSetLocalAuthPortSetsURL(t *testing.T) {
 func TestCheckConfigConfirmsConfigWithPostgresAndAuth(t *testing.T) {
 	repo := t.TempDir()
 	home := t.TempDir()
-	if err := os.WriteFile(filepath.Join(repo, "service-config.local.yaml"), []byte(postgresSeed), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeConfigFile(t, repo, postgresSeed)
 
 	if err := runIn([]string{"set", "local-auth"}, repo, home, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
@@ -262,10 +258,10 @@ func TestCheckConfigFailsWhenMissing(t *testing.T) {
 	if err == nil {
 		t.Fatal("check config = nil, want an error for a missing config")
 	}
-	if !strings.Contains(err.Error(), "service-config.local.yaml") {
+	if !strings.Contains(err.Error(), devconfig.ConfigFileName) {
 		t.Errorf("error = %q, want it to name the missing file", err)
 	}
-	if _, statErr := os.Stat(filepath.Join(repo, "service-config.local.yaml")); !os.IsNotExist(statErr) {
+	if _, statErr := os.Stat(devconfig.ConfigPath(repo)); !os.IsNotExist(statErr) {
 		t.Errorf("check config created the missing file: stat = %v", statErr)
 	}
 }
@@ -274,9 +270,7 @@ func TestCheckConfigFailsWhenPostgresValueMissing(t *testing.T) {
 	repo := t.TempDir()
 	// Complete except for the host, so the failure names the missing value.
 	cfg := "url: http://localhost:8080\npostgres:\n  host: \"\"\n  port: 5432\n  dbname: abnch\n  user: admin\n  password: pw\n  sslmode: disable\n  timeZone: UTC\noauth:\n  issuers:\n    - issuer: http://localhost:8080/dev\n      audience: abnch\n      roleClaim: sub\n      roleMap:\n        local-cli: Admin\n"
-	if err := os.WriteFile(filepath.Join(repo, "service-config.local.yaml"), []byte(cfg), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeConfigFile(t, repo, cfg)
 
 	err := runIn([]string{"check", "config"}, repo, t.TempDir(), &bytes.Buffer{})
 	if err == nil {
@@ -290,9 +284,7 @@ func TestCheckConfigFailsWhenPostgresValueMissing(t *testing.T) {
 func TestCheckConfigFailsWhenAuthEntryMissing(t *testing.T) {
 	repo := t.TempDir()
 	cfg := "url: http://localhost:8080\npostgres:\n  host: db\n  port: 5432\n  dbname: abnch\n  user: admin\n  password: pw\n  sslmode: disable\n  timeZone: UTC\n"
-	if err := os.WriteFile(filepath.Join(repo, "service-config.local.yaml"), []byte(cfg), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeConfigFile(t, repo, cfg)
 
 	err := runIn([]string{"check", "config"}, repo, t.TempDir(), &bytes.Buffer{})
 	if err == nil {
@@ -300,6 +292,28 @@ func TestCheckConfigFailsWhenAuthEntryMissing(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "auth entry") {
 		t.Errorf("error = %q, want it to name the missing auth entry", err)
+	}
+}
+
+func TestConfigFlagPointsSetAndCheckAtCustomPath(t *testing.T) {
+	repo := t.TempDir()
+	home := t.TempDir()
+	custom := filepath.Join(t.TempDir(), "custom.yaml")
+	if err := os.WriteFile(custom, []byte(postgresSeed), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runIn([]string{"--config", custom, "set", "local-auth"}, repo, home, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	if err := runIn([]string{"--config", custom, "check", "config"}, repo, home, &out); err != nil {
+		t.Fatalf("check config = %v, want success:\n%s", err, out.String())
+	}
+
+	if _, err := os.Stat(devconfig.ConfigPath(repo)); !os.IsNotExist(err) {
+		t.Errorf("the default config path was written despite --config: stat = %v", err)
 	}
 }
 
@@ -384,7 +398,7 @@ func TestSetLocalAuthCredentialAuthenticatesAsDevIssuerSubject(t *testing.T) {
 
 	// The service trusts a dev issuer whose role map grants Admin to the local
 	// CLI subject.
-	doc := readYAMLDoc(t, filepath.Join(repo, "service-config.local.yaml"))
+	doc := readYAMLDoc(t, devconfig.ConfigPath(repo))
 	devIssuer, ok := findIssuer(doc, "http://localhost:9090/dev")
 	if !ok {
 		t.Fatalf("service config does not trust the dev issuer:\n%#v", doc)
@@ -425,6 +439,19 @@ func TestSetLocalAuthCredentialAuthenticatesAsDevIssuerSubject(t *testing.T) {
 	}
 	if _, err := os.Stat(keyFile); err != nil {
 		t.Errorf("credential key is missing: %v", err)
+	}
+}
+
+// writeConfigFile writes a local service config in a repo, creating the
+// directory that holds it.
+func writeConfigFile(t *testing.T, repo, content string) {
+	t.Helper()
+	path := devconfig.ConfigPath(repo)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 
