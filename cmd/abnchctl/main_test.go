@@ -75,7 +75,7 @@ func TestSetLocalAuthKeepsPostgresAndAddsAuth(t *testing.T) {
 	}
 }
 
-func TestSetLocalAuthWritesAsymmetricDevKeyAtRepoRoot(t *testing.T) {
+func TestSetLocalAuthWritesAsymmetricDevKeyBesideConfig(t *testing.T) {
 	repo := t.TempDir()
 	home := t.TempDir()
 
@@ -83,10 +83,10 @@ func TestSetLocalAuthWritesAsymmetricDevKeyAtRepoRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	keyPath := filepath.Join(repo, "dev-issuer.key")
+	keyPath := devconfig.KeyPath(devconfig.ConfigPath(repo))
 	data, err := os.ReadFile(keyPath)
 	if err != nil {
-		t.Fatalf("dev-issuer.key is not in the repo root: %v", err)
+		t.Fatalf("dev-issuer.key is not beside the config: %v", err)
 	}
 
 	block, _ := pem.Decode(data)
@@ -434,8 +434,8 @@ func TestSetLocalAuthCredentialAuthenticatesAsDevIssuerSubject(t *testing.T) {
 	// The credential points at the dev key, so the CLI can sign the token it
 	// presents to the local service.
 	keyFile, _ := local["keyFile"].(string)
-	if keyFile != filepath.Join(repo, "dev-issuer.key") {
-		t.Errorf("keyFile = %q, want the dev key at the repo root", keyFile)
+	if keyFile != devconfig.KeyPath(devconfig.ConfigPath(repo)) {
+		t.Errorf("keyFile = %q, want the dev key beside the config", keyFile)
 	}
 	if _, err := os.Stat(keyFile); err != nil {
 		t.Errorf("credential key is missing: %v", err)

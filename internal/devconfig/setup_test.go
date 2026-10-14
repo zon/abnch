@@ -37,7 +37,7 @@ func TestSetLocalAuthWritesLocalAuthConfig(t *testing.T) {
 		t.Errorf("issuer = %#v", cfg.OAuth.Issuers[0])
 	}
 
-	keyPath := filepath.Join(repo, KeyFileName)
+	keyPath := filepath.Join(repo, ConfigDir, KeyFileName)
 	if _, err := os.Stat(keyPath); err != nil {
 		t.Errorf("dev key missing: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestSetLocalAuthWritesLocalAuthConfig(t *testing.T) {
 	}
 
 	gitignore := readFile(t, filepath.Join(repo, gitignoreName))
-	if !strings.Contains(gitignore, ConfigGitignore) || !strings.Contains(gitignore, KeyFileName) {
+	if !strings.Contains(gitignore, ConfigGitignore) {
 		t.Errorf(".gitignore does not exclude the generated files:\n%s", gitignore)
 	}
 }
@@ -138,7 +138,7 @@ func TestSetLocalAuthKeepsOtherCredentials(t *testing.T) {
 }
 
 func TestLocalCredentialDerivesFromDevIssuer(t *testing.T) {
-	cred := LocalCredential("http://localhost:8080", "/repo/dev-issuer.key")
+	cred := LocalCredential("http://localhost:8080", "/repo/.abnchd/dev-issuer.key")
 	iss := DevIssuer("http://localhost:8080")
 
 	if cred.Issuer != iss.Issuer {
@@ -153,7 +153,7 @@ func TestLocalCredentialDerivesFromDevIssuer(t *testing.T) {
 	if role, ok := iss.RoleMap[cred.Subject]; !ok || role != "Admin" {
 		t.Errorf("dev issuer maps subject %q to %q, want Admin", cred.Subject, role)
 	}
-	if cred.KeyFile != "/repo/dev-issuer.key" {
+	if cred.KeyFile != "/repo/.abnchd/dev-issuer.key" {
 		t.Errorf("keyFile = %q, want the dev key", cred.KeyFile)
 	}
 }

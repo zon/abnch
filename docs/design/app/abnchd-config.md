@@ -65,7 +65,7 @@ The service rejects a token with an unknown issuer, a wrong audience, a bad sign
 
 A Kubernetes service account token carries the `sub` claim `system:serviceaccount:<namespace>:<name>`. A GitHub workflow token carries claims such as `repository` and `ref`.
 
-A dev issuer token is minted by the CLI and signed with a dev key. A local service config trusts the dev issuer that signs it. See [Dev Config Design](../dev-config.md).
+A dev issuer token is minted by the CLI and signed with a dev key. A local service config trusts the dev issuer that signs it, and the service serves that issuer's public half from its JWKS. The dev key sits beside the config in the `.abnchd` directory. See [Dev Config Design](../dev-config.md).
 
 ## Local Development
 

@@ -52,7 +52,7 @@ func TestEnsureGitignoreIsIdempotent(t *testing.T) {
 // run ever writes them.
 func TestRepoGitignoreExcludesGeneratedFiles(t *testing.T) {
 	content := readFile(t, filepath.Join(repoRoot(t), gitignoreName))
-	for _, name := range []string{ConfigGitignore, KeyFileName} {
+	for _, name := range []string{ConfigGitignore} {
 		if !hasGitignoreLine(content, name) {
 			t.Errorf("checked-in .gitignore does not exclude %s:\n%s", name, content)
 		}
@@ -87,7 +87,7 @@ func TestSetLocalAuthExcludesGeneratedFilesFromGit(t *testing.T) {
 		rel  string
 	}{
 		{ConfigPath(repo), filepath.Join(ConfigDir, ConfigFileName)},
-		{filepath.Join(repo, KeyFileName), KeyFileName},
+		{KeyPath(ConfigPath(repo)), filepath.Join(ConfigDir, KeyFileName)},
 	}
 	for _, file := range files {
 		if _, err := os.Stat(file.path); err != nil {

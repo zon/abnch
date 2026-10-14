@@ -4,7 +4,7 @@ Developers run the service locally against Postgres. The [Just](https://just.sys
 
 ## Local Service Config
 
-`just config` writes `.abnchd/config.yaml` under the repo root. The file is a [service config](app/abnchd-config.md) and holds only the values a local run needs. Git ignores it.
+`just config` writes `.abnchd/config.yaml` under the repo root. The file is a [service config](app/abnchd-config.md) and holds only the values a local run needs. The dev signing key sits beside it in the same directory, so the config and the key that signs its issuer move together. Git ignores the directory.
 
 A human or an agent writes the [Postgres](app/abnchd-config.md#postgres) block into the file. `just config` leaves that block unchanged.
 
@@ -18,7 +18,7 @@ The recipe takes an optional port for the local service and defaults to `8080`. 
 
 `just config` generates a dev signing key, a dev issuer, and local CLI credentials, so a client can authenticate to a local service runtime.
 
-* It generates an asymmetric key pair and writes the private key to `dev-issuer.key` in the repo root. Git ignores the file.
+* It generates an asymmetric key pair and writes the private key to `dev-issuer.key` beside the config, in the `.abnchd` directory. Git ignores the directory.
 * It adds the dev issuer to `oauth.issuers` in `.abnchd/config.yaml`. The issuer URL is the local service URL plus `/dev`, the audience is `abnch`, and the role claim is `sub`.
 * The role map grants `Admin` to `local-cli` and `Service` to `local-runtime`.
 * The local service serves the dev issuer's OIDC configuration and JWKS.

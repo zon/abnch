@@ -53,7 +53,7 @@ The `--config` option SHALL override the path for both `set local-auth` and `che
 
 ### Requirement: Local Auth
 
-`abnchctl set local-auth` SHALL generate a dev key, a dev issuer, and a local CLI credential for the local service URL.
+`abnchctl set local-auth` SHALL generate a dev key, a dev issuer, and a local CLI credential for the local service URL. The dev key SHALL live beside the local service config, so the config and the key that signs its issuer move together.
 
 #### Scenario: Generate local auth
 
@@ -62,6 +62,19 @@ The `--config` option SHALL override the path for both `set local-auth` and `che
 - THEN it generates a dev key
 - AND it adds the dev issuer to the local service config
 - AND it writes a local CLI credential keyed by the local service URL
+
+#### Scenario: Dev key beside the config
+
+- GIVEN the user runs `just config`
+- WHEN `abnchctl set local-auth` writes the dev key
+- THEN it writes the key to `.abnchd/dev-issuer.key` under the repo root
+- AND git ignores the key through the `.abnchd` directory
+
+#### Scenario: Dev key follows a config override
+
+- GIVEN the user passes `--config` a path
+- WHEN `abnchctl set local-auth` writes the dev key
+- THEN it writes the key beside that config file
 
 ### Requirement: Check Config
 
