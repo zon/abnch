@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 
+	"go.yaml.in/yaml/v3"
+
 	"github.com/zon/abnch/internal/devconfig"
 	"github.com/zon/abnch/internal/httpx"
 )
@@ -456,6 +458,115 @@ func TestReadTaskBodyIgnoresTerminal(t *testing.T) {
 	}
 	if body != (taskBody{}) {
 		t.Errorf("body = %+v, want an empty body", body)
+	}
+}
+
+// cliConfigFile is the CLI config as a test reads it, allowing keys the
+// production type does not model.
+type cliConfigFile struct {
+	URL   string `yaml:"url"`
+	Tasks map[string]struct {
+		Model string `yaml:"model"`
+	} `yaml:"tasks"`
+}
+
+// readCLIConfig reads the CLI config under workDir.
+func readCLIConfig(t *testing.T, workDir string) cliConfigFile {
+	t.Helper()
+	data, err := os.ReadFile(configPath(workDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg cliConfigFile
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	return cfg
+}
+
+func TestSetTaskRecordsDefaultModel(t *testing.T) {
+	workDir := t.TempDir()
+	fake := newFakeService(t)
+	d := setTaskDeps(t, workDir, fake.url, "")
+
+	if err := runSetTask([]string{"fix-bug", "--model", "sonnet"}, d); err != nil {
+		t.Fatalf("set task = %v, want no error", err)
+	}
+
+	cfg := readCLIConfig(t, workDir)
+	if got := cfg.Tasks["fix-bug"].Model; got != "sonnet" {
+		t.Errorf("task model = %q, want sonnet", got)
+	}
+	if got := cfg.URL; got != fake.url {
+		t.Errorf("config url = %q, want it kept", got)
+	}
+	if fake.count() != 0 {
+		t.Errorf("requests = %d, want none for a model-only set", fake.count())
+	}
+}
+
+func TestSetTaskModelLeavesServiceTaskUnchanged(t *testing.T) {
+	workDir := t.TempDir()
+	addRemote(t, workDir, "git@github.com:acme/widgets.git")
+	fake := newFakeService(t)
+	fake.seedRepo("acme", "widgets", "git@github.com:acme/widgets.git")
+	fake.seedTask("acme", task{Stub: "fix-bug", Repo: "widgets", Name: "Fix bug", Description: "Fix the bug"})
+	d := setTaskDeps(t, workDir, fake.url, "")
+
+	if err := runSetTask([]string{"fix-bug", "--model", "sonnet"}, d); err != nil {
+		t.Fatalf("set task = %v, want no error", err)
+	}
+
+	tk, ok := fake.task("acme", "widgets", "fix-bug")
+	if !ok {
+		t.Fatal("the task was removed by a model-only set")
+	}
+	if tk.Name != "Fix bug" || tk.Description != "Fix the bug" {
+		t.Errorf("task = %+v, want it unchanged", tk)
+	}
+	if fake.count() != 0 {
+		t.Errorf("requests = %d, want none for a model-only set", fake.count())
+	}
+}
+
+func TestSetTaskModelCreatesConfig(t *testing.T) {
+	workDir := t.TempDir()
+	d := deps{homeDir: t.TempDir(), workDir: workDir, in: strings.NewReader(""), out: io.Discard, ctx: context.Background()}
+
+	if err := runSetTask([]string{"fix-bug", "--model", "sonnet"}, d); err != nil {
+		t.Fatalf("set task = %v, want no error", err)
+	}
+
+	cfg := readCLIConfig(t, workDir)
+	if got := cfg.Tasks["fix-bug"].Model; got != "sonnet" {
+		t.Errorf("task model = %q, want sonnet", got)
+	}
+}
+
+func TestSetTaskModelKeepsOtherConfig(t *testing.T) {
+	workDir := t.TempDir()
+	writeCLIConfig(t, workDir, "url: https://bench.example.com\n"+
+		"models:\n  sonnet:\n    provider: anthropic\n"+
+		"tasks:\n  other:\n    model: haiku\n")
+	d := deps{homeDir: t.TempDir(), workDir: workDir, in: strings.NewReader(""), out: io.Discard, ctx: context.Background()}
+
+	if err := runSetTask([]string{"fix-bug", "--model", "sonnet"}, d); err != nil {
+		t.Fatalf("set task = %v, want no error", err)
+	}
+
+	cfg := readCLIConfig(t, workDir)
+	if got := cfg.Tasks["other"].Model; got != "haiku" {
+		t.Errorf("other task model = %q, want it kept", got)
+	}
+	if got := cfg.Tasks["fix-bug"].Model; got != "sonnet" {
+		t.Errorf("task model = %q, want sonnet", got)
+	}
+	data, err := os.ReadFile(configPath(workDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "anthropic") {
+		t.Errorf("config = %q, want the models section kept", data)
 	}
 }
 

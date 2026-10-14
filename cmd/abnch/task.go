@@ -34,10 +34,19 @@ type moveTaskRequest struct {
 }
 
 // setTask creates, updates, or renames the task the command names in the
-// inferred repo. It renames the task when `--move` is given and otherwise
-// merges the options and the stdin body with the stored task, creating the repo
-// first when it is missing.
+// inferred repo. A `--model` records the task's default model in the CLI config
+// and leaves the service untouched. It renames the task when `--move` is given
+// and otherwise merges the options and the stdin body with the stored task,
+// creating the repo first when it is missing.
 func setTask(d deps, c setTaskCmd) error {
+	if c.Model != "" {
+		if err := setTaskModel(d.workDir, c.Stub, c.Model); err != nil {
+			return err
+		}
+		fmt.Fprintf(d.out, "Set model %s for task %s\n", c.Model, c.Stub)
+		return nil
+	}
+
 	serviceURL, err := resolveServiceURL("", d.workDir)
 	if err != nil {
 		return err

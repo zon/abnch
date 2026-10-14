@@ -29,6 +29,7 @@ type setTaskCmd struct {
 	Name        string `help:"Task name." optional:""`
 	Description string `help:"Task description." optional:""`
 	Move        string `help:"Rename the task to this stub." optional:""`
+	Model       string `help:"Set the task's default model in config." optional:""`
 }
 
 // Run creates or updates the task in the inferred repo.
