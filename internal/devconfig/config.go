@@ -1,7 +1,7 @@
 package devconfig
 
 import (
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 // Postgres holds the local Postgres connection details.

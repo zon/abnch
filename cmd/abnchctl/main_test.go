@@ -13,7 +13,7 @@ import (
 	"testing"
 
 	"github.com/zon/abnch/internal/devconfig"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 func TestSetLocalAuthWritesConfigAndReportsPath(t *testing.T) {

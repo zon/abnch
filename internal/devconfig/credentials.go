@@ -1,6 +1,6 @@
 package devconfig
 
-import "gopkg.in/yaml.v3"
+import "go.yaml.in/yaml/v3"
 
 // Credential lets the CLI authenticate to one service URL.
 type Credential struct {
