@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 	"time"
 
@@ -133,6 +134,106 @@ func TestWorkloadIdentifiesCallerByRoleClaim(t *testing.T) {
 	}
 	if caller.Subject != "zon/abnch" {
 		t.Errorf("caller subject = %q, want the repository claim", caller.Subject)
+	}
+}
+
+// TestWorkloadMapsRoleClaim checks a workload's role claim value is mapped
+// through the trusted issuer's role map.
+func TestWorkloadMapsRoleClaim(t *testing.T) {
+	issuer := newTestIssuer(t)
+	authenticate := Workload([]devconfig.Issuer{{
+		Issuer:    issuer.url,
+		Audience:  "abnch",
+		RoleClaim: "sub",
+		RoleMap:   map[string]string{"local-runtime": "Service"},
+	}})
+
+	caller, err := authenticate(bearer(issuer.token(t, issuer.claims(map[string]any{"sub": "local-runtime"}))))
+	if err != nil {
+		t.Fatalf("authenticate = %v, want no error", err)
+	}
+	if !reflect.DeepEqual(caller.Roles, []string{"Service"}) {
+		t.Errorf("roles = %v, want [Service]", caller.Roles)
+	}
+	if caller.Subject != "local-runtime" {
+		t.Errorf("subject = %q, want the role claim value", caller.Subject)
+	}
+}
+
+// TestWorkloadMapsWorkloadRoles checks the workload roles Service, Agent, and
+// Grader are each derived from a mapped claim value.
+func TestWorkloadMapsWorkloadRoles(t *testing.T) {
+	issuer := newTestIssuer(t)
+	authenticate := Workload([]devconfig.Issuer{{
+		Issuer:    issuer.url,
+		Audience:  "abnch",
+		RoleClaim: "sub",
+		RoleMap: map[string]string{
+			"svc":    "Service",
+			"agent":  "Agent",
+			"grader": "Grader",
+		},
+	}})
+
+	for _, tc := range []struct {
+		claim string
+		want  string
+	}{
+		{claim: "svc", want: "Service"},
+		{claim: "agent", want: "Agent"},
+		{claim: "grader", want: "Grader"},
+	} {
+		t.Run(tc.want, func(t *testing.T) {
+			caller, err := authenticate(bearer(issuer.token(t, issuer.claims(map[string]any{"sub": tc.claim}))))
+			if err != nil {
+				t.Fatalf("authenticate = %v, want no error", err)
+			}
+			if !reflect.DeepEqual(caller.Roles, []string{tc.want}) {
+				t.Errorf("roles = %v, want [%s]", caller.Roles, tc.want)
+			}
+		})
+	}
+}
+
+// TestWorkloadUnmappedClaimGrantsNoRole checks a workload whose role claim value
+// has no mapping holds no role.
+func TestWorkloadUnmappedClaimGrantsNoRole(t *testing.T) {
+	issuer := newTestIssuer(t)
+	authenticate := Workload([]devconfig.Issuer{{
+		Issuer:    issuer.url,
+		Audience:  "abnch",
+		RoleClaim: "sub",
+		RoleMap:   map[string]string{"local-runtime": "Service"},
+	}})
+
+	caller, err := authenticate(bearer(issuer.token(t, issuer.claims(map[string]any{"sub": "stranger"}))))
+	if err != nil {
+		t.Fatalf("authenticate = %v, want no error", err)
+	}
+	if len(caller.Roles) != 0 {
+		t.Errorf("roles = %v, want none for an unmapped claim", caller.Roles)
+	}
+}
+
+// TestWorkloadMapsListClaim checks each value of a list role claim is mapped and
+// an unmapped value grants no role.
+func TestWorkloadMapsListClaim(t *testing.T) {
+	issuer := newTestIssuer(t)
+	authenticate := Workload([]devconfig.Issuer{{
+		Issuer:    issuer.url,
+		Audience:  "abnch",
+		RoleClaim: "roles",
+		RoleMap:   map[string]string{"service": "Service", "grader": "Grader"},
+	}})
+
+	caller, err := authenticate(bearer(issuer.token(t, issuer.claims(map[string]any{
+		"roles": []any{"service", "stranger", "grader"},
+	}))))
+	if err != nil {
+		t.Fatalf("authenticate = %v, want no error", err)
+	}
+	if !reflect.DeepEqual(caller.Roles, []string{"Service", "Grader"}) {
+		t.Errorf("roles = %v, want [Service Grader]", caller.Roles)
 	}
 }
 

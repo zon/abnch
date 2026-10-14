@@ -68,7 +68,10 @@ func (w *workload) authenticate(r *http.Request) (Caller, error) {
 	if err != nil {
 		return Caller{}, ErrUnauthenticated
 	}
-	return Caller{Subject: callerSubject(token, iss.RoleClaim)}, nil
+	return Caller{
+		Subject: callerSubject(token, iss.RoleClaim),
+		Roles:   mapRoles(claimValue(token, iss.RoleClaim), iss.RoleMap),
+	}, nil
 }
 
 // trusted returns the configured issuer with the given URL.
@@ -106,13 +109,8 @@ func (w *workload) verifier(ctx context.Context, iss devconfig.Issuer) (*oidc.ID
 // callerSubject returns the caller identity a token carries: the value of the
 // issuer's role claim, or the token subject when the claim is absent.
 func callerSubject(token *oidc.IDToken, roleClaim string) string {
-	if roleClaim != "" {
-		var claims map[string]any
-		if err := token.Claims(&claims); err == nil {
-			if value, ok := claims[roleClaim].(string); ok && value != "" {
-				return value
-			}
-		}
+	if value, ok := claimValue(token, roleClaim).(string); ok && value != "" {
+		return value
 	}
 	return token.Subject
 }

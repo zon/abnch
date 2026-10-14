@@ -158,26 +158,7 @@ func (h *Human) callback(w http.ResponseWriter, r *http.Request) {
 // roles maps the user's role claim values through the provider's role map. A
 // value with no mapping grants no role.
 func (h *Human) roles(token *oidc.IDToken) []string {
-	if h.config.RoleClaim == "" {
-		return nil
-	}
-
-	var claims map[string]any
-	if err := token.Claims(&claims); err != nil {
-		return nil
-	}
-
-	var roles []string
-	seen := map[string]bool{}
-	for _, value := range roleValues(claims[h.config.RoleClaim]) {
-		role, ok := h.config.RoleMap[value]
-		if !ok || seen[role] {
-			continue
-		}
-		seen[role] = true
-		roles = append(roles, role)
-	}
-	return roles
+	return mapRoles(claimValue(token, h.config.RoleClaim), h.config.RoleMap)
 }
 
 // endpoints discovers the provider's endpoints and its ID token verifier. It
@@ -261,24 +242,6 @@ func (s *signInStates) take(state string) (signIn, bool) {
 		return signIn{}, false
 	}
 	return in, true
-}
-
-// roleValues reads a role claim as one value or a list of values.
-func roleValues(claim any) []string {
-	switch v := claim.(type) {
-	case string:
-		return []string{v}
-	case []any:
-		var values []string
-		for _, item := range v {
-			if s, ok := item.(string); ok {
-				values = append(values, s)
-			}
-		}
-		return values
-	default:
-		return nil
-	}
 }
 
 // randomToken returns a URL-safe random value for a state or nonce.

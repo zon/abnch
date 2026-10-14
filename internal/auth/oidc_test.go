@@ -218,6 +218,33 @@ func TestHumanSignInGrantsSession(t *testing.T) {
 	}
 }
 
+// TestHumanSignInMapsReaderRole checks a user whose role claim maps to Reader
+// holds the Reader role.
+func TestHumanSignInMapsReaderRole(t *testing.T) {
+	provider := newOIDCProvider(t)
+	human := testHuman(t, provider, map[string]string{"reader": "Reader"})
+	srv := humanServer(t, human)
+
+	authParams := startSignIn(t, srv, "http://127.0.0.1:9/callback")
+	provider.nonce = authParams.Get("nonce")
+	provider.claims = map[string]any{"roles": "reader"}
+
+	resp := getNoRedirect(t, srv.URL+"/auth/callback?state="+authParams.Get("state")+"&code=abc")
+	defer resp.Body.Close()
+
+	location, err := url.Parse(resp.Header.Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := human.sessions.Read(location.Query().Get("session"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(session.Roles, []string{"Reader"}) {
+		t.Errorf("roles = %v, want [Reader]", session.Roles)
+	}
+}
+
 // TestHumanSignInUnmappedClaimGrantsNoRole checks a claim value the role map
 // does not name grants no role.
 func TestHumanSignInUnmappedClaimGrantsNoRole(t *testing.T) {
