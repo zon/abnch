@@ -47,11 +47,7 @@ func setTask(d deps, c setTaskCmd) error {
 		return nil
 	}
 
-	serviceURL, err := resolveServiceURL("", d.workDir)
-	if err != nil {
-		return err
-	}
-	target, err := resolveRepo(d, serviceURL)
+	target, err := resolveTarget(d)
 	if err != nil {
 		return err
 	}

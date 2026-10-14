@@ -59,6 +59,8 @@ func (f *fakeService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.serveGetRepo(w, segments[1], segments[2])
 	case r.Method == http.MethodPut && len(segments) == 3 && segments[0] == "repos":
 		f.servePutRepo(w, segments[1], segments[2], body)
+	case r.Method == http.MethodGet && len(segments) == 4 && segments[0] == "repos" && segments[3] == "tasks":
+		f.serveListTasks(w, segments[1], segments[2])
 	case r.Method == http.MethodGet && len(segments) == 5 && segments[0] == "repos" && segments[3] == "tasks":
 		f.serveGetTask(w, segments[1], segments[2], segments[4])
 	case r.Method == http.MethodPut && len(segments) == 5 && segments[0] == "repos" && segments[3] == "tasks":
@@ -93,6 +95,22 @@ func (f *fakeService) servePutRepo(w http.ResponseWriter, org, repo string, body
 		status = http.StatusCreated
 	}
 	httpx.WriteJSON(w, status, map[string]string{"org": org, "stub": repo, "url": req.URL})
+}
+
+// serveListTasks writes the repo's tasks as a JSON array, or the service error
+// response when the repo does not exist.
+func (f *fakeService) serveListTasks(w http.ResponseWriter, org, repo string) {
+	if _, ok := f.repos[org+"/"+repo]; !ok {
+		httpx.WriteError(w, http.StatusNotFound, "repo not found")
+		return
+	}
+	tasks := make([]task, 0)
+	for key, t := range f.tasks {
+		if strings.HasPrefix(key, org+"/"+repo+"/") {
+			tasks = append(tasks, t)
+		}
+	}
+	httpx.WriteJSON(w, http.StatusOK, tasks)
 }
 
 func (f *fakeService) serveGetTask(w http.ResponseWriter, org, repo, stub string) {

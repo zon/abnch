@@ -15,7 +15,32 @@ import (
 type cli struct {
 	Login  loginCmd  `cmd:"" help:"Sign in a human user and store the session."`
 	Logout logoutCmd `cmd:"" help:"Remove the stored session."`
+	Get    getCmd    `cmd:"" help:"Read resources from the inferred repo."`
 	Set    setCmd    `cmd:"" help:"Create or update resources in the inferred repo."`
+}
+
+// getCmd groups the commands that read resources.
+type getCmd struct {
+	Tasks getTasksCmd `cmd:"" help:"List the tasks in the inferred repo."`
+	Task  getTaskCmd  `cmd:"" help:"Print one task as YAML."`
+}
+
+// getTasksCmd lists the tasks in the inferred repo.
+type getTasksCmd struct{}
+
+// Run lists the tasks in the inferred repo.
+func (c getTasksCmd) Run(deps deps) error {
+	return getTasks(deps)
+}
+
+// getTaskCmd prints one task as YAML.
+type getTaskCmd struct {
+	Stub string `arg:"" help:"Task stub."`
+}
+
+// Run prints the task as YAML.
+func (c getTaskCmd) Run(deps deps) error {
+	return getTask(deps, c.Stub)
 }
 
 // setCmd groups the commands that create or update resources.
