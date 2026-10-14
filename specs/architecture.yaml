@@ -13,6 +13,9 @@
 - path: internal/devconfig
   description: Collects and stores the local service configuration.
 
+- path: internal/httpx
+  description: Writes the service API's JSON error responses.
+
 - path: internal/store
   description: Stores repos and tasks in Postgres and creates its tables.
 

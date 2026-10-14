@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -195,9 +196,21 @@ func TestRunRejectsUnverifiedRequests(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			resp.Body.Close()
+			defer resp.Body.Close()
 			if resp.StatusCode != http.StatusUnauthorized {
 				t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
+			}
+
+			var body struct {
+				Error struct {
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+				t.Fatalf("decode body: %v", err)
+			}
+			if body.Error.Message == "" {
+				t.Error("error response body has no message")
 			}
 		})
 	}
@@ -213,9 +226,21 @@ func TestRunAuthenticatesRequests(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("status = %d, want %d for a route the service does not serve", resp.StatusCode, http.StatusNotFound)
+	}
+
+	var body struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.Error.Message == "" {
+		t.Error("error response body has no message")
 	}
 }
 

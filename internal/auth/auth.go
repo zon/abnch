@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+
+	"github.com/zon/abnch/internal/httpx"
 )
 
 // ErrUnauthenticated reports that a request carries no credentials or
@@ -49,7 +51,7 @@ func Any(authenticators ...Authenticator) Authenticator {
 func Middleware(a Authenticator, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, err := a(r); err != nil {
-			w.WriteHeader(http.StatusUnauthorized)
+			httpx.WriteError(w, http.StatusUnauthorized, "unauthenticated")
 			return
 		}
 		next.ServeHTTP(w, r)

@@ -14,6 +14,7 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/zon/abnch/internal/devconfig"
+	"github.com/zon/abnch/internal/httpx"
 )
 
 // signInTTL bounds how long a started sign-in stays valid.
@@ -82,24 +83,24 @@ func (h *Human) callbackPath() string {
 func (h *Human) login(w http.ResponseWriter, r *http.Request) {
 	redirectURI := r.URL.Query().Get("redirect_uri")
 	if redirectURI == "" {
-		http.Error(w, "sign-in needs a redirect_uri", http.StatusBadRequest)
+		httpx.WriteError(w, http.StatusBadRequest, "sign-in needs a redirect_uri")
 		return
 	}
 
 	oauth, _, err := h.endpoints(r.Context())
 	if err != nil {
-		http.Error(w, "sign-in is unavailable", http.StatusBadGateway)
+		httpx.WriteError(w, http.StatusBadGateway, "sign-in is unavailable")
 		return
 	}
 
 	state, err := randomToken()
 	if err != nil {
-		http.Error(w, "sign-in failed", http.StatusInternalServerError)
+		httpx.WriteError(w, http.StatusInternalServerError, "sign-in failed")
 		return
 	}
 	nonce, err := randomToken()
 	if err != nil {
-		http.Error(w, "sign-in failed", http.StatusInternalServerError)
+		httpx.WriteError(w, http.StatusInternalServerError, "sign-in failed")
 		return
 	}
 
@@ -115,7 +116,7 @@ func (h *Human) callback(w http.ResponseWriter, r *http.Request) {
 
 	st, ok := h.states.take(query.Get("state"))
 	if !ok {
-		http.Error(w, "sign-in state is invalid or expired", http.StatusBadRequest)
+		httpx.WriteError(w, http.StatusBadRequest, "sign-in state is invalid or expired")
 		return
 	}
 
@@ -258,7 +259,7 @@ func randomToken() (string, error) {
 func redirectWith(w http.ResponseWriter, r *http.Request, target string, values url.Values) {
 	u, err := url.Parse(target)
 	if err != nil {
-		http.Error(w, "sign-in failed", http.StatusInternalServerError)
+		httpx.WriteError(w, http.StatusInternalServerError, "sign-in failed")
 		return
 	}
 

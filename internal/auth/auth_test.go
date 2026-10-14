@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -48,6 +49,18 @@ func TestMiddlewareRejectsUnverifiedRequest(t *testing.T) {
 
 			if rec.Code != http.StatusUnauthorized {
 				t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+			}
+
+			var body struct {
+				Error struct {
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+				t.Fatalf("decode body: %v", err)
+			}
+			if body.Error.Message == "" {
+				t.Error("error response body has no message")
 			}
 		})
 	}

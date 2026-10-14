@@ -12,6 +12,7 @@ import (
 
 	"github.com/zon/abnch/internal/auth"
 	"github.com/zon/abnch/internal/devconfig"
+	"github.com/zon/abnch/internal/httpx"
 	"github.com/zon/abnch/internal/store"
 )
 
@@ -104,8 +105,22 @@ func serviceHandler(cfg devconfig.Config, configPath string, authenticator auth.
 	if human != nil {
 		human.Register(mux)
 	}
-	mux.Handle("/", auth.Middleware(authenticator, http.NewServeMux()))
+	mux.Handle("/", auth.Middleware(authenticator, api()))
 	return mux, nil
+}
+
+// api serves the service API. A route the service serves no operation for
+// receives the service error response.
+func api() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", notFound)
+	return mux
+}
+
+// notFound writes the service error response for a route the service serves no
+// operation for.
+func notFound(w http.ResponseWriter, _ *http.Request) {
+	httpx.WriteError(w, http.StatusNotFound, "route not found")
 }
 
 // humanSignIn builds the human sign-in from the config's OIDC provider, or
