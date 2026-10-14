@@ -1,6 +1,7 @@
 package devconfig
 
 import (
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -77,6 +78,103 @@ func TestJustConfigForwardsGivenPort(t *testing.T) {
 	if !strings.Contains(out, "abnchctl set local-auth --port 9090") {
 		t.Errorf("just config does not forward the given port:\n%s", out)
 	}
+}
+
+// TestJustConfigFailsWhenSetLocalAuthFails runs the config recipe with a real
+// abnchctl that rejects the Postgres port, so set local-auth fails. The recipe
+// must exit non-zero, report the failure, and never reach check config.
+func TestJustConfigFailsWhenSetLocalAuthFails(t *testing.T) {
+	out, err := runConfigRecipe(t, "db\nnot-a-port\n")
+	if err == nil {
+		t.Fatalf("just config = nil, want a non-zero exit when set local-auth fails:\n%s", out)
+	}
+	if !strings.Contains(out, "postgres port") {
+		t.Errorf("just config does not report the set local-auth failure:\n%s", out)
+	}
+	if !strings.Contains(out, "Recipe `config` failed") {
+		t.Errorf("just config does not report the failing recipe:\n%s", out)
+	}
+	if strings.Contains(out, "is ready") {
+		t.Errorf("config ran check config after set local-auth failed:\n%s", out)
+	}
+}
+
+// TestJustConfigFailsWhenCheckConfigFails runs the config recipe with a real
+// abnchctl that writes a config with no Postgres password, so set local-auth
+// succeeds but check config fails. The recipe must exit non-zero and report it.
+func TestJustConfigFailsWhenCheckConfigFails(t *testing.T) {
+	out, err := runConfigRecipe(t, "db\n5432\nabnch\nadmin\n\n\n\n")
+	if err == nil {
+		t.Fatalf("just config = nil, want a non-zero exit when check config fails:\n%s", out)
+	}
+	if !strings.Contains(out, "missing password") {
+		t.Errorf("just config does not report the check config failure:\n%s", out)
+	}
+	if !strings.Contains(out, "Recipe `config` failed") {
+		t.Errorf("just config does not report the failing recipe:\n%s", out)
+	}
+}
+
+// runConfigRecipe runs the real config recipe end to end and returns just's
+// combined output. It builds abnchctl, then substitutes a stub `go` that runs
+// that binary from an isolated repo root and HOME, so the recipe's writes stay
+// in temp directories.
+func runConfigRecipe(t *testing.T, stdin string) (string, error) {
+	t.Helper()
+
+	just, err := exec.LookPath("just")
+	if err != nil {
+		t.Skip("just is not installed")
+	}
+	goTool, err := exec.LookPath("go")
+	if err != nil {
+		t.Skip("go is not installed")
+	}
+
+	root := repoRoot(t)
+	bin := filepath.Join(t.TempDir(), "abnchctl")
+	build := exec.Command(goTool, "build", "-o", bin, "./cmd/abnchctl")
+	build.Dir = root
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("go build abnchctl: %v\n%s", err, out)
+	}
+
+	work := t.TempDir()
+	stubDir := t.TempDir()
+	stub := "#!/bin/sh\n" +
+		"if [ \"$1\" = \"run\" ]; then shift; fi\n" +
+		"shift\n" +
+		"cd '" + work + "' || exit 1\n" +
+		"exec '" + bin + "' \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(stubDir, "go"), []byte(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command(just, "--justfile", filepath.Join(root, "Justfile"), "config")
+	cmd.Stdin = strings.NewReader(stdin)
+	cmd.Env = envWith(map[string]string{
+		"PATH": stubDir + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"HOME": t.TempDir(),
+	})
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+// envWith returns the process environment with each override replacing any
+// existing value.
+func envWith(overrides map[string]string) []string {
+	env := make([]string, 0, len(os.Environ()))
+	for _, kv := range os.Environ() {
+		key := kv[:strings.IndexByte(kv, '=')]
+		if _, ok := overrides[key]; ok {
+			continue
+		}
+		env = append(env, kv)
+	}
+	for key, value := range overrides {
+		env = append(env, key+"="+value)
+	}
+	return env
 }
 
 // dryRunConfig renders the config recipe's commands without running them.
