@@ -67,8 +67,12 @@ func (s *Store) ListRepos() ([]Repo, error) {
 }
 
 // SaveTask writes a task, creating it or replacing the stored task with the
-// same repo and stub.
+// same repo and stub. It returns ErrInvalidStub when the task stub is empty or
+// not URL-safe.
 func (s *Store) SaveTask(t Task) error {
+	if !ValidStub(t.Stub) {
+		return ErrInvalidStub
+	}
 	return s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&t).Error
 }
 

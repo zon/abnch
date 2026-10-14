@@ -329,6 +329,7 @@ type fakeDB struct {
 	saveErr      error
 	getTaskErr   error
 	listTasksErr error
+	saveTaskErr  error
 }
 
 func (f *fakeDB) GetRepo(org, stub string) (store.Repo, error) {
@@ -389,6 +390,23 @@ func (f *fakeDB) SaveRepo(r store.Repo) error {
 		}
 	}
 	f.repos = append(f.repos, r)
+	return nil
+}
+
+func (f *fakeDB) SaveTask(t store.Task) error {
+	if f.saveTaskErr != nil {
+		return f.saveTaskErr
+	}
+	if !store.ValidStub(t.Stub) {
+		return store.ErrInvalidStub
+	}
+	for i, existing := range f.tasks {
+		if existing.Org == t.Org && existing.Repo == t.Repo && existing.Stub == t.Stub {
+			f.tasks[i] = t
+			return nil
+		}
+	}
+	f.tasks = append(f.tasks, t)
 	return nil
 }
 

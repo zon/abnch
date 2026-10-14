@@ -30,6 +30,8 @@ type Store interface {
 	ListTasks(org, repo string) ([]store.Task, error)
 	// SaveRepo creates or replaces the repo with the given stubs.
 	SaveRepo(r store.Repo) error
+	// SaveTask creates or replaces the task with the given repo and stub.
+	SaveTask(t store.Task) error
 	// Close closes the store.
 	Close() error
 }
@@ -132,6 +134,7 @@ func api(st Store) http.Handler {
 	mux.HandleFunc("PUT /repos/{org}/{stub}", putRepo(st))
 	mux.HandleFunc("GET /repos/{org}/{repo}/tasks", listTasks(st))
 	mux.HandleFunc("GET /repos/{org}/{repo}/tasks/{stub}", getTask(st))
+	mux.HandleFunc("PUT /repos/{org}/{repo}/tasks/{stub}", putTask(st))
 	mux.HandleFunc("/", notFound)
 	return mux
 }

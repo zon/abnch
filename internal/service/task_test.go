@@ -246,3 +246,200 @@ func TestGetTaskDeniedForUnpermittedRole(t *testing.T) {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusForbidden)
 	}
 }
+
+// TestPutTaskCreatesTask checks PUT /repos/{org}/{repo}/tasks/{stub} creates a
+// missing task from the body, returns 201, and makes it readable.
+func TestPutTaskCreatesTask(t *testing.T) {
+	st := &fakeDB{repos: []store.Repo{{Org: "acme", Stub: "widgets", URL: "https://github.com/acme/widgets"}}}
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+
+	resp := sendTaskPut(t, base, "repos/acme/widgets/tasks/fix-bug", `{"name":"Fix a bug","description":"A broken widget"}`)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusCreated)
+	}
+
+	var got taskBody
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	want := taskBody{Stub: "fix-bug", Name: "Fix a bug", Description: "A broken widget", Repo: "widgets"}
+	if got != want {
+		t.Errorf("task = %#v, want %#v", got, want)
+	}
+
+	read, err := http.Get(base + "repos/acme/widgets/tasks/fix-bug")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer read.Body.Close()
+	if read.StatusCode != http.StatusOK {
+		t.Errorf("later GET status = %d, want %d", read.StatusCode, http.StatusOK)
+	}
+}
+
+// TestPutTaskUpdatesExistingTask checks a write to a stored task merges the body
+// into it, returns 200, and replaces the fields the body carries.
+func TestPutTaskUpdatesExistingTask(t *testing.T) {
+	st := &fakeDB{
+		repos: []store.Repo{{Org: "acme", Stub: "widgets", URL: "https://github.com/acme/widgets"}},
+		tasks: []store.Task{
+			{Org: "acme", Repo: "widgets", Stub: "fix-bug", Name: "Fix a bug", Description: "old"},
+		},
+	}
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+
+	resp := sendTaskPut(t, base, "repos/acme/widgets/tasks/fix-bug", `{"description":"new"}`)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	var got taskBody
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	want := taskBody{Stub: "fix-bug", Name: "Fix a bug", Description: "new", Repo: "widgets"}
+	if got != want {
+		t.Errorf("task = %#v, want the description replaced and the name kept %#v", got, want)
+	}
+	if len(st.tasks) != 1 {
+		t.Errorf("store holds %d tasks, want 1", len(st.tasks))
+	}
+}
+
+// TestPutTaskUpdateReplacesName checks an update whose body carries a name
+// replaces the stored name while keeping the stored description.
+func TestPutTaskUpdateReplacesName(t *testing.T) {
+	st := &fakeDB{
+		repos: []store.Repo{{Org: "acme", Stub: "widgets", URL: "https://github.com/acme/widgets"}},
+		tasks: []store.Task{
+			{Org: "acme", Repo: "widgets", Stub: "fix-bug", Name: "Fix a bug", Description: "A broken widget"},
+		},
+	}
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+
+	resp := sendTaskPut(t, base, "repos/acme/widgets/tasks/fix-bug", `{"name":"Fix the bug"}`)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	var got taskBody
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	want := taskBody{Stub: "fix-bug", Name: "Fix the bug", Description: "A broken widget", Repo: "widgets"}
+	if got != want {
+		t.Errorf("task = %#v, want the name replaced and the description kept %#v", got, want)
+	}
+}
+
+// TestPutTaskRejectsMissingFieldCreate checks a create that misses a required
+// field returns 422 and writes no task.
+func TestPutTaskRejectsMissingFieldCreate(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{name: "missing name", body: `{"description":"A broken widget"}`},
+		{name: "missing description", body: `{"name":"Fix a bug"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := &fakeDB{repos: []store.Repo{{Org: "acme", Stub: "widgets", URL: "https://github.com/acme/widgets"}}}
+			base := startServiceWithStore(t, st, auth.RoleAdmin)
+
+			resp := sendTaskPut(t, base, "repos/acme/widgets/tasks/fix-bug", tc.body)
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusUnprocessableEntity {
+				t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusUnprocessableEntity)
+			}
+			if len(st.tasks) != 0 {
+				t.Errorf("store holds %d tasks, want none", len(st.tasks))
+			}
+		})
+	}
+}
+
+// TestPutTaskMissingRepo checks a write to a repo that does not exist returns
+// the service error response and creates neither a repo nor a task.
+func TestPutTaskMissingRepo(t *testing.T) {
+	st := &fakeDB{}
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+
+	resp := sendTaskPut(t, base, "repos/acme/widgets/tasks/fix-bug", `{"name":"Fix a bug","description":"A broken widget"}`)
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusNotFound)
+	if len(st.repos) != 0 || len(st.tasks) != 0 {
+		t.Errorf("store holds %d repos and %d tasks, want none", len(st.repos), len(st.tasks))
+	}
+}
+
+// TestPutTaskRejectsUnsafeStub checks a task stub that is not URL-safe returns
+// 422 and writes no task.
+func TestPutTaskRejectsUnsafeStub(t *testing.T) {
+	st := &fakeDB{repos: []store.Repo{{Org: "acme", Stub: "widgets", URL: "https://github.com/acme/widgets"}}}
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+
+	resp := sendTaskPut(t, base, "repos/acme/widgets/tasks/a%2Fb", `{"name":"Fix a bug","description":"A broken widget"}`)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusUnprocessableEntity)
+	}
+	if len(st.tasks) != 0 {
+		t.Errorf("store holds %d tasks, want none", len(st.tasks))
+	}
+}
+
+// TestPutTaskReportsStoreFailure checks a store failure returns the service
+// error response.
+func TestPutTaskReportsStoreFailure(t *testing.T) {
+	st := &fakeDB{
+		repos:       []store.Repo{{Org: "acme", Stub: "widgets", URL: "https://github.com/acme/widgets"}},
+		saveTaskErr: errors.New("boom"),
+	}
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+
+	resp := sendTaskPut(t, base, "repos/acme/widgets/tasks/fix-bug", `{"name":"Fix a bug","description":"A broken widget"}`)
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusInternalServerError)
+}
+
+// TestPutTaskDeniedForUnpermittedRole checks a role without write access reaches
+// no task write.
+func TestPutTaskDeniedForUnpermittedRole(t *testing.T) {
+	st := &fakeDB{repos: []store.Repo{{Org: "acme", Stub: "widgets", URL: "https://github.com/acme/widgets"}}}
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp := sendTaskPut(t, base, "repos/acme/widgets/tasks/fix-bug", `{"name":"Fix a bug","description":"A broken widget"}`)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusForbidden)
+	}
+	if len(st.tasks) != 0 {
+		t.Errorf("store holds %d tasks, want none", len(st.tasks))
+	}
+}
+
+// sendTaskPut sends a task write to the service and returns the response.
+func sendTaskPut(t *testing.T, base, path, body string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPut, base+path, strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}

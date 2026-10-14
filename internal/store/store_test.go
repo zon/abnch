@@ -180,6 +180,35 @@ func TestSaveTaskUpdatesExistingTask(t *testing.T) {
 	}
 }
 
+// TestSaveTaskRejectsInvalidStub checks a task whose stub is empty or not
+// URL-safe is not stored.
+func TestSaveTaskRejectsInvalidStub(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		stub string
+	}{
+		{"empty stub", ""},
+		{"separator in stub", "a/b"},
+		{"space in stub", "a b"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTestStore(t)
+
+			task := Task{Org: "acme", Repo: "widgets", Stub: tc.stub, Name: "Fix a bug"}
+			if err := s.SaveTask(task); !errors.Is(err, ErrInvalidStub) {
+				t.Errorf("SaveTask error = %v, want ErrInvalidStub", err)
+			}
+			tasks, err := s.ListTasks("acme", "widgets")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(tasks) != 0 {
+				t.Errorf("ListTasks returned %d tasks, want none", len(tasks))
+			}
+		})
+	}
+}
+
 func TestListTasks(t *testing.T) {
 	s := newTestStore(t)
 	for _, task := range []Task{
