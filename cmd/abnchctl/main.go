@@ -4,70 +4,64 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strconv"
-	"strings"
+
+	"github.com/alecthomas/kong"
 
 	"github.com/zon/abnch/internal/devconfig"
 )
 
-func main() {
-	if err := run(os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, "abnchctl:", err)
-		os.Exit(1)
-	}
+// cli is the abnchctl command line.
+type cli struct {
+	Set   setCmd   `cmd:"" help:"Create or update local development resources."`
+	Check checkCmd `cmd:"" help:"Report on local development resources."`
 }
 
-// run dispatches an abnchctl invocation from the current repo.
-func run(args []string) error {
-	root, err := os.Getwd()
-	if err != nil {
-		return err
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
-	return runIn(args, root, home, os.Stdin, os.Stdout)
+// setCmd holds the commands that write local development resources.
+type setCmd struct {
+	LocalAuth localAuthCmd `cmd:"" name:"local-auth" help:"Generate the local service config, dev key, and CLI credential."`
 }
 
-// runIn dispatches a command with explicit directories and streams.
-func runIn(args []string, repoRoot, homeDir string, in io.Reader, out io.Writer) error {
-	if len(args) < 2 {
-		return fmt.Errorf("usage: abnchctl set local-auth [port] | abnchctl check config")
-	}
-	switch args[0] + " " + args[1] {
-	case "set local-auth":
-		return runSetLocalAuth(args[2:], repoRoot, homeDir, in, out)
-	case "check config":
-		return runCheckConfig(repoRoot, out)
-	default:
-		return fmt.Errorf("unknown command %q", strings.Join(args, " "))
-	}
+// checkCmd holds the commands that report on local development resources.
+type checkCmd struct {
+	Config checkConfigCmd `cmd:"" help:"Confirm the local service config is ready."`
 }
 
-func runSetLocalAuth(args []string, repoRoot, homeDir string, in io.Reader, out io.Writer) error {
-	port, err := parsePort(args)
-	if err != nil {
-		return err
-	}
+// localAuthCmd generates local service and CLI auth config.
+type localAuthCmd struct {
+	Port int `help:"Local service port." default:"8080" short:"p"`
+}
 
+// Validate rejects a port outside the TCP range.
+func (c localAuthCmd) Validate() error {
+	if c.Port < 1 || c.Port > 65535 {
+		return fmt.Errorf("invalid port %d", c.Port)
+	}
+	return nil
+}
+
+// Run writes the local service config, the dev key, and the local CLI credential.
+func (c localAuthCmd) Run(deps deps) error {
 	path, err := devconfig.SetLocalAuth(devconfig.Options{
-		Port:     port,
-		RepoRoot: repoRoot,
-		HomeDir:  homeDir,
-		In:       in,
-		Out:      out,
+		Port:     c.Port,
+		RepoRoot: deps.repoRoot,
+		HomeDir:  deps.homeDir,
+		In:       deps.in,
+		Out:      deps.out,
 	})
 	if err != nil {
 		return err
 	}
 
-	fmt.Fprintf(out, "Wrote %s\n", path)
+	fmt.Fprintf(deps.out, "Wrote %s\n", path)
 	return nil
 }
 
-func runCheckConfig(repoRoot string, out io.Writer) error {
-	path := devconfig.ConfigPath(repoRoot)
+// checkConfigCmd confirms the local service config is ready.
+type checkConfigCmd struct{}
+
+// Run loads the local service config and confirms it is complete.
+func (checkConfigCmd) Run(deps deps) error {
+	path := devconfig.ConfigPath(deps.repoRoot)
 
 	cfg, err := devconfig.LoadConfig(path)
 	if err != nil {
@@ -77,38 +71,61 @@ func runCheckConfig(repoRoot string, out io.Writer) error {
 		return err
 	}
 
-	fmt.Fprintf(out, "Config %s is ready\n", path)
+	fmt.Fprintf(deps.out, "Config %s is ready\n", path)
 	return nil
 }
 
-// parsePort reads the optional port from positional, `--port`, or `port=`
-// arguments and defaults to 8080.
-func parsePort(args []string) (int, error) {
-	value := ""
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		switch {
-		case arg == "--port" || arg == "-p":
-			if i+1 >= len(args) {
-				return 0, fmt.Errorf("missing value for %s", arg)
-			}
-			i++
-			value = args[i]
-		case strings.HasPrefix(arg, "--port="):
-			value = strings.TrimPrefix(arg, "--port=")
-		case strings.HasPrefix(arg, "port="):
-			value = strings.TrimPrefix(arg, "port=")
-		default:
-			value = arg
-		}
+// deps carries the directories and streams a command works with.
+type deps struct {
+	repoRoot string
+	homeDir  string
+	in       io.Reader
+	out      io.Writer
+}
+
+func main() {
+	if err := run(os.Args[1:]); err != nil {
+		fmt.Fprintln(os.Stderr, "abnchctl:", err)
+		os.Exit(1)
+	}
+}
+
+// run parses an abnchctl invocation from the current repo.
+func run(args []string) error {
+	root, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	return runCLI(args, deps{repoRoot: root, homeDir: home, in: os.Stdin, out: os.Stdout}, os.Exit)
+}
+
+// runIn parses a command with explicit directories and streams. It uses a
+// non-terminating exit so a test observes help and parse failures as return
+// values instead of a process exit.
+func runIn(args []string, repoRoot, homeDir string, in io.Reader, out io.Writer) error {
+	return runCLI(args, deps{repoRoot: repoRoot, homeDir: homeDir, in: in, out: out}, func(int) {})
+}
+
+func runCLI(args []string, env deps, exit func(int)) error {
+	var cli cli
+	parser, err := kong.New(&cli,
+		kong.Name("abnchctl"),
+		kong.Description("Local development tooling for the Agent Benchmark service."),
+		kong.Writers(env.out, env.out),
+		kong.Exit(exit),
+	)
+	if err != nil {
+		return err
 	}
 
-	if value == "" {
-		return 8080, nil
+	ctx, err := parser.Parse(args)
+	if err != nil {
+		return err
 	}
-	port, err := strconv.Atoi(value)
-	if err != nil || port < 1 || port > 65535 {
-		return 0, fmt.Errorf("invalid port %q", value)
-	}
-	return port, nil
+
+	return ctx.Run(env)
 }

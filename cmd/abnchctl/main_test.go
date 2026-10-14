@@ -268,7 +268,7 @@ func TestSetLocalAuthPortSetsURL(t *testing.T) {
 		want string
 	}{
 		{"default", []string{"set", "local-auth"}, "http://localhost:8080"},
-		{"given", []string{"set", "local-auth", "9090"}, "http://localhost:9090"},
+		{"given", []string{"set", "local-auth", "--port", "9090"}, "http://localhost:9090"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -441,39 +441,16 @@ func TestRunInRejectsMissingCommand(t *testing.T) {
 	}
 }
 
-func TestParsePortDefaults(t *testing.T) {
-	got, err := parsePort(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != 8080 {
-		t.Errorf("port = %d, want 8080", got)
-	}
-}
-
-func TestParsePortGiven(t *testing.T) {
+func TestSetLocalAuthRejectsInvalidPort(t *testing.T) {
 	for _, args := range [][]string{
-		{"9090"},
-		{"--port", "9090"},
-		{"--port=9090"},
-		{"port=9090"},
+		{"set", "local-auth", "--port", "abc"},
+		{"set", "local-auth", "--port", "0"},
+		{"set", "local-auth", "--port", "70000"},
+		{"set", "local-auth", "--port", "-1"},
+		{"set", "local-auth", "--port"},
 	} {
-		got, err := parsePort(args)
-		if err != nil {
-			t.Errorf("%v: %v", args, err)
-			continue
-		}
-		if got != 9090 {
-			t.Errorf("%v: port = %d, want 9090", args, got)
-		}
-	}
-}
-
-func TestParsePortRejectsInvalid(t *testing.T) {
-	for _, args := range [][]string{
-		{"abc"}, {"0"}, {"70000"}, {"-1"}, {"--port"},
-	} {
-		if _, err := parsePort(args); err == nil {
+		err := runIn(args, t.TempDir(), t.TempDir(), strings.NewReader(""), &bytes.Buffer{})
+		if err == nil {
 			t.Errorf("%v: want an error", args)
 		}
 	}
