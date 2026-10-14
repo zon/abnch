@@ -4,5 +4,11 @@
 - path: cmd/abnchctl
   description: Provides the local development CLI.
 
+- path: cmd/abnchd
+  description: Starts the service from a service config file.
+
 - path: internal/devconfig
   description: Collects and stores the local service configuration.
+
+- path: internal/service
+  description: Runs the service from its configuration.

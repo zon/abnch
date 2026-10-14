@@ -1,0 +1,123 @@
+package service
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
+	"time"
+
+	"github.com/zon/abnch/internal/devconfig"
+)
+
+// Options carries what Run works with.
+type Options struct {
+	// ConfigPath is the service config file.
+	ConfigPath string
+	// Opener opens the database. It defaults to OpenPostgres.
+	Opener Opener
+	// Out receives the startup message.
+	Out io.Writer
+}
+
+// Run loads the service config, connects to Postgres, and serves the service
+// until ctx is canceled. It returns a clear error when the config file is
+// missing or malformed, or when Postgres is unreachable.
+func Run(ctx context.Context, opts Options) error {
+	opener := opts.Opener
+	if opener == nil {
+		opener = OpenPostgres
+	}
+
+	cfg, err := devconfig.LoadConfig(opts.ConfigPath)
+	if err != nil {
+		return err
+	}
+
+	addr, err := serviceAddr(cfg, opts.ConfigPath)
+	if err != nil {
+		return err
+	}
+
+	db, err := opener(ctx, cfg.Postgres)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	out := opts.Out
+	if out == nil {
+		out = io.Discard
+	}
+
+	return serve(ctx, addr, http.NewServeMux(), out)
+}
+
+// serviceAddr reads the service url and the Postgres block from a loaded
+// config, reporting a clear error when either is missing or invalid.
+func serviceAddr(cfg devconfig.Config, path string) (string, error) {
+	if cfg.URL == "" {
+		return "", fmt.Errorf("config file %s: service url is missing", path)
+	}
+
+	addr, err := listenAddr(cfg.URL)
+	if err != nil {
+		return "", fmt.Errorf("config file %s: %w", path, err)
+	}
+
+	if err := devconfig.CheckPostgres(cfg.Postgres); err != nil {
+		return "", fmt.Errorf("config file %s: %w", path, err)
+	}
+
+	return addr, nil
+}
+
+// listenAddr returns the host and port the service listens on for its url.
+func listenAddr(rawURL string) (string, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("service url %q is not valid: %w", rawURL, err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return "", fmt.Errorf("service url %q must use http or https", rawURL)
+	}
+	if u.Host == "" {
+		return "", fmt.Errorf("service url %q is missing a host", rawURL)
+	}
+	if u.Port() == "" {
+		port := "80"
+		if u.Scheme == "https" {
+			port = "443"
+		}
+		return net.JoinHostPort(u.Hostname(), port), nil
+	}
+	return u.Host, nil
+}
+
+// serve hosts the handler on addr until ctx is canceled.
+func serve(ctx context.Context, addr string, handler http.Handler, out io.Writer) error {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("failed to listen on %s: %w", addr, err)
+	}
+	fmt.Fprintf(out, "abnchd listening on %s\n", ln.Addr())
+
+	srv := &http.Server{Handler: handler}
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.Serve(ln) }()
+
+	select {
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return srv.Shutdown(shutdownCtx)
+	case err := <-errCh:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	}
+}
