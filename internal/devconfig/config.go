@@ -67,7 +67,7 @@ func UpsertIssuer(issuers []Issuer, iss Issuer) []Issuer {
 
 // Marshal renders the config as YAML.
 func (c Config) Marshal() ([]byte, error) {
-	return yaml.Marshal(c)
+	return marshalYAML(c)
 }
 
 // UnmarshalConfig parses a config from YAML.
@@ -113,11 +113,11 @@ func UpdateAuth(data []byte, url string) ([]byte, error) {
 	for i, item := range issuers.Content {
 		if issuerURL(item) == dev.Issuer {
 			issuers.Content[i] = &devNode
-			return yaml.Marshal(&doc)
+			return marshalYAML(&doc)
 		}
 	}
 	issuers.Content = append(issuers.Content, &devNode)
-	return yaml.Marshal(&doc)
+	return marshalYAML(&doc)
 }
 
 // configMapping returns the document's root mapping, creating it when the

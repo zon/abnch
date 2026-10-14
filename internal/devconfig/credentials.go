@@ -34,7 +34,7 @@ func UpsertCredential(creds map[string]Credential, url string, cred Credential) 
 
 // MarshalCredentials renders the credential store as YAML.
 func MarshalCredentials(creds map[string]Credential) ([]byte, error) {
-	return yaml.Marshal(creds)
+	return marshalYAML(creds)
 }
 
 // UnmarshalCredentials parses a credential store from YAML.
