@@ -55,5 +55,5 @@ func runCLI(ctx context.Context, args []string, out io.Writer, exit func(int)) e
 		return err
 	}
 
-	return service.Run(ctx, service.Options{ConfigPath: c.Config, Opener: service.OpenPostgres, Out: out})
+	return service.Run(ctx, service.Options{ConfigPath: c.Config, Out: out})
 }

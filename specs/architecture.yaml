@@ -10,5 +10,8 @@
 - path: internal/devconfig
   description: Collects and stores the local service configuration.
 
+- path: internal/store
+  description: Stores repos and tasks in Postgres and creates its tables.
+
 - path: internal/service
   description: Runs the service from its configuration.

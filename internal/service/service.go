@@ -11,13 +11,27 @@ import (
 	"time"
 
 	"github.com/zon/abnch/internal/devconfig"
+	"github.com/zon/abnch/internal/store"
 )
+
+// Database is a live database connection the service holds while it runs.
+type Database interface {
+	Close() error
+}
+
+// Opener opens the database described by a service config.
+type Opener func(ctx context.Context, pg devconfig.Postgres) (Database, error)
+
+// openDatabase opens the service database and creates its tables.
+func openDatabase(ctx context.Context, pg devconfig.Postgres) (Database, error) {
+	return store.Open(ctx, pg)
+}
 
 // Options carries what Run works with.
 type Options struct {
 	// ConfigPath is the service config file.
 	ConfigPath string
-	// Opener opens the database. It defaults to OpenPostgres.
+	// Opener opens the database. It defaults to the service database.
 	Opener Opener
 	// Out receives the startup message.
 	Out io.Writer
@@ -29,7 +43,7 @@ type Options struct {
 func Run(ctx context.Context, opts Options) error {
 	opener := opts.Opener
 	if opener == nil {
-		opener = OpenPostgres
+		opener = openDatabase
 	}
 
 	cfg, err := devconfig.LoadConfig(opts.ConfigPath)
