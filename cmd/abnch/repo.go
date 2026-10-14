@@ -1,7 +1,11 @@
 package main
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os/exec"
 	"strings"
@@ -12,7 +16,13 @@ import (
 type repoTarget struct {
 	org    string
 	stub   string
+	url    string
 	client *serviceClient
+}
+
+// repoRequest is the JSON body a repo write carries.
+type repoRequest struct {
+	URL string `json:"url"`
 }
 
 // resolveRepo derives the repo under the working directory and builds the client
@@ -20,7 +30,7 @@ type repoTarget struct {
 // that needs a repo fails without resolving a credential or sending any request
 // when it cannot derive one.
 func resolveRepo(deps deps, serviceURL string) (repoTarget, error) {
-	org, stub, err := inferRepo(deps.workDir)
+	org, stub, remote, err := inferRepo(deps.workDir)
 	if err != nil {
 		return repoTarget{}, err
 	}
@@ -28,17 +38,62 @@ func resolveRepo(deps deps, serviceURL string) (repoTarget, error) {
 	if err != nil {
 		return repoTarget{}, err
 	}
-	return repoTarget{org: org, stub: stub, client: client}, nil
+	return repoTarget{org: org, stub: stub, url: remote, client: client}, nil
 }
 
-// inferRepo derives the org stub and repo stub for the repo under workDir from
-// the Git remote `origin`.
-func inferRepo(workDir string) (org, stub string, err error) {
-	remote, err := originRemote(workDir)
+// inferRepo derives the org stub, repo stub, and URL for the repo under workDir
+// from the Git remote `origin`.
+func inferRepo(workDir string) (org, stub, remote string, err error) {
+	remote, err = originRemote(workDir)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
-	return parseRemote(remote)
+	org, stub, err = parseRemote(remote)
+	if err != nil {
+		return "", "", "", err
+	}
+	return org, stub, remote, nil
+}
+
+// ensureRepo creates the repo on the service when it is missing. The repo is
+// created from the URL the working directory's origin remote names.
+func ensureRepo(ctx context.Context, target repoTarget) error {
+	resp, err := target.client.do(ctx, http.MethodGet, repoPath(target.org, target.stub), nil)
+	if err != nil {
+		return err
+	}
+	switch resp.StatusCode {
+	case http.StatusOK:
+		resp.Body.Close()
+		return nil
+	case http.StatusNotFound:
+		resp.Body.Close()
+	default:
+		return serviceError(resp)
+	}
+	return createRepo(ctx, target)
+}
+
+// createRepo writes the repo to the service.
+func createRepo(ctx context.Context, target repoTarget) error {
+	payload, err := json.Marshal(repoRequest{URL: target.url})
+	if err != nil {
+		return err
+	}
+	resp, err := target.client.do(ctx, http.MethodPut, repoPath(target.org, target.stub), bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return serviceError(resp)
+	}
+	resp.Body.Close()
+	return nil
+}
+
+// repoPath returns the API path for a repo.
+func repoPath(org, repo string) string {
+	return "/repos/" + url.PathEscape(org) + "/" + url.PathEscape(repo)
 }
 
 // originRemote returns the URL of the `origin` remote of the Git repo at

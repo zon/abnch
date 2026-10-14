@@ -5,6 +5,7 @@ import (
 	"crypto"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -86,6 +87,21 @@ func serviceCredential(homeDir, serviceURL string) (string, error) {
 // signInError tells the user how to get a credential for a service URL.
 func signInError(serviceURL string) error {
 	return fmt.Errorf("no session for %s: run `abnch login`", serviceURL)
+}
+
+// serviceError closes a service error response and returns the message the
+// service reported, falling back to the status.
+func serviceError(resp *http.Response) error {
+	defer resp.Body.Close()
+	var body struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil || body.Error.Message == "" {
+		return fmt.Errorf("service returned %s", resp.Status)
+	}
+	return errors.New(body.Error.Message)
 }
 
 // rejectedCredentialError tells the user how to replace a credential the

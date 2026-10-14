@@ -85,12 +85,15 @@ func TestInferRepoReadsOriginRemote(t *testing.T) {
 	workDir := t.TempDir()
 	addRemote(t, workDir, "git@github.com:acme/widgets.git")
 
-	org, stub, err := inferRepo(workDir)
+	org, stub, remote, err := inferRepo(workDir)
 	if err != nil {
 		t.Fatalf("inferRepo = %v, want no error", err)
 	}
 	if org != "acme" || stub != "widgets" {
 		t.Errorf("inferRepo = %q/%q, want acme/widgets", org, stub)
+	}
+	if remote != "git@github.com:acme/widgets.git" {
+		t.Errorf("inferRepo remote = %q, want the origin remote", remote)
 	}
 }
 
@@ -106,8 +109,8 @@ func TestInferRepoFailsWithoutOriginRemote(t *testing.T) {
 		t.Fatalf("git init: %v\n%s", err, out)
 	}
 
-	if org, stub, err := inferRepo(workDir); err == nil {
-		t.Errorf("inferRepo = %q/%q, want an error without an origin remote", org, stub)
+	if _, _, _, err := inferRepo(workDir); err == nil {
+		t.Error("inferRepo, want an error without an origin remote")
 	}
 }
 
@@ -116,8 +119,8 @@ func TestInferRepoFailsOutsideGitRepo(t *testing.T) {
 		t.Skip("git is not installed")
 	}
 
-	if org, stub, err := inferRepo(t.TempDir()); err == nil {
-		t.Errorf("inferRepo = %q/%q, want an error outside a Git repo", org, stub)
+	if _, _, _, err := inferRepo(t.TempDir()); err == nil {
+		t.Error("inferRepo, want an error outside a Git repo")
 	}
 }
 
@@ -156,6 +159,9 @@ func TestResolveRepoDerivesRepoAndClient(t *testing.T) {
 	}
 	if target.org != "acme" || target.stub != "widgets" {
 		t.Errorf("resolveRepo = %q/%q, want acme/widgets", target.org, target.stub)
+	}
+	if target.url != "git@github.com:acme/widgets.git" {
+		t.Errorf("resolveRepo url = %q, want the origin remote", target.url)
 	}
 	if target.client == nil {
 		t.Error("resolveRepo returned no client")
