@@ -34,8 +34,8 @@ type Options struct {
 	ConfigPath string
 	// Opener opens the database. It defaults to the service database.
 	Opener Opener
-	// Authenticator authenticates requests. It defaults to rejecting every
-	// request.
+	// Authenticator authenticates requests. It defaults to workload
+	// authentication against the issuers in the service config.
 	Authenticator auth.Authenticator
 	// Out receives the startup message.
 	Out io.Writer
@@ -73,7 +73,7 @@ func Run(ctx context.Context, opts Options) error {
 
 	authenticator := opts.Authenticator
 	if authenticator == nil {
-		authenticator = auth.Deny
+		authenticator = auth.Workload(cfg.OAuth.Issuers)
 	}
 
 	return serve(ctx, addr, auth.Middleware(authenticator, http.NewServeMux()), out)

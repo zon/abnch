@@ -199,13 +199,23 @@ func TestRunAuthenticatesRequests(t *testing.T) {
 	}
 }
 
-// startService runs the service on a free port and returns its base URL. It
-// stops the service and checks it returns cleanly when the test ends.
+// startService runs the service on a free port with a config that trusts no
+// issuers and returns its base URL.
 func startService(t *testing.T, opts Options) string {
 	t.Helper()
 	port := freePort(t)
 	opts.ConfigPath = writeConfig(t, validConfig(port))
-	opts.Opener = func(context.Context, devconfig.Postgres) (Database, error) { return &fakeDB{}, nil }
+	return startServiceWith(t, port, opts)
+}
+
+// startServiceWith runs the service on the port its config names and returns its
+// base URL. It stops the service and checks it returns cleanly when the test
+// ends.
+func startServiceWith(t *testing.T, port int, opts Options) string {
+	t.Helper()
+	if opts.Opener == nil {
+		opts.Opener = func(context.Context, devconfig.Postgres) (Database, error) { return &fakeDB{}, nil }
+	}
 	if opts.Out == nil {
 		opts.Out = io.Discard
 	}
