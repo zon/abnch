@@ -98,12 +98,24 @@ func noSession(t *testing.T, home string) {
 	}
 }
 
+// writeCLIConfig writes the CLI config under workDir with the given body.
+func writeCLIConfig(t *testing.T, workDir, body string) {
+	t.Helper()
+	path := configPath(workDir)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestLoginStoresSession(t *testing.T) {
 	home := t.TempDir()
 	service := signInService(t, "session-token")
 	var out bytes.Buffer
 
-	if err := runIn([]string{"login", "--url", service}, home, followSignIn(t), context.Background(), &out); err != nil {
+	if err := runIn([]string{"login", "--url", service}, home, t.TempDir(), followSignIn(t), context.Background(), &out); err != nil {
 		t.Fatalf("login = %v, want no error", err)
 	}
 
@@ -124,7 +136,7 @@ func TestLoginKeepsOtherSessions(t *testing.T) {
 	}
 
 	service := signInService(t, "session-token")
-	if err := runIn([]string{"login", "--url", service}, home, followSignIn(t), context.Background(), io.Discard); err != nil {
+	if err := runIn([]string{"login", "--url", service}, home, t.TempDir(), followSignIn(t), context.Background(), io.Discard); err != nil {
 		t.Fatal(err)
 	}
 
@@ -147,7 +159,7 @@ func TestLoginReplacesSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := runIn([]string{"login", "--url", service}, home, followSignIn(t), context.Background(), io.Discard); err != nil {
+	if err := runIn([]string{"login", "--url", service}, home, t.TempDir(), followSignIn(t), context.Background(), io.Discard); err != nil {
 		t.Fatal(err)
 	}
 
@@ -173,7 +185,7 @@ func TestLoginStoresSessionOutsideRepo(t *testing.T) {
 	}
 
 	service := signInService(t, "session-token")
-	if err := runIn([]string{"login", "--url", service}, home, followSignIn(t), context.Background(), io.Discard); err != nil {
+	if err := runIn([]string{"login", "--url", service}, home, t.TempDir(), followSignIn(t), context.Background(), io.Discard); err != nil {
 		t.Fatal(err)
 	}
 
@@ -193,7 +205,7 @@ func TestLoginFailsWhenSignInFails(t *testing.T) {
 	home := t.TempDir()
 	service := failingService(t, "access_denied")
 
-	err := runIn([]string{"login", "--url", service}, home, followSignIn(t), context.Background(), io.Discard)
+	err := runIn([]string{"login", "--url", service}, home, t.TempDir(), followSignIn(t), context.Background(), io.Discard)
 	if err == nil {
 		t.Fatal("login = nil, want an error for a failed sign-in")
 	}
@@ -207,7 +219,7 @@ func TestLoginFailsWhenSignInReturnsNoSession(t *testing.T) {
 	home := t.TempDir()
 	service := signInService(t, "")
 
-	err := runIn([]string{"login", "--url", service}, home, followSignIn(t), context.Background(), io.Discard)
+	err := runIn([]string{"login", "--url", service}, home, t.TempDir(), followSignIn(t), context.Background(), io.Discard)
 	if err == nil {
 		t.Fatal("login = nil, want an error when the sign-in returns no session")
 	}
@@ -219,7 +231,7 @@ func TestLoginFailsWhenBrowserCannotOpen(t *testing.T) {
 	service := signInService(t, "session-token")
 	open := func(string) error { return errors.New("no browser") }
 
-	err := runIn([]string{"login", "--url", service}, home, open, context.Background(), io.Discard)
+	err := runIn([]string{"login", "--url", service}, home, t.TempDir(), open, context.Background(), io.Discard)
 	if err == nil {
 		t.Fatal("login = nil, want an error when the browser cannot open")
 	}
@@ -236,7 +248,7 @@ func TestLoginFailsWhenSignInIsAbandoned(t *testing.T) {
 		return nil
 	}
 
-	err := runIn([]string{"login", "--url", service}, home, open, ctx, io.Discard)
+	err := runIn([]string{"login", "--url", service}, home, t.TempDir(), open, ctx, io.Discard)
 	if err == nil {
 		t.Fatal("login = nil, want an error for an abandoned sign-in")
 	}
@@ -246,7 +258,7 @@ func TestLoginFailsWhenSignInIsAbandoned(t *testing.T) {
 func TestLoginFailsWithoutURL(t *testing.T) {
 	home := t.TempDir()
 
-	err := runIn([]string{"login"}, home, unusedBrowser(t), context.Background(), io.Discard)
+	err := runIn([]string{"login"}, home, t.TempDir(), unusedBrowser(t), context.Background(), io.Discard)
 	if err == nil {
 		t.Fatal("login = nil, want an error without a service url")
 	}
@@ -263,7 +275,7 @@ func TestLogoutRemovesSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := runIn([]string{"logout", "--url", service}, home, unusedBrowser(t), context.Background(), io.Discard); err != nil {
+	if err := runIn([]string{"logout", "--url", service}, home, t.TempDir(), unusedBrowser(t), context.Background(), io.Discard); err != nil {
 		t.Fatalf("logout = %v, want no error", err)
 	}
 
@@ -287,7 +299,7 @@ func TestLogoutKeepsOtherSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := runIn([]string{"logout", "--url", service}, home, unusedBrowser(t), context.Background(), io.Discard); err != nil {
+	if err := runIn([]string{"logout", "--url", service}, home, t.TempDir(), unusedBrowser(t), context.Background(), io.Discard); err != nil {
 		t.Fatal(err)
 	}
 
@@ -306,7 +318,7 @@ func TestLogoutKeepsOtherSessions(t *testing.T) {
 func TestLogoutWithoutSessionSucceeds(t *testing.T) {
 	home := t.TempDir()
 
-	if err := runIn([]string{"logout", "--url", "https://bench.example.com"}, home, unusedBrowser(t), context.Background(), io.Discard); err != nil {
+	if err := runIn([]string{"logout", "--url", "https://bench.example.com"}, home, t.TempDir(), unusedBrowser(t), context.Background(), io.Discard); err != nil {
 		t.Fatalf("logout = %v, want no error", err)
 	}
 
@@ -316,7 +328,7 @@ func TestLogoutWithoutSessionSucceeds(t *testing.T) {
 func TestLogoutFailsWithoutURL(t *testing.T) {
 	home := t.TempDir()
 
-	err := runIn([]string{"logout"}, home, unusedBrowser(t), context.Background(), io.Discard)
+	err := runIn([]string{"logout"}, home, t.TempDir(), unusedBrowser(t), context.Background(), io.Discard)
 	if err == nil {
 		t.Fatal("logout = nil, want an error without a service url")
 	}
@@ -335,7 +347,7 @@ func TestLoginOpensBrowserAtTheServiceSignIn(t *testing.T) {
 		opened = rawURL
 		return followSignIn(t)(rawURL)
 	}
-	if err := runIn([]string{"login", "--url", service}, home, open, context.Background(), io.Discard); err != nil {
+	if err := runIn([]string{"login", "--url", service}, home, t.TempDir(), open, context.Background(), io.Discard); err != nil {
 		t.Fatal(err)
 	}
 
@@ -355,5 +367,97 @@ func TestLoginOpensBrowserAtTheServiceSignIn(t *testing.T) {
 	}
 	if redirect.Path != callbackPath {
 		t.Errorf("redirect_uri path = %q, want %q", redirect.Path, callbackPath)
+	}
+}
+
+func TestLoginUsesConfigURL(t *testing.T) {
+	home := t.TempDir()
+	workDir := t.TempDir()
+	service := signInService(t, "session-token")
+	writeCLIConfig(t, workDir, "url: "+service+"\n")
+
+	if err := runIn([]string{"login"}, home, workDir, followSignIn(t), context.Background(), io.Discard); err != nil {
+		t.Fatalf("login = %v, want no error", err)
+	}
+
+	creds, err := devconfig.LoadCredentials(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := creds[service].Session; got != "session-token" {
+		t.Errorf("session = %q, want session-token", got)
+	}
+}
+
+func TestLoginURLOverridesConfig(t *testing.T) {
+	home := t.TempDir()
+	workDir := t.TempDir()
+	service := signInService(t, "session-token")
+	writeCLIConfig(t, workDir, "url: https://config.example.com\n")
+
+	if err := runIn([]string{"login", "--url", service}, home, workDir, followSignIn(t), context.Background(), io.Discard); err != nil {
+		t.Fatalf("login = %v, want no error", err)
+	}
+
+	creds, err := devconfig.LoadCredentials(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := creds[service].Session; got != "session-token" {
+		t.Errorf("session = %q, want the flag url's session", got)
+	}
+	if _, ok := creds["https://config.example.com"]; ok {
+		t.Error("a session was stored for the config url, want the flag url")
+	}
+}
+
+func TestLoginFailsWhenConfigHasNoURL(t *testing.T) {
+	home := t.TempDir()
+	workDir := t.TempDir()
+	writeCLIConfig(t, workDir, "models: {}\n")
+
+	err := runIn([]string{"login"}, home, workDir, unusedBrowser(t), context.Background(), io.Discard)
+	if err == nil {
+		t.Fatal("login = nil, want an error without a service url")
+	}
+	if !strings.Contains(err.Error(), "url") {
+		t.Errorf("error = %q, want it to name the missing url", err)
+	}
+	noSession(t, home)
+}
+
+func TestLogoutUsesConfigURL(t *testing.T) {
+	home := t.TempDir()
+	workDir := t.TempDir()
+	service := "https://bench.example.com"
+	writeCLIConfig(t, workDir, "url: "+service+"\n")
+	if err := devconfig.StoreSession(home, service, "token"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runIn([]string{"logout"}, home, workDir, unusedBrowser(t), context.Background(), io.Discard); err != nil {
+		t.Fatalf("logout = %v, want no error", err)
+	}
+
+	creds, err := devconfig.LoadCredentials(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := creds[service].Session; got != "" {
+		t.Errorf("session = %q, want it removed", got)
+	}
+}
+
+func TestLogoutFailsWhenConfigHasNoURL(t *testing.T) {
+	home := t.TempDir()
+	workDir := t.TempDir()
+	writeCLIConfig(t, workDir, "models: {}\n")
+
+	err := runIn([]string{"logout"}, home, workDir, unusedBrowser(t), context.Background(), io.Discard)
+	if err == nil {
+		t.Fatal("logout = nil, want an error without a service url")
+	}
+	if !strings.Contains(err.Error(), "url") {
+		t.Errorf("error = %q, want it to name the missing url", err)
 	}
 }

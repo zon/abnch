@@ -3,7 +3,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -37,17 +36,10 @@ func (c logoutCmd) Run(deps deps) error {
 	return logout(deps, c.URL)
 }
 
-// requireServiceURL rejects a command with no service URL.
-func requireServiceURL(serviceURL string) error {
-	if serviceURL == "" {
-		return errors.New("no service url: pass --url")
-	}
-	return nil
-}
-
 // deps carries the directories, streams, and browser a command works with.
 type deps struct {
 	homeDir     string
+	workDir     string
 	out         io.Writer
 	ctx         context.Context
 	openBrowser func(string) error
@@ -66,8 +58,13 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
+	workDir, err := os.Getwd()
+	if err != nil {
+		return err
+	}
 	return runCLI(args, deps{
 		homeDir:     home,
+		workDir:     workDir,
 		out:         os.Stdout,
 		ctx:         context.Background(),
 		openBrowser: openBrowser,
@@ -77,8 +74,8 @@ func run(args []string) error {
 // runIn parses a command with explicit directories, a browser, and streams. It
 // uses a non-terminating exit so a test observes help and parse failures as
 // return values instead of a process exit.
-func runIn(args []string, homeDir string, openBrowser func(string) error, ctx context.Context, out io.Writer) error {
-	return runCLI(args, deps{homeDir: homeDir, out: out, ctx: ctx, openBrowser: openBrowser}, func(int) {})
+func runIn(args []string, homeDir, workDir string, openBrowser func(string) error, ctx context.Context, out io.Writer) error {
+	return runCLI(args, deps{homeDir: homeDir, workDir: workDir, out: out, ctx: ctx, openBrowser: openBrowser}, func(int) {})
 }
 
 func runCLI(args []string, env deps, exit func(int)) error {

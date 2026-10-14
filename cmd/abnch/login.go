@@ -25,19 +25,20 @@ const signInTimeout = 5 * time.Minute
 // in a browser, and stores the session the service grants. It stores nothing
 // when sign-in fails.
 func login(deps deps, serviceURL string) error {
-	if err := requireServiceURL(serviceURL); err != nil {
-		return err
-	}
-
-	session, err := signIn(deps, serviceURL)
+	resolved, err := resolveServiceURL(serviceURL, deps.workDir)
 	if err != nil {
 		return err
 	}
 
-	if err := devconfig.StoreSession(deps.homeDir, serviceURL, session); err != nil {
+	session, err := signIn(deps, resolved)
+	if err != nil {
+		return err
+	}
+
+	if err := devconfig.StoreSession(deps.homeDir, resolved, session); err != nil {
 		return fmt.Errorf("failed to store the session: %w", err)
 	}
-	fmt.Fprintf(deps.out, "Signed in to %s\n", serviceURL)
+	fmt.Fprintf(deps.out, "Signed in to %s\n", resolved)
 	return nil
 }
 
