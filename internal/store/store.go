@@ -14,6 +14,9 @@ var ErrNotFound = errors.New("not found")
 // URL-safe.
 var ErrInvalidStub = errors.New("invalid stub")
 
+// ErrConflict reports that a write would collide with an existing record.
+var ErrConflict = errors.New("conflict")
+
 // Store reads and writes the service's domain data in Postgres.
 type Store struct {
 	db *gorm.DB
@@ -92,6 +95,34 @@ func (s *Store) ListTasks(org, repo string) ([]Task, error) {
 		return nil, err
 	}
 	return tasks, nil
+}
+
+// MoveTask renames the task with the given stub to newStub and returns the
+// moved task. It returns ErrNotFound when the task is missing, ErrConflict when
+// a task already holds newStub, and ErrInvalidStub when newStub is empty or not
+// URL-safe.
+func (s *Store) MoveTask(org, repo, stub, newStub string) (Task, error) {
+	t, err := s.GetTask(org, repo, stub)
+	if err != nil {
+		return Task{}, err
+	}
+	if !ValidStub(newStub) {
+		return Task{}, ErrInvalidStub
+	}
+	if _, err := s.GetTask(org, repo, newStub); err == nil {
+		return Task{}, ErrConflict
+	} else if !errors.Is(err, ErrNotFound) {
+		return Task{}, err
+	}
+
+	err = s.db.Model(&Task{}).
+		Where("org = ? AND repo = ? AND stub = ?", org, repo, stub).
+		Update("stub", newStub).Error
+	if err != nil {
+		return Task{}, err
+	}
+	t.Stub = newStub
+	return t, nil
 }
 
 // notFound maps Gorm's record-not-found error to ErrNotFound.

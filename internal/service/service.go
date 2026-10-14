@@ -28,6 +28,10 @@ type Store interface {
 	GetTask(org, repo, stub string) (store.Task, error)
 	// ListTasks returns a repo's tasks, ordered by stub.
 	ListTasks(org, repo string) ([]store.Task, error)
+	// MoveTask renames the task with the given stub, returning store.ErrNotFound
+	// when it is missing, store.ErrConflict when the new stub is taken, and
+	// store.ErrInvalidStub when the new stub is not URL-safe.
+	MoveTask(org, repo, stub, newStub string) (store.Task, error)
 	// SaveRepo creates or replaces the repo with the given stubs.
 	SaveRepo(r store.Repo) error
 	// SaveTask creates or replaces the task with the given repo and stub.
@@ -135,6 +139,7 @@ func api(st Store) http.Handler {
 	mux.HandleFunc("GET /repos/{org}/{repo}/tasks", listTasks(st))
 	mux.HandleFunc("GET /repos/{org}/{repo}/tasks/{stub}", getTask(st))
 	mux.HandleFunc("PUT /repos/{org}/{repo}/tasks/{stub}", putTask(st))
+	mux.HandleFunc("POST /repos/{org}/{repo}/tasks/{stub}/move", moveTask(st))
 	mux.HandleFunc("/", notFound)
 	return mux
 }

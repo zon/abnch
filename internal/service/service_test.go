@@ -329,6 +329,7 @@ type fakeDB struct {
 	saveErr      error
 	getTaskErr   error
 	listTasksErr error
+	moveTaskErr  error
 	saveTaskErr  error
 }
 
@@ -408,6 +409,27 @@ func (f *fakeDB) SaveTask(t store.Task) error {
 	}
 	f.tasks = append(f.tasks, t)
 	return nil
+}
+
+func (f *fakeDB) MoveTask(org, repo, stub, newStub string) (store.Task, error) {
+	if f.moveTaskErr != nil {
+		return store.Task{}, f.moveTaskErr
+	}
+	for i, t := range f.tasks {
+		if t.Org == org && t.Repo == repo && t.Stub == stub {
+			if !store.ValidStub(newStub) {
+				return store.Task{}, store.ErrInvalidStub
+			}
+			for _, other := range f.tasks {
+				if other.Org == org && other.Repo == repo && other.Stub == newStub {
+					return store.Task{}, store.ErrConflict
+				}
+			}
+			f.tasks[i].Stub = newStub
+			return f.tasks[i], nil
+		}
+	}
+	return store.Task{}, store.ErrNotFound
 }
 
 func (f *fakeDB) Close() error {

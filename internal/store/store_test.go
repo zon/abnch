@@ -240,3 +240,133 @@ func TestGetTaskMissing(t *testing.T) {
 		t.Errorf("GetTask error = %v, want ErrNotFound", err)
 	}
 }
+
+// TestMoveTaskRenamesTask checks MoveTask renames a task, leaves one task, and
+// makes the old stub miss.
+func TestMoveTaskRenamesTask(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.SaveTask(Task{Org: "acme", Repo: "widgets", Stub: "fix-bug", Name: "Fix a bug", Description: "A broken widget"}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.MoveTask("acme", "widgets", "fix-bug", "fix-typo")
+	if err != nil {
+		t.Fatalf("MoveTask: %v", err)
+	}
+	want := Task{Org: "acme", Repo: "widgets", Stub: "fix-typo", Name: "Fix a bug", Description: "A broken widget"}
+	if got != want {
+		t.Errorf("MoveTask = %#v, want %#v", got, want)
+	}
+	if _, err := s.GetTask("acme", "widgets", "fix-bug"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("GetTask(old) error = %v, want ErrNotFound", err)
+	}
+	tasks, err := s.ListTasks("acme", "widgets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 || tasks[0] != want {
+		t.Errorf("ListTasks = %#v, want one renamed task", tasks)
+	}
+}
+
+// TestMoveTaskMissing checks MoveTask reports a task that does not exist.
+func TestMoveTaskMissing(t *testing.T) {
+	s := newTestStore(t)
+
+	if _, err := s.MoveTask("acme", "widgets", "fix-bug", "fix-typo"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("MoveTask error = %v, want ErrNotFound", err)
+	}
+}
+
+// TestMoveTaskLeavesOtherTasks checks MoveTask renames only its own task and
+// leaves the repo's other tasks alone.
+func TestMoveTaskLeavesOtherTasks(t *testing.T) {
+	s := newTestStore(t)
+	for _, task := range []Task{
+		{Org: "acme", Repo: "widgets", Stub: "fix-bug", Name: "Fix a bug"},
+		{Org: "acme", Repo: "widgets", Stub: "other", Name: "Other"},
+	} {
+		if err := s.SaveTask(task); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, err := s.MoveTask("acme", "widgets", "fix-bug", "fix-typo"); err != nil {
+		t.Fatalf("MoveTask: %v", err)
+	}
+
+	other, err := s.GetTask("acme", "widgets", "other")
+	if err != nil {
+		t.Fatalf("GetTask(other): %v", err)
+	}
+	if other.Name != "Other" {
+		t.Errorf("other task = %#v, want it unchanged", other)
+	}
+	tasks, err := s.ListTasks("acme", "widgets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 2 {
+		t.Errorf("ListTasks returned %d tasks, want 2", len(tasks))
+	}
+}
+
+// TestMoveTaskConflict checks MoveTask refuses to overwrite a task with the new
+// stub and leaves both tasks unchanged.
+func TestMoveTaskConflict(t *testing.T) {
+	s := newTestStore(t)
+	for _, task := range []Task{
+		{Org: "acme", Repo: "widgets", Stub: "fix-bug", Name: "Fix a bug", Description: "A broken widget"},
+		{Org: "acme", Repo: "widgets", Stub: "fix-typo", Name: "Fix a typo", Description: "A typed word"},
+	} {
+		if err := s.SaveTask(task); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, err := s.MoveTask("acme", "widgets", "fix-bug", "fix-typo"); !errors.Is(err, ErrConflict) {
+		t.Errorf("MoveTask error = %v, want ErrConflict", err)
+	}
+	tasks, err := s.ListTasks("acme", "widgets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 2 {
+		t.Fatalf("ListTasks returned %d tasks, want the two unchanged tasks", len(tasks))
+	}
+	if tasks[0].Stub != "fix-bug" || tasks[1].Stub != "fix-typo" {
+		t.Errorf("ListTasks stubs = %q, want [fix-bug fix-typo]", []string{tasks[0].Stub, tasks[1].Stub})
+	}
+}
+
+// TestMoveTaskRejectsInvalidStub checks a move to a stub that is empty or not
+// URL-safe is refused and leaves the task unchanged.
+func TestMoveTaskRejectsInvalidStub(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		stub string
+	}{
+		{"empty stub", ""},
+		{"separator in stub", "a/b"},
+		{"space in stub", "a b"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTestStore(t)
+			want := Task{Org: "acme", Repo: "widgets", Stub: "fix-bug", Name: "Fix a bug", Description: "A broken widget"}
+			if err := s.SaveTask(want); err != nil {
+				t.Fatal(err)
+			}
+
+			if _, err := s.MoveTask("acme", "widgets", "fix-bug", tc.stub); !errors.Is(err, ErrInvalidStub) {
+				t.Errorf("MoveTask error = %v, want ErrInvalidStub", err)
+			}
+			got, err := s.GetTask("acme", "widgets", "fix-bug")
+			if err != nil {
+				t.Fatalf("GetTask: %v", err)
+			}
+			if got != want {
+				t.Errorf("task = %#v, want the unchanged task %#v", got, want)
+			}
+		})
+	}
+}

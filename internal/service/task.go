@@ -23,6 +23,11 @@ type taskRequest struct {
 	Description string `json:"description"`
 }
 
+// moveTaskRequest is the JSON body a task move carries.
+type moveTaskRequest struct {
+	Stub string `json:"stub"`
+}
+
 // listTasks writes the tasks of the repo the route identifies as a JSON array,
 // or the service error response when the repo does not exist.
 func listTasks(st Store) http.HandlerFunc {
@@ -98,6 +103,38 @@ func putTask(st Store) http.HandlerFunc {
 				existing.Description = body.Description
 			}
 			writeSavedTask(w, st, existing, http.StatusOK)
+		}
+	}
+}
+
+// moveTask renames the task the route identifies to the body's stub and writes
+// the moved task as JSON. A missing task is a 404, a stub already held by
+// another task is a 409, and a stub the store rejects is a client error.
+func moveTask(st Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		org, repo := r.PathValue("org"), r.PathValue("repo")
+		if !requireRepo(w, st, org, repo) {
+			return
+		}
+
+		var body moveTaskRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			httpx.WriteError(w, http.StatusUnprocessableEntity, "invalid task body")
+			return
+		}
+
+		moved, err := st.MoveTask(org, repo, r.PathValue("stub"), body.Stub)
+		switch {
+		case errors.Is(err, store.ErrNotFound):
+			httpx.WriteError(w, http.StatusNotFound, "task not found")
+		case errors.Is(err, store.ErrConflict):
+			httpx.WriteError(w, http.StatusConflict, "task stub is taken")
+		case errors.Is(err, store.ErrInvalidStub):
+			httpx.WriteError(w, http.StatusUnprocessableEntity, "task stub is not URL-safe")
+		case err != nil:
+			httpx.WriteError(w, http.StatusInternalServerError, "failed to move task")
+		default:
+			httpx.WriteJSON(w, http.StatusOK, taskJSON(moved))
 		}
 	}
 }

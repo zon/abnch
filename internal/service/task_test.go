@@ -429,6 +429,190 @@ func TestPutTaskDeniedForUnpermittedRole(t *testing.T) {
 	}
 }
 
+// TestMoveTaskRenamesTask checks POST /repos/{org}/{repo}/tasks/{stub}/move
+// renames a task, returns 200, and makes the new stub readable while the old
+// stub is gone.
+func TestMoveTaskRenamesTask(t *testing.T) {
+	st := &fakeDB{
+		repos: []store.Repo{{Org: "acme", Stub: "widgets", URL: "https://github.com/acme/widgets"}},
+		tasks: []store.Task{
+			{Org: "acme", Repo: "widgets", Stub: "fix-bug", Name: "Fix a bug", Description: "A broken widget"},
+		},
+	}
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+
+	resp := sendTaskMove(t, base, "repos/acme/widgets/tasks/fix-bug/move", `{"stub":"fix-typo"}`)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+
+	var got taskBody
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	want := taskBody{Stub: "fix-typo", Name: "Fix a bug", Description: "A broken widget", Repo: "widgets"}
+	if got != want {
+		t.Errorf("task = %#v, want %#v", got, want)
+	}
+
+	moved, err := http.Get(base + "repos/acme/widgets/tasks/fix-typo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer moved.Body.Close()
+	if moved.StatusCode != http.StatusOK {
+		t.Errorf("GET new stub status = %d, want %d", moved.StatusCode, http.StatusOK)
+	}
+
+	old, err := http.Get(base + "repos/acme/widgets/tasks/fix-bug")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer old.Body.Close()
+	if old.StatusCode != http.StatusNotFound {
+		t.Errorf("GET old stub status = %d, want %d", old.StatusCode, http.StatusNotFound)
+	}
+}
+
+// TestMoveTaskMissing checks moving a task that does not exist returns the
+// service error response.
+func TestMoveTaskMissing(t *testing.T) {
+	st := &fakeDB{repos: []store.Repo{{Org: "acme", Stub: "widgets", URL: "https://github.com/acme/widgets"}}}
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+
+	resp := sendTaskMove(t, base, "repos/acme/widgets/tasks/fix-bug/move", `{"stub":"fix-typo"}`)
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusNotFound)
+}
+
+// TestMoveTaskMissingRepo checks a move in a repo that does not exist returns
+// the service error response and leaves the store alone.
+func TestMoveTaskMissingRepo(t *testing.T) {
+	st := &fakeDB{tasks: []store.Task{
+		{Org: "acme", Repo: "widgets", Stub: "fix-bug", Name: "Fix a bug", Description: "A broken widget"},
+	}}
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+
+	resp := sendTaskMove(t, base, "repos/acme/widgets/tasks/fix-bug/move", `{"stub":"fix-typo"}`)
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusNotFound)
+	if len(st.tasks) != 1 || st.tasks[0].Stub != "fix-bug" {
+		t.Errorf("store tasks = %#v, want the task unchanged", st.tasks)
+	}
+}
+
+// TestMoveTaskConflict checks moving onto a stub that is already taken returns
+// 409 and leaves both tasks unchanged.
+func TestMoveTaskConflict(t *testing.T) {
+	st := &fakeDB{
+		repos: []store.Repo{{Org: "acme", Stub: "widgets", URL: "https://github.com/acme/widgets"}},
+		tasks: []store.Task{
+			{Org: "acme", Repo: "widgets", Stub: "fix-bug", Name: "Fix a bug", Description: "A broken widget"},
+			{Org: "acme", Repo: "widgets", Stub: "fix-typo", Name: "Fix a typo", Description: "A typed word"},
+		},
+	}
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+
+	resp := sendTaskMove(t, base, "repos/acme/widgets/tasks/fix-bug/move", `{"stub":"fix-typo"}`)
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusConflict)
+	if len(st.tasks) != 2 || st.tasks[0].Stub != "fix-bug" || st.tasks[1].Stub != "fix-typo" {
+		t.Errorf("store tasks = %#v, want both tasks unchanged", st.tasks)
+	}
+}
+
+// TestMoveTaskRejectsInvalidStub checks a move to a stub that is not URL-safe
+// returns 422 and leaves the task unchanged.
+func TestMoveTaskRejectsInvalidStub(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{name: "empty stub", body: `{"stub":""}`},
+		{name: "separator in stub", body: `{"stub":"a/b"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := &fakeDB{
+				repos: []store.Repo{{Org: "acme", Stub: "widgets", URL: "https://github.com/acme/widgets"}},
+				tasks: []store.Task{
+					{Org: "acme", Repo: "widgets", Stub: "fix-bug", Name: "Fix a bug", Description: "A broken widget"},
+				},
+			}
+			base := startServiceWithStore(t, st, auth.RoleAdmin)
+
+			resp := sendTaskMove(t, base, "repos/acme/widgets/tasks/fix-bug/move", tc.body)
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusUnprocessableEntity {
+				t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusUnprocessableEntity)
+			}
+			if len(st.tasks) != 1 || st.tasks[0].Stub != "fix-bug" {
+				t.Errorf("store tasks = %#v, want the task unchanged", st.tasks)
+			}
+		})
+	}
+}
+
+// TestMoveTaskReportsStoreFailure checks a store failure returns the service
+// error response.
+func TestMoveTaskReportsStoreFailure(t *testing.T) {
+	st := &fakeDB{
+		repos:       []store.Repo{{Org: "acme", Stub: "widgets", URL: "https://github.com/acme/widgets"}},
+		moveTaskErr: errors.New("boom"),
+	}
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+
+	resp := sendTaskMove(t, base, "repos/acme/widgets/tasks/fix-bug/move", `{"stub":"fix-typo"}`)
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusInternalServerError)
+}
+
+// TestMoveTaskDeniedForUnpermittedRole checks a role without write access
+// reaches no task move.
+func TestMoveTaskDeniedForUnpermittedRole(t *testing.T) {
+	st := &fakeDB{
+		repos: []store.Repo{{Org: "acme", Stub: "widgets", URL: "https://github.com/acme/widgets"}},
+		tasks: []store.Task{
+			{Org: "acme", Repo: "widgets", Stub: "fix-bug", Name: "Fix a bug", Description: "A broken widget"},
+		},
+	}
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp := sendTaskMove(t, base, "repos/acme/widgets/tasks/fix-bug/move", `{"stub":"fix-typo"}`)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusForbidden)
+	}
+	if len(st.tasks) != 1 || st.tasks[0].Stub != "fix-bug" {
+		t.Errorf("store tasks = %#v, want the task unchanged", st.tasks)
+	}
+}
+
+// sendTaskMove sends a task move to the service and returns the response.
+func sendTaskMove(t *testing.T, base, path, body string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPost, base+path, strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
 // sendTaskPut sends a task write to the service and returns the response.
 func sendTaskPut(t *testing.T, base, path, body string) *http.Response {
 	t.Helper()
