@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/zon/abnch/internal/auth"
 	"github.com/zon/abnch/internal/devconfig"
 )
 
@@ -147,6 +148,87 @@ func TestRunServesUntilContextCanceled(t *testing.T) {
 	if !db.closed {
 		t.Error("Run did not close the database")
 	}
+}
+
+// TestRunRejectsUnverifiedRequests starts the service and checks it rejects a
+// request with no credentials or credentials it cannot verify.
+func TestRunRejectsUnverifiedRequests(t *testing.T) {
+	base := startService(t, Options{})
+
+	for _, tc := range []struct {
+		name string
+		auth string
+	}{
+		{name: "missing credentials"},
+		{name: "unverifiable credentials", auth: "Bearer not-a-token"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodGet, base, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.auth != "" {
+				req.Header.Set("Authorization", tc.auth)
+			}
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusUnauthorized {
+				t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
+			}
+		})
+	}
+}
+
+// TestRunAuthenticatesRequests checks an authenticated request reaches the
+// handler the service hosts.
+func TestRunAuthenticatesRequests(t *testing.T) {
+	allow := func(*http.Request) (auth.Caller, error) { return auth.Caller{Subject: "caller"}, nil }
+	base := startService(t, Options{Authenticator: allow})
+
+	resp, err := http.Get(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("status = %d, want %d for a route the service does not serve", resp.StatusCode, http.StatusNotFound)
+	}
+}
+
+// startService runs the service on a free port and returns its base URL. It
+// stops the service and checks it returns cleanly when the test ends.
+func startService(t *testing.T, opts Options) string {
+	t.Helper()
+	port := freePort(t)
+	opts.ConfigPath = writeConfig(t, validConfig(port))
+	opts.Opener = func(context.Context, devconfig.Postgres) (Database, error) { return &fakeDB{}, nil }
+	if opts.Out == nil {
+		opts.Out = io.Discard
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- Run(ctx, opts) }()
+
+	base := fmt.Sprintf("http://127.0.0.1:%d/", port)
+	waitForService(t, base)
+
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Errorf("Run = %v, want nil after cancel", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Error("Run did not return after its context was canceled")
+		}
+	})
+	return base
 }
 
 // unusedOpener fails the test when called, so a config error never reaches the

@@ -1,0 +1,53 @@
+// Package auth authenticates callers to the service API.
+package auth
+
+import (
+	"errors"
+	"net/http"
+	"strings"
+)
+
+// ErrUnauthenticated reports that a request carries no credentials or
+// credentials the service cannot verify.
+var ErrUnauthenticated = errors.New("unauthenticated")
+
+// Caller is the caller an authenticated request identifies.
+type Caller struct {
+	Subject string
+}
+
+// Authenticator authenticates a request. It returns the caller the request
+// identifies, or an error when it carries no credentials or credentials the
+// service cannot verify.
+type Authenticator func(*http.Request) (Caller, error)
+
+// Deny rejects every request. It authenticates a service that cannot yet verify
+// credentials.
+func Deny(*http.Request) (Caller, error) {
+	return Caller{}, ErrUnauthenticated
+}
+
+// Middleware authenticates each request with a, then calls next. A request
+// whose credentials a cannot verify receives 401 and never reaches next.
+func Middleware(a Authenticator, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := a(r); err != nil {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// BearerToken returns the bearer token a request carries.
+func BearerToken(r *http.Request) (string, error) {
+	scheme, token, ok := strings.Cut(r.Header.Get("Authorization"), " ")
+	if !ok || !strings.EqualFold(scheme, "Bearer") {
+		return "", ErrUnauthenticated
+	}
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return "", ErrUnauthenticated
+	}
+	return token, nil
+}

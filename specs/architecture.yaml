@@ -7,6 +7,9 @@
 - path: cmd/abnchd
   description: Starts the service from a service config file.
 
+- path: internal/auth
+  description: Authenticates service callers.
+
 - path: internal/devconfig
   description: Collects and stores the local service configuration.
 

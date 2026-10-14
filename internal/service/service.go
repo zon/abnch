@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/zon/abnch/internal/auth"
 	"github.com/zon/abnch/internal/devconfig"
 	"github.com/zon/abnch/internal/store"
 )
@@ -33,6 +34,9 @@ type Options struct {
 	ConfigPath string
 	// Opener opens the database. It defaults to the service database.
 	Opener Opener
+	// Authenticator authenticates requests. It defaults to rejecting every
+	// request.
+	Authenticator auth.Authenticator
 	// Out receives the startup message.
 	Out io.Writer
 }
@@ -67,7 +71,12 @@ func Run(ctx context.Context, opts Options) error {
 		out = io.Discard
 	}
 
-	return serve(ctx, addr, http.NewServeMux(), out)
+	authenticator := opts.Authenticator
+	if authenticator == nil {
+		authenticator = auth.Deny
+	}
+
+	return serve(ctx, addr, auth.Middleware(authenticator, http.NewServeMux()), out)
 }
 
 // serviceAddr reads the service url and the Postgres block from a loaded
