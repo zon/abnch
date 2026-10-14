@@ -10,6 +10,10 @@ import (
 // ErrNotFound reports that a requested repo or task does not exist.
 var ErrNotFound = errors.New("not found")
 
+// ErrInvalidStub reports that a repo's org stub or repo stub is empty or not
+// URL-safe.
+var ErrInvalidStub = errors.New("invalid stub")
+
 // Store reads and writes the service's domain data in Postgres.
 type Store struct {
 	db *gorm.DB
@@ -35,8 +39,12 @@ func (s *Store) Close() error {
 }
 
 // SaveRepo writes a repo, creating it or replacing the stored repo with the
-// same org stub and repo stub.
+// same org stub and repo stub. It returns ErrInvalidStub when the org stub or
+// repo stub is empty or not URL-safe.
 func (s *Store) SaveRepo(r Repo) error {
+	if !ValidStub(r.Org) || !ValidStub(r.Stub) {
+		return ErrInvalidStub
+	}
 	return s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&r).Error
 }
 

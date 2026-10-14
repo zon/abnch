@@ -55,6 +55,56 @@ func TestSaveRepoUpdatesExistingRepo(t *testing.T) {
 	}
 }
 
+// TestSaveRepoRejectsInvalidStub checks a repo whose org stub or repo stub is
+// empty or not URL-safe is not stored.
+func TestSaveRepoRejectsInvalidStub(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		repo Repo
+	}{
+		{"empty org", Repo{Org: "", Stub: "widgets", URL: "https://example/acme/widgets"}},
+		{"empty stub", Repo{Org: "acme", Stub: "", URL: "https://example/acme/widgets"}},
+		{"separator in stub", Repo{Org: "acme", Stub: "a/b", URL: "https://example/acme/a/b"}},
+		{"space in stub", Repo{Org: "acme", Stub: "a b", URL: "https://example/acme/a b"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTestStore(t)
+
+			if err := s.SaveRepo(tc.repo); !errors.Is(err, ErrInvalidStub) {
+				t.Errorf("SaveRepo error = %v, want ErrInvalidStub", err)
+			}
+			repos, err := s.ListRepos()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(repos) != 0 {
+				t.Errorf("ListRepos returned %d repos, want none", len(repos))
+			}
+		})
+	}
+}
+
+// TestValidStub checks a stub is URL-safe only when it is non-empty and holds
+// unreserved URL characters.
+func TestValidStub(t *testing.T) {
+	for _, tc := range []struct {
+		stub string
+		want bool
+	}{
+		{stub: "widgets", want: true},
+		{stub: "acme-1._~", want: true},
+		{stub: "", want: false},
+		{stub: "a/b", want: false},
+		{stub: "a b", want: false},
+		{stub: "a%2Fb", want: false},
+		{stub: "héllo", want: false},
+	} {
+		if got := ValidStub(tc.stub); got != tc.want {
+			t.Errorf("ValidStub(%q) = %v, want %v", tc.stub, got, tc.want)
+		}
+	}
+}
+
 func TestListRepos(t *testing.T) {
 	s := newTestStore(t)
 	if err := s.SaveRepo(Repo{Org: "b", Stub: "two", URL: "https://example/two"}); err != nil {

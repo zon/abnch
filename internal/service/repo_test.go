@@ -229,6 +229,176 @@ func TestGetRepoDeniedForUnpermittedRole(t *testing.T) {
 	}
 }
 
+// TestPutRepoCreatesRepo checks PUT /repos/{org}/{stub} creates a missing repo
+// from the body's URL, returns 201, and makes it readable.
+func TestPutRepoCreatesRepo(t *testing.T) {
+	st := &fakeDB{}
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+
+	resp := sendRepoPut(t, base, "repos/acme/widgets", `{"url":"https://github.com/acme/widgets"}`)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusCreated)
+	}
+
+	var got repoBody
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	want := repoBody{Org: "acme", Stub: "widgets", URL: "https://github.com/acme/widgets"}
+	if got != want {
+		t.Errorf("repo = %#v, want %#v", got, want)
+	}
+
+	read, err := http.Get(base + "repos/acme/widgets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer read.Body.Close()
+	if read.StatusCode != http.StatusOK {
+		t.Errorf("later GET status = %d, want %d", read.StatusCode, http.StatusOK)
+	}
+}
+
+// TestPutRepoSameStubsIsOneRepo checks two writes to the same stubs, with
+// different URLs, update one repo rather than create a second.
+func TestPutRepoSameStubsIsOneRepo(t *testing.T) {
+	st := &fakeDB{}
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+
+	create := sendRepoPut(t, base, "repos/acme/widgets", `{"url":"https://old.example/acme/widgets"}`)
+	create.Body.Close()
+	if create.StatusCode != http.StatusCreated {
+		t.Fatalf("create status = %d, want %d", create.StatusCode, http.StatusCreated)
+	}
+
+	update := sendRepoPut(t, base, "repos/acme/widgets", `{"url":"https://github.com/acme/widgets"}`)
+	defer update.Body.Close()
+	if update.StatusCode != http.StatusOK {
+		t.Fatalf("update status = %d, want %d", update.StatusCode, http.StatusOK)
+	}
+
+	var got repoBody
+	if err := json.NewDecoder(update.Body).Decode(&got); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	want := repoBody{Org: "acme", Stub: "widgets", URL: "https://github.com/acme/widgets"}
+	if got != want {
+		t.Errorf("repo = %#v, want the updated URL %#v", got, want)
+	}
+
+	list, err := http.Get(base + "repos")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer list.Body.Close()
+	var repos []repoBody
+	if err := json.NewDecoder(list.Body).Decode(&repos); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if len(repos) != 1 {
+		t.Fatalf("ListRepos returned %d repos, want 1", len(repos))
+	}
+}
+
+// TestPutRepoRejectsMissingURLCreate checks a create without a URL returns 422
+// and writes no repo.
+func TestPutRepoRejectsMissingURLCreate(t *testing.T) {
+	st := &fakeDB{}
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+
+	resp := sendRepoPut(t, base, "repos/acme/widgets", `{}`)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusUnprocessableEntity)
+	}
+	if len(st.repos) != 0 {
+		t.Errorf("store holds %d repos, want none", len(st.repos))
+	}
+}
+
+// TestPutRepoRejectsUnsafeStub checks a stub that is not URL-safe returns 422
+// and writes no repo.
+func TestPutRepoRejectsUnsafeStub(t *testing.T) {
+	st := &fakeDB{}
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+
+	resp := sendRepoPut(t, base, "repos/acme/a%2Fb", `{"url":"https://github.com/acme/a"}`)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusUnprocessableEntity)
+	}
+	if len(st.repos) != 0 {
+		t.Errorf("store holds %d repos, want none", len(st.repos))
+	}
+}
+
+// TestPutRepoEmptyStubNotFound checks a write with an empty repo stub reaches
+// no repo route.
+func TestPutRepoEmptyStubNotFound(t *testing.T) {
+	st := &fakeDB{}
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+
+	resp := sendRepoPut(t, base, "repos/acme/", `{"url":"https://github.com/acme/widgets"}`)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusNotFound)
+	}
+	if len(st.repos) != 0 {
+		t.Errorf("store holds %d repos, want none", len(st.repos))
+	}
+}
+
+// TestPutRepoReportsStoreFailure checks a store failure returns the service
+// error response.
+func TestPutRepoReportsStoreFailure(t *testing.T) {
+	st := &fakeDB{saveErr: errors.New("boom")}
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+
+	resp := sendRepoPut(t, base, "repos/acme/widgets", `{"url":"https://github.com/acme/widgets"}`)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusInternalServerError)
+	}
+}
+
+// TestPutRepoDeniedForUnpermittedRole checks a role without write access reaches
+// no repo write.
+func TestPutRepoDeniedForUnpermittedRole(t *testing.T) {
+	st := &fakeDB{}
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp := sendRepoPut(t, base, "repos/acme/widgets", `{"url":"https://github.com/acme/widgets"}`)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusForbidden)
+	}
+	if len(st.repos) != 0 {
+		t.Errorf("store holds %d repos, want none", len(st.repos))
+	}
+}
+
+// sendRepoPut sends a repo write to the service and returns the response.
+func sendRepoPut(t *testing.T, base, path, body string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPut, base+path, strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
 // startServiceWithStore runs the service over st and authenticates every
 // request with the given role.
 func startServiceWithStore(t *testing.T, st Store, role string) string {

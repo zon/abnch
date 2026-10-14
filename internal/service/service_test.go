@@ -353,6 +353,7 @@ type fakeDB struct {
 	repos   []store.Repo
 	listErr error
 	getErr  error
+	saveErr error
 }
 
 func (f *fakeDB) GetRepo(org, stub string) (store.Repo, error) {
@@ -372,6 +373,23 @@ func (f *fakeDB) ListRepos() ([]store.Repo, error) {
 		return nil, f.listErr
 	}
 	return f.repos, nil
+}
+
+func (f *fakeDB) SaveRepo(r store.Repo) error {
+	if f.saveErr != nil {
+		return f.saveErr
+	}
+	if !store.ValidStub(r.Org) || !store.ValidStub(r.Stub) {
+		return store.ErrInvalidStub
+	}
+	for i, existing := range f.repos {
+		if existing.Org == r.Org && existing.Stub == r.Stub {
+			f.repos[i] = r
+			return nil
+		}
+	}
+	f.repos = append(f.repos, r)
+	return nil
 }
 
 func (f *fakeDB) Close() error {
