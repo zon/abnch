@@ -485,6 +485,92 @@ func TestSetLocalAuthWritesLocalCredentialKeepingOtherURLs(t *testing.T) {
 	}
 }
 
+func TestSetLocalAuthCredentialAuthenticatesAsDevIssuerSubject(t *testing.T) {
+	repo := t.TempDir()
+	home := t.TempDir()
+
+	if err := runIn([]string{"set", "local-auth", "--port", "9090"}, repo, home, strings.NewReader("db\n5432\nabnch\nadmin\npw\n\n\n"), &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The service trusts a dev issuer whose role map grants Admin to the local
+	// CLI subject.
+	doc := readYAMLDoc(t, filepath.Join(repo, "service-config.local.yaml"))
+	devIssuer, ok := findIssuer(doc, "http://localhost:9090/dev")
+	if !ok {
+		t.Fatalf("service config does not trust the dev issuer:\n%#v", doc)
+	}
+	if devIssuer["roleClaim"] != "sub" {
+		t.Errorf("roleClaim = %#v, want sub", devIssuer["roleClaim"])
+	}
+	roleMap, ok := devIssuer["roleMap"].(map[string]any)
+	if !ok {
+		t.Fatalf("roleMap = %#v, want a mapping", devIssuer["roleMap"])
+	}
+	if roleMap["local-cli"] != "Admin" {
+		t.Errorf("roleMap[local-cli] = %#v, want Admin", roleMap["local-cli"])
+	}
+
+	// The stored credential names that issuer and the subject the role map maps,
+	// so the CLI authenticates as local-cli without signing in.
+	creds := readCredentials(t, filepath.Join(home, ".abnch", "credentials.yaml"))
+	local, ok := creds["http://localhost:9090"].(map[string]any)
+	if !ok {
+		t.Fatalf("local credential = %#v, want one keyed by the local service URL", creds["http://localhost:9090"])
+	}
+	if local["subject"] != "local-cli" {
+		t.Errorf("subject = %#v, want the dev issuer's local-cli subject", local["subject"])
+	}
+	if local["issuer"] != devIssuer["issuer"] {
+		t.Errorf("issuer = %#v, want the dev issuer %#v", local["issuer"], devIssuer["issuer"])
+	}
+	if local["audience"] != devIssuer["audience"] {
+		t.Errorf("audience = %#v, want the dev issuer audience %#v", local["audience"], devIssuer["audience"])
+	}
+
+	// The credential points at the dev key, so the CLI can sign the token it
+	// presents to the local service.
+	keyFile, _ := local["keyFile"].(string)
+	if keyFile != filepath.Join(repo, "dev-issuer.key") {
+		t.Errorf("keyFile = %q, want the dev key at the repo root", keyFile)
+	}
+	if _, err := os.Stat(keyFile); err != nil {
+		t.Errorf("credential key is missing: %v", err)
+	}
+}
+
+func readYAMLDoc(t *testing.T, path string) map[string]any {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := map[string]any{}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		t.Fatal(err)
+	}
+	return doc
+}
+
+// findIssuer returns the literal issuer mapping with the given issuer URL.
+func findIssuer(doc map[string]any, url string) (map[string]any, bool) {
+	oauth, ok := doc["oauth"].(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	issuers, ok := oauth["issuers"].([]any)
+	if !ok {
+		return nil, false
+	}
+	for _, raw := range issuers {
+		iss, ok := raw.(map[string]any)
+		if ok && iss["issuer"] == url {
+			return iss, true
+		}
+	}
+	return nil, false
+}
+
 func readCredentials(t *testing.T, path string) map[string]any {
 	t.Helper()
 	data, err := os.ReadFile(path)

@@ -10,6 +10,19 @@ type Credential struct {
 	KeyFile  string `yaml:"keyFile"`
 }
 
+// LocalCredential builds the CLI credential for a local service URL from the
+// dev issuer the service trusts, so the CLI authenticates as the issuer's
+// local-cli subject without signing in.
+func LocalCredential(url, keyPath string) Credential {
+	iss := DevIssuer(url)
+	return Credential{
+		Issuer:   iss.Issuer,
+		Audience: iss.Audience,
+		Subject:  LocalCLISubject,
+		KeyFile:  keyPath,
+	}
+}
+
 // UpsertCredential sets the credential for url and leaves other URLs alone.
 func UpsertCredential(creds map[string]Credential, url string, cred Credential) map[string]Credential {
 	if creds == nil {

@@ -199,6 +199,27 @@ func TestSetLocalAuthKeepsOtherCredentials(t *testing.T) {
 	}
 }
 
+func TestLocalCredentialDerivesFromDevIssuer(t *testing.T) {
+	cred := LocalCredential("http://localhost:8080", "/repo/dev-issuer.key")
+	iss := DevIssuer("http://localhost:8080")
+
+	if cred.Issuer != iss.Issuer {
+		t.Errorf("issuer = %q, want the dev issuer %q", cred.Issuer, iss.Issuer)
+	}
+	if cred.Audience != iss.Audience {
+		t.Errorf("audience = %q, want the dev issuer audience %q", cred.Audience, iss.Audience)
+	}
+	if cred.Subject != "local-cli" {
+		t.Errorf("subject = %q, want local-cli", cred.Subject)
+	}
+	if role, ok := iss.RoleMap[cred.Subject]; !ok || role != "Admin" {
+		t.Errorf("dev issuer maps subject %q to %q, want Admin", cred.Subject, role)
+	}
+	if cred.KeyFile != "/repo/dev-issuer.key" {
+		t.Errorf("keyFile = %q, want the dev key", cred.KeyFile)
+	}
+}
+
 func TestLocalServiceURL(t *testing.T) {
 	cases := map[int]string{
 		8080: "http://localhost:8080",

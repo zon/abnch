@@ -160,12 +160,7 @@ func writeCredential(homeDir, url, keyPath string) error {
 		return err
 	}
 
-	creds = UpsertCredential(creds, url, Credential{
-		Issuer:   url + "/dev",
-		Audience: "abnch",
-		Subject:  "local-cli",
-		KeyFile:  keyPath,
-	})
+	creds = UpsertCredential(creds, url, LocalCredential(url, keyPath))
 
 	data, err := MarshalCredentials(creds)
 	if err != nil {

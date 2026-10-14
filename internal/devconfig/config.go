@@ -35,6 +35,9 @@ type Config struct {
 	OAuth    OAuth    `yaml:"oauth"`
 }
 
+// LocalCLISubject is the dev issuer subject the local CLI authenticates as.
+const LocalCLISubject = "local-cli"
+
 // DevIssuer returns the dev issuer for a local service URL.
 func DevIssuer(url string) Issuer {
 	return Issuer{
@@ -42,7 +45,7 @@ func DevIssuer(url string) Issuer {
 		Audience:  "abnch",
 		RoleClaim: "sub",
 		RoleMap: map[string]string{
-			"local-cli":     "Admin",
+			LocalCLISubject: "Admin",
 			"local-runtime": "Service",
 		},
 	}
