@@ -103,11 +103,6 @@ func bearer(token string) *http.Request {
 	return req
 }
 
-func writeJSON(w http.ResponseWriter, body any) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(body)
-}
-
 func TestWorkloadAcceptsTrustedToken(t *testing.T) {
 	issuer := newTestIssuer(t)
 	authenticate := Workload([]devconfig.Issuer{{Issuer: issuer.url, Audience: "abnch", RoleClaim: "sub"}})

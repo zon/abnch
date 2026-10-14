@@ -76,7 +76,55 @@ func Run(ctx context.Context, opts Options) error {
 		authenticator = auth.Workload(cfg.OAuth.Issuers)
 	}
 
-	return serve(ctx, addr, auth.Middleware(authenticator, http.NewServeMux()), out)
+	handler, err := serviceHandler(cfg, opts.ConfigPath, authenticator)
+	if err != nil {
+		return err
+	}
+
+	return serve(ctx, addr, handler, out)
+}
+
+// serviceHandler builds the service's routes: the local dev issuer it hosts,
+// when its config trusts one, plus the authenticated API.
+func serviceHandler(cfg devconfig.Config, configPath string, authenticator auth.Authenticator) (http.Handler, error) {
+	dev, err := devIssuer(cfg, configPath)
+	if err != nil {
+		return nil, err
+	}
+
+	mux := http.NewServeMux()
+	if dev != nil {
+		dev.Register(mux)
+	}
+	mux.Handle("/", auth.Middleware(authenticator, http.NewServeMux()))
+	return mux, nil
+}
+
+// devIssuer returns the local dev issuer the config trusts for its url, or nil
+// when it trusts none. It reads the dev key beside the config whose public half
+// the service serves.
+func devIssuer(cfg devconfig.Config, configPath string) (*auth.DevIssuer, error) {
+	iss := devconfig.DevIssuer(cfg.URL)
+	if !trustsIssuer(cfg.OAuth.Issuers, iss.Issuer) {
+		return nil, nil
+	}
+
+	keyPath := devconfig.KeyPath(configPath)
+	key, err := devconfig.LoadDevKey(keyPath)
+	if err != nil {
+		return nil, fmt.Errorf("dev issuer key: %w", err)
+	}
+	return auth.NewDevIssuer(iss.Issuer, key)
+}
+
+// trustsIssuer reports whether the config trusts the issuer with the given url.
+func trustsIssuer(issuers []devconfig.Issuer, url string) bool {
+	for _, iss := range issuers {
+		if iss.Issuer == url {
+			return true
+		}
+	}
+	return false
 }
 
 // serviceAddr reads the service url and the Postgres block from a loaded
