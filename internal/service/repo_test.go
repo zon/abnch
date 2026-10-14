@@ -124,6 +124,111 @@ func TestGetReposDeniedForUnpermittedRole(t *testing.T) {
 	}
 }
 
+// TestGetRepoReturnsRepo checks GET /repos/{org}/{stub} returns one repo with
+// its org stub, repo stub, and URL.
+func TestGetRepoReturnsRepo(t *testing.T) {
+	st := &fakeDB{repos: []store.Repo{
+		{Org: "acme", Stub: "gadgets", URL: "https://github.com/acme/gadgets"},
+		{Org: "acme", Stub: "widgets", URL: "https://github.com/acme/widgets"},
+	}}
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+
+	var got repoBody
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	want := repoBody{Org: "acme", Stub: "widgets", URL: "https://github.com/acme/widgets"}
+	if got != want {
+		t.Errorf("repo = %#v, want %#v", got, want)
+	}
+}
+
+// TestGetRepoMissing checks a request for a repo that does not exist returns
+// the service error response.
+func TestGetRepoMissing(t *testing.T) {
+	st := &fakeDB{repos: []store.Repo{
+		{Org: "acme", Stub: "widgets", URL: "https://github.com/acme/widgets"},
+	}}
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/gadgets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusNotFound)
+	}
+	var body struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.Error.Message == "" {
+		t.Error("error response body has no message")
+	}
+}
+
+// TestGetRepoReportsStoreFailure checks a store failure returns the service
+// error response instead of a repo.
+func TestGetRepoReportsStoreFailure(t *testing.T) {
+	base := startServiceWithStore(t, &fakeDB{getErr: errors.New("boom")}, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusInternalServerError)
+	}
+	var body struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.Error.Message == "" {
+		t.Error("error response body has no message")
+	}
+}
+
+// TestGetRepoDeniedForUnpermittedRole checks a role without read access reaches
+// no repo.
+func TestGetRepoDeniedForUnpermittedRole(t *testing.T) {
+	st := &fakeDB{repos: []store.Repo{{Org: "acme", Stub: "widgets", URL: "https://github.com/acme/widgets"}}}
+	base := startServiceWithStore(t, st, auth.RoleAgent)
+
+	resp, err := http.Get(base + "repos/acme/widgets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusForbidden)
+	}
+}
+
 // startServiceWithStore runs the service over st and authenticates every
 // request with the given role.
 func startServiceWithStore(t *testing.T, st Store, role string) string {

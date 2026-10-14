@@ -19,6 +19,8 @@ import (
 // Store is the service's data, as its API reads and writes it. It closes when
 // the service stops.
 type Store interface {
+	// GetRepo returns the repo with the given stubs, or store.ErrNotFound.
+	GetRepo(org, stub string) (store.Repo, error)
 	// ListRepos returns every repo, ordered by org stub and repo stub.
 	ListRepos() ([]store.Repo, error)
 	// Close closes the store.
@@ -119,6 +121,7 @@ func serviceHandler(cfg devconfig.Config, configPath string, authenticator auth.
 func api(st Store) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /repos", listRepos(st))
+	mux.HandleFunc("GET /repos/{org}/{stub}", getRepo(st))
 	mux.HandleFunc("/", notFound)
 	return mux
 }

@@ -352,6 +352,19 @@ type fakeDB struct {
 	closed  bool
 	repos   []store.Repo
 	listErr error
+	getErr  error
+}
+
+func (f *fakeDB) GetRepo(org, stub string) (store.Repo, error) {
+	if f.getErr != nil {
+		return store.Repo{}, f.getErr
+	}
+	for _, r := range f.repos {
+		if r.Org == org && r.Stub == stub {
+			return r, nil
+		}
+	}
+	return store.Repo{}, store.ErrNotFound
 }
 
 func (f *fakeDB) ListRepos() ([]store.Repo, error) {
