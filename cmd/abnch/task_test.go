@@ -61,6 +61,8 @@ func (f *fakeService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.serveGetTask(w, segments[1], segments[2], segments[4])
 	case r.Method == http.MethodPut && len(segments) == 5 && segments[0] == "repos" && segments[3] == "tasks":
 		f.servePutTask(w, segments[1], segments[2], segments[4], body)
+	case r.Method == http.MethodPost && len(segments) == 6 && segments[0] == "repos" && segments[3] == "tasks" && segments[5] == "move":
+		f.serveMoveTask(w, segments[1], segments[2], segments[4], body)
 	default:
 		httpx.WriteError(w, http.StatusNotFound, "route not found")
 	}
@@ -135,6 +137,33 @@ func (f *fakeService) servePutTask(w http.ResponseWriter, org, repo, stub string
 		status = http.StatusCreated
 	}
 	httpx.WriteJSON(w, status, t)
+}
+
+func (f *fakeService) serveMoveTask(w http.ResponseWriter, org, repo, stub string, body []byte) {
+	if _, ok := f.repos[org+"/"+repo]; !ok {
+		httpx.WriteError(w, http.StatusNotFound, "repo not found")
+		return
+	}
+	var req moveTaskRequest
+	if err := json.Unmarshal(body, &req); err != nil || req.Stub == "" {
+		httpx.WriteError(w, http.StatusUnprocessableEntity, "invalid task body")
+		return
+	}
+	key := org + "/" + repo + "/" + stub
+	t, ok := f.tasks[key]
+	if !ok {
+		httpx.WriteError(w, http.StatusNotFound, "task not found")
+		return
+	}
+	newKey := org + "/" + repo + "/" + req.Stub
+	if _, taken := f.tasks[newKey]; taken {
+		httpx.WriteError(w, http.StatusConflict, "task stub is taken")
+		return
+	}
+	delete(f.tasks, key)
+	t.Stub = req.Stub
+	f.tasks[newKey] = t
+	httpx.WriteJSON(w, http.StatusOK, t)
 }
 
 // seedRepo adds a repo to the fake service.
@@ -331,6 +360,65 @@ func TestSetTaskReusesExistingRepo(t *testing.T) {
 	}
 	if _, ok := fake.task("acme", "widgets", "fix-bug"); !ok {
 		t.Error("task was not created in the existing repo")
+	}
+}
+
+func TestSetTaskMovesTask(t *testing.T) {
+	workDir := t.TempDir()
+	addRemote(t, workDir, "git@github.com:acme/widgets.git")
+	fake := newFakeService(t)
+	fake.seedRepo("acme", "widgets", "git@github.com:acme/widgets.git")
+	fake.seedTask("acme", task{Stub: "fix-bug", Repo: "widgets", Name: "Fix bug", Description: "Fix the bug"})
+	d := setTaskDeps(t, workDir, fake.url, "")
+
+	if err := runSetTask([]string{"fix-bug", "--move", "fix-typo"}, d); err != nil {
+		t.Fatalf("set task = %v, want no error", err)
+	}
+
+	if _, ok := fake.task("acme", "widgets", "fix-bug"); ok {
+		t.Error("the old stub still holds a task")
+	}
+	moved, ok := fake.task("acme", "widgets", "fix-typo")
+	if !ok {
+		t.Fatal("the task was not renamed")
+	}
+	if moved.Name != "Fix bug" || moved.Description != "Fix the bug" {
+		t.Errorf("task = %+v, want the original fields", moved)
+	}
+}
+
+func TestSetTaskMoveFailsWhenTaskMissing(t *testing.T) {
+	workDir := t.TempDir()
+	addRemote(t, workDir, "git@github.com:acme/widgets.git")
+	fake := newFakeService(t)
+	fake.seedRepo("acme", "widgets", "git@github.com:acme/widgets.git")
+	d := setTaskDeps(t, workDir, fake.url, "")
+
+	if err := runSetTask([]string{"fix-bug", "--move", "fix-typo"}, d); err == nil {
+		t.Fatal("set task = nil, want an error for a missing task")
+	}
+	if _, ok := fake.task("acme", "widgets", "fix-typo"); ok {
+		t.Error("a task was created by a move of a missing task")
+	}
+}
+
+func TestSetTaskMoveFailsWhenStubTaken(t *testing.T) {
+	workDir := t.TempDir()
+	addRemote(t, workDir, "git@github.com:acme/widgets.git")
+	fake := newFakeService(t)
+	fake.seedRepo("acme", "widgets", "git@github.com:acme/widgets.git")
+	fake.seedTask("acme", task{Stub: "fix-bug", Repo: "widgets", Name: "Fix bug", Description: "one"})
+	fake.seedTask("acme", task{Stub: "fix-typo", Repo: "widgets", Name: "Fix typo", Description: "two"})
+	d := setTaskDeps(t, workDir, fake.url, "")
+
+	if err := runSetTask([]string{"fix-bug", "--move", "fix-typo"}, d); err == nil {
+		t.Fatal("set task = nil, want an error when the new stub is taken")
+	}
+	if _, ok := fake.task("acme", "widgets", "fix-bug"); !ok {
+		t.Error("the moved task was changed")
+	}
+	if _, ok := fake.task("acme", "widgets", "fix-typo"); !ok {
+		t.Error("the task holding the new stub was changed")
 	}
 }
 

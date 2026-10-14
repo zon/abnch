@@ -23,11 +23,12 @@ type setCmd struct {
 	Task setTaskCmd `cmd:"" help:"Create or update a task in the inferred repo."`
 }
 
-// setTaskCmd creates or updates a task in the inferred repo.
+// setTaskCmd creates, updates, or renames a task in the inferred repo.
 type setTaskCmd struct {
 	Stub        string `arg:"" help:"Task stub."`
 	Name        string `help:"Task name." optional:""`
 	Description string `help:"Task description." optional:""`
+	Move        string `help:"Rename the task to this stub." optional:""`
 }
 
 // Run creates or updates the task in the inferred repo.

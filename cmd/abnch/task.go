@@ -28,9 +28,15 @@ type taskBody struct {
 	Description string `json:"description" yaml:"description"`
 }
 
-// setTask creates or updates the task the command names in the inferred repo. It
-// merges the options and the stdin body with the stored task and creates the
-// repo first when it is missing.
+// moveTaskRequest is the JSON body a task move carries.
+type moveTaskRequest struct {
+	Stub string `json:"stub"`
+}
+
+// setTask creates, updates, or renames the task the command names in the
+// inferred repo. It renames the task when `--move` is given and otherwise
+// merges the options and the stdin body with the stored task, creating the repo
+// first when it is missing.
 func setTask(d deps, c setTaskCmd) error {
 	serviceURL, err := resolveServiceURL("", d.workDir)
 	if err != nil {
@@ -39,6 +45,14 @@ func setTask(d deps, c setTaskCmd) error {
 	target, err := resolveRepo(d, serviceURL)
 	if err != nil {
 		return err
+	}
+
+	if c.Move != "" {
+		if err := moveTask(d.ctx, target.client, target.org, target.stub, c.Stub, c.Move); err != nil {
+			return err
+		}
+		fmt.Fprintf(d.out, "Moved task %s/%s/%s to %s\n", target.org, target.stub, c.Stub, c.Move)
+		return nil
 	}
 
 	body, err := readTaskBody(d.in)
@@ -158,4 +172,21 @@ func writeTask(ctx context.Context, client *serviceClient, org, repo, stub strin
 // taskPath returns the API path for a task.
 func taskPath(org, repo, stub string) string {
 	return repoPath(org, repo) + "/tasks/" + url.PathEscape(stub)
+}
+
+// moveTask renames the task the repo and stub identify to newStub.
+func moveTask(ctx context.Context, client *serviceClient, org, repo, stub, newStub string) error {
+	payload, err := json.Marshal(moveTaskRequest{Stub: newStub})
+	if err != nil {
+		return err
+	}
+	resp, err := client.do(ctx, http.MethodPost, taskPath(org, repo, stub)+"/move", bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return serviceError(resp)
+	}
+	resp.Body.Close()
+	return nil
 }
