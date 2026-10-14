@@ -96,33 +96,10 @@ func KeyPath(configPath string) string {
 }
 
 func writeCredential(homeDir, url, keyPath string) error {
-	dir := filepath.Join(homeDir, credentialsDir)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-
-	path := filepath.Join(dir, credentialsName)
-	creds, err := readCredentials(path)
+	creds, err := LoadCredentials(homeDir)
 	if err != nil {
 		return err
 	}
-
 	creds = UpsertCredential(creds, url, LocalCredential(url, keyPath))
-
-	data, err := MarshalCredentials(creds)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0o600)
-}
-
-func readCredentials(path string) (map[string]Credential, error) {
-	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return map[string]Credential{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return UnmarshalCredentials(data)
+	return saveCredentials(homeDir, creds)
 }
