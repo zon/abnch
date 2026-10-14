@@ -108,7 +108,7 @@ func TestRunHidesUntrustedDevIssuer(t *testing.T) {
 func TestRunRejectsMissingDevKey(t *testing.T) {
 	port := freePort(t)
 	path := writeConfig(t, devIssuerConfig(t, port))
-	opener := func(context.Context, devconfig.Postgres) (Database, error) { return &fakeDB{}, nil }
+	opener := func(context.Context, devconfig.Postgres) (Store, error) { return &fakeDB{}, nil }
 
 	err := Run(context.Background(), Options{ConfigPath: path, Opener: opener, Out: io.Discard})
 	if err == nil {

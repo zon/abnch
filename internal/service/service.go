@@ -16,16 +16,20 @@ import (
 	"github.com/zon/abnch/internal/store"
 )
 
-// Database is a live database connection the service holds while it runs.
-type Database interface {
+// Store is the service's data, as its API reads and writes it. It closes when
+// the service stops.
+type Store interface {
+	// ListRepos returns every repo, ordered by org stub and repo stub.
+	ListRepos() ([]store.Repo, error)
+	// Close closes the store.
 	Close() error
 }
 
-// Opener opens the database described by a service config.
-type Opener func(ctx context.Context, pg devconfig.Postgres) (Database, error)
+// Opener opens the store described by a service config.
+type Opener func(ctx context.Context, pg devconfig.Postgres) (Store, error)
 
 // openDatabase opens the service database and creates its tables.
-func openDatabase(ctx context.Context, pg devconfig.Postgres) (Database, error) {
+func openDatabase(ctx context.Context, pg devconfig.Postgres) (Store, error) {
 	return store.Open(ctx, pg)
 }
 
@@ -82,7 +86,7 @@ func Run(ctx context.Context, opts Options) error {
 		authenticator = defaultAuthenticator(cfg, human)
 	}
 
-	handler, err := serviceHandler(cfg, opts.ConfigPath, authenticator, human)
+	handler, err := serviceHandler(cfg, opts.ConfigPath, authenticator, human, db)
 	if err != nil {
 		return err
 	}
@@ -93,7 +97,7 @@ func Run(ctx context.Context, opts Options) error {
 // serviceHandler builds the service's routes: the local dev issuer it hosts,
 // when its config trusts one, the human sign-in, and the authenticated API,
 // which enforces the access each request needs.
-func serviceHandler(cfg devconfig.Config, configPath string, authenticator auth.Authenticator, human *auth.Human) (http.Handler, error) {
+func serviceHandler(cfg devconfig.Config, configPath string, authenticator auth.Authenticator, human *auth.Human, st Store) (http.Handler, error) {
 	dev, err := devIssuer(cfg, configPath)
 	if err != nil {
 		return nil, err
@@ -106,14 +110,15 @@ func serviceHandler(cfg devconfig.Config, configPath string, authenticator auth.
 	if human != nil {
 		human.Register(mux)
 	}
-	mux.Handle("/", auth.Middleware(authenticator, auth.Authorize(api())))
+	mux.Handle("/", auth.Middleware(authenticator, auth.Authorize(api(st))))
 	return mux, nil
 }
 
-// api serves the service API. A route the service serves no operation for
-// receives the service error response.
-func api() http.Handler {
+// api serves the service API over the service's store. A route the service
+// serves no operation for receives the service error response.
+func api(st Store) http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /repos", listRepos(st))
 	mux.HandleFunc("/", notFound)
 	return mux
 }

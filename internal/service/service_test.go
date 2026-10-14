@@ -16,6 +16,7 @@ import (
 
 	"github.com/zon/abnch/internal/auth"
 	"github.com/zon/abnch/internal/devconfig"
+	"github.com/zon/abnch/internal/store"
 )
 
 const postgresYAML = "postgres:\n" +
@@ -124,7 +125,7 @@ func TestRunReadsPostgresBlock(t *testing.T) {
 	path := writeConfig(t, validConfig(8080))
 
 	var got devconfig.Postgres
-	opener := func(_ context.Context, pg devconfig.Postgres) (Database, error) {
+	opener := func(_ context.Context, pg devconfig.Postgres) (Store, error) {
 		got = pg
 		return nil, errors.New("connection refused")
 	}
@@ -146,7 +147,7 @@ func TestRunServesUntilContextCanceled(t *testing.T) {
 	path := writeConfig(t, validConfig(port))
 
 	db := &fakeDB{}
-	opener := func(context.Context, devconfig.Postgres) (Database, error) { return db, nil }
+	opener := func(context.Context, devconfig.Postgres) (Store, error) { return db, nil }
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -308,7 +309,7 @@ func startService(t *testing.T, opts Options) string {
 func startServiceWith(t *testing.T, port int, opts Options) string {
 	t.Helper()
 	if opts.Opener == nil {
-		opts.Opener = func(context.Context, devconfig.Postgres) (Database, error) { return &fakeDB{}, nil }
+		opts.Opener = func(context.Context, devconfig.Postgres) (Store, error) { return &fakeDB{}, nil }
 	}
 	if opts.Out == nil {
 		opts.Out = io.Discard
@@ -340,13 +341,25 @@ func startServiceWith(t *testing.T, port int, opts Options) string {
 // database.
 func unusedOpener(t *testing.T) Opener {
 	t.Helper()
-	return func(context.Context, devconfig.Postgres) (Database, error) {
+	return func(context.Context, devconfig.Postgres) (Store, error) {
 		t.Fatal("opener called for a config that should have been rejected")
 		return nil, nil
 	}
 }
 
-type fakeDB struct{ closed bool }
+// fakeDB is a store a test controls without a database.
+type fakeDB struct {
+	closed  bool
+	repos   []store.Repo
+	listErr error
+}
+
+func (f *fakeDB) ListRepos() ([]store.Repo, error) {
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	return f.repos, nil
+}
 
 func (f *fakeDB) Close() error {
 	f.closed = true

@@ -16,9 +16,14 @@ type errorMessage struct {
 	Message string `json:"message"`
 }
 
-// WriteError writes a service error response with the given status and message.
-func WriteError(w http.ResponseWriter, status int, message string) {
+// WriteJSON writes a service response with the given status and JSON body.
+func WriteJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(errorBody{Error: errorMessage{Message: message}})
+	_ = json.NewEncoder(w).Encode(body)
+}
+
+// WriteError writes a service error response with the given status and message.
+func WriteError(w http.ResponseWriter, status int, message string) {
+	WriteJSON(w, status, errorBody{Error: errorMessage{Message: message}})
 }

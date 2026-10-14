@@ -221,7 +221,7 @@ func TestRunRejectsIncompleteOIDC(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	opener := func(context.Context, devconfig.Postgres) (Database, error) { return &fakeDB{}, nil }
+	opener := func(context.Context, devconfig.Postgres) (Store, error) { return &fakeDB{}, nil }
 	err = Run(context.Background(), Options{ConfigPath: writeConfig(t, string(data)), Opener: opener, Out: io.Discard})
 	if err == nil {
 		t.Fatal("Run = nil, want an error for an incomplete oidc config")
