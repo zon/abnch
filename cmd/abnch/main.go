@@ -88,35 +88,60 @@ type deps struct {
 	workDir     string
 	in          io.Reader
 	out         io.Writer
+	errOut      io.Writer
 	ctx         context.Context
 	openBrowser func(string) error
 }
 
 func main() {
-	if err := run(os.Args[1:]); err != nil {
+	env, err := processDeps(os.Stdout, os.Stderr)
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "abnch:", err)
 		os.Exit(1)
 	}
+	runMain(os.Args[1:], env, os.Exit)
 }
 
-// run parses an abnch invocation from the current directories.
-func run(args []string) error {
+// processDeps builds the dependencies from the process's directories and the
+// given output streams.
+func processDeps(out, errOut io.Writer) (deps, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return err
+		return deps{}, err
 	}
 	workDir, err := os.Getwd()
 	if err != nil {
-		return err
+		return deps{}, err
 	}
-	return runCLI(args, deps{
+	return deps{
 		homeDir:     home,
 		workDir:     workDir,
 		in:          os.Stdin,
-		out:         os.Stdout,
+		out:         out,
+		errOut:      errOut,
 		ctx:         context.Background(),
 		openBrowser: openBrowser,
-	}, os.Exit)
+	}, nil
+}
+
+// runMain runs one abnch invocation. A command that fails writes its error to
+// the error stream and reports a non-zero exit code; a command that succeeds
+// reports a zero exit code.
+func runMain(args []string, env deps, exit func(int)) {
+	if err := runCLI(args, env, exit); err != nil {
+		fmt.Fprintln(env.errorWriter(), "abnch:", err)
+		exit(1)
+		return
+	}
+	exit(0)
+}
+
+// errorWriter returns the stream command errors are written to.
+func (d deps) errorWriter() io.Writer {
+	if d.errOut != nil {
+		return d.errOut
+	}
+	return os.Stderr
 }
 
 // runIn parses a command with explicit directories, a browser, and streams. It
