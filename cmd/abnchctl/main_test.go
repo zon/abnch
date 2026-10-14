@@ -389,6 +389,42 @@ func TestCheckConfigFailsWhenMissing(t *testing.T) {
 	if !strings.Contains(err.Error(), "service-config.local.yaml") {
 		t.Errorf("error = %q, want it to name the missing file", err)
 	}
+	if _, statErr := os.Stat(filepath.Join(repo, "service-config.local.yaml")); !os.IsNotExist(statErr) {
+		t.Errorf("check config created the missing file: stat = %v", statErr)
+	}
+}
+
+func TestCheckConfigFailsWhenPostgresValueMissing(t *testing.T) {
+	repo := t.TempDir()
+	// Complete except for the host, so the failure names the missing value.
+	cfg := "url: http://localhost:8080\npostgres:\n  host: \"\"\n  port: 5432\n  dbname: abnch\n  user: admin\n  password: pw\n  sslmode: disable\n  timeZone: UTC\noauth:\n  issuers:\n    - issuer: http://localhost:8080/dev\n      audience: abnch\n      roleClaim: sub\n      roleMap:\n        local-cli: Admin\n"
+	if err := os.WriteFile(filepath.Join(repo, "service-config.local.yaml"), []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := runIn([]string{"check", "config"}, repo, t.TempDir(), strings.NewReader(""), &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("check config = nil, want an error for a missing postgres value")
+	}
+	if !strings.Contains(err.Error(), "host") {
+		t.Errorf("error = %q, want it to name the missing postgres value", err)
+	}
+}
+
+func TestCheckConfigFailsWhenAuthEntryMissing(t *testing.T) {
+	repo := t.TempDir()
+	cfg := "url: http://localhost:8080\npostgres:\n  host: db\n  port: 5432\n  dbname: abnch\n  user: admin\n  password: pw\n  sslmode: disable\n  timeZone: UTC\n"
+	if err := os.WriteFile(filepath.Join(repo, "service-config.local.yaml"), []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := runIn([]string{"check", "config"}, repo, t.TempDir(), strings.NewReader(""), &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("check config = nil, want an error for a config with no auth entry")
+	}
+	if !strings.Contains(err.Error(), "auth entry") {
+		t.Errorf("error = %q, want it to name the missing auth entry", err)
+	}
 }
 
 func TestRunInRejectsUnknownCommand(t *testing.T) {
