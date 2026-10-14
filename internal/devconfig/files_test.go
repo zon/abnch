@@ -1,7 +1,6 @@
 package devconfig
 
 import (
-	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -79,8 +78,6 @@ func TestSetLocalAuthExcludesGeneratedFilesFromGit(t *testing.T) {
 		Port:     8080,
 		RepoRoot: repo,
 		HomeDir:  t.TempDir(),
-		In:       strings.NewReader("db\n5432\nabnch\nadmin\npw\n\n\n"),
-		Out:      &bytes.Buffer{},
 	}); err != nil {
 		t.Fatal(err)
 	}

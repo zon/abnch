@@ -1,7 +1,6 @@
 package devconfig
 
 import (
-	"bytes"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -9,12 +8,11 @@ import (
 	"testing"
 )
 
-func TestSetLocalAuthWritesCompleteLocalConfig(t *testing.T) {
+func TestSetLocalAuthWritesLocalAuthConfig(t *testing.T) {
 	repo := t.TempDir()
 	home := t.TempDir()
-	in := strings.NewReader("db.example\n5432\nabnch\nadmin\ns3cret\n\n\n")
 
-	path, err := SetLocalAuth(Options{Port: 9000, RepoRoot: repo, HomeDir: home, In: in, Out: &bytes.Buffer{}})
+	path, err := SetLocalAuth(Options{Port: 9000, RepoRoot: repo, HomeDir: home})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,9 +26,8 @@ func TestSetLocalAuthWritesCompleteLocalConfig(t *testing.T) {
 	if cfg.URL != "http://localhost:9000" {
 		t.Errorf("url = %q", cfg.URL)
 	}
-	wantPostgres := Postgres{Host: "db.example", Port: 5432, DBName: "abnch", User: "admin", Password: "s3cret", SSLMode: "disable", TimeZone: "UTC"}
-	if !reflect.DeepEqual(cfg.Postgres, wantPostgres) {
-		t.Errorf("postgres = %#v, want %#v", cfg.Postgres, wantPostgres)
+	if !reflect.DeepEqual(cfg.Postgres, Postgres{}) {
+		t.Errorf("postgres = %#v, want it untouched", cfg.Postgres)
 	}
 
 	if len(cfg.OAuth.Issuers) != 1 {
@@ -61,95 +58,36 @@ func TestSetLocalAuthWritesCompleteLocalConfig(t *testing.T) {
 	}
 }
 
-func TestReadConfigMissingFileIsEmpty(t *testing.T) {
-	path := filepath.Join(t.TempDir(), ConfigFileName)
-
-	cfg, err := readConfig(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(cfg, Config{}) {
-		t.Errorf("config = %#v, want an empty config for a first run", cfg)
-	}
-}
-
-func TestSetLocalAuthRerunUsesStoredDefaults(t *testing.T) {
+func TestSetLocalAuthPreservesPostgres(t *testing.T) {
 	repo := t.TempDir()
 	home := t.TempDir()
+	path := filepath.Join(repo, ConfigFileName)
 
-	if _, err := SetLocalAuth(Options{Port: 8080, RepoRoot: repo, HomeDir: home, In: strings.NewReader("db.example\n5432\nabnch\nadmin\ns3cret\n\n\n"), Out: &bytes.Buffer{}}); err != nil {
+	// A human or an agent writes the Postgres block before the command runs.
+	handwritten := "url: http://localhost:1111\n" +
+		"postgres:\n" +
+		"  host: db.example\n" +
+		"  port: 5433\n" +
+		"  dbname: abnch\n" +
+		"  user: admin\n" +
+		"  password: s3cret\n" +
+		"  sslmode: require\n" +
+		"  timeZone: America/New_York\n"
+	if err := os.WriteFile(path, []byte(handwritten), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	// Accept every default.
-	if _, err := SetLocalAuth(Options{Port: 8080, RepoRoot: repo, HomeDir: home, In: strings.NewReader("\n\n\n\n\n\n\n"), Out: &bytes.Buffer{}}); err != nil {
+	if _, err := SetLocalAuth(Options{Port: 9000, RepoRoot: repo, HomeDir: home}); err != nil {
 		t.Fatal(err)
 	}
 
-	cfg := readConfigFile(t, filepath.Join(repo, ConfigFileName))
-	want := Postgres{Host: "db.example", Port: 5432, DBName: "abnch", User: "admin", Password: "s3cret", SSLMode: "disable", TimeZone: "UTC"}
+	cfg := readConfigFile(t, path)
+	want := Postgres{Host: "db.example", Port: 5433, DBName: "abnch", User: "admin", Password: "s3cret", SSLMode: "require", TimeZone: "America/New_York"}
 	if !reflect.DeepEqual(cfg.Postgres, want) {
 		t.Errorf("postgres = %#v, want %#v", cfg.Postgres, want)
 	}
-	if len(cfg.OAuth.Issuers) != 1 {
-		t.Errorf("got %d issuers, want 1", len(cfg.OAuth.Issuers))
-	}
-}
-
-func TestSetLocalAuthRerunChangesOneValue(t *testing.T) {
-	repo := t.TempDir()
-	home := t.TempDir()
-
-	if _, err := SetLocalAuth(Options{Port: 8080, RepoRoot: repo, HomeDir: home, In: strings.NewReader("old\n5432\nabnch\nadmin\ns3cret\n\n\n"), Out: &bytes.Buffer{}}); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := SetLocalAuth(Options{Port: 8080, RepoRoot: repo, HomeDir: home, In: strings.NewReader("new\n\n\n\n\n\n\n"), Out: &bytes.Buffer{}}); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg := readConfigFile(t, filepath.Join(repo, ConfigFileName))
-	if cfg.Postgres.Host != "new" {
-		t.Errorf("host = %q, want new", cfg.Postgres.Host)
-	}
-	if cfg.Postgres.Port != 5432 {
-		t.Errorf("port = %d, want 5432", cfg.Postgres.Port)
-	}
-}
-
-func TestSetLocalAuthRerunOffersStoredValuesAsDefaults(t *testing.T) {
-	repo := t.TempDir()
-	home := t.TempDir()
-
-	stored := "db.example\n5432\nabnch\nadmin\ns3cret\nrequire\nAmerica/New_York\n"
-	if _, err := SetLocalAuth(Options{Port: 8080, RepoRoot: repo, HomeDir: home, In: strings.NewReader(stored), Out: &bytes.Buffer{}}); err != nil {
-		t.Fatal(err)
-	}
-
-	var out bytes.Buffer
-	// Accept every default, so no stored value is retyped.
-	if _, err := SetLocalAuth(Options{Port: 8080, RepoRoot: repo, HomeDir: home, In: strings.NewReader("\n\n\n\n\n\n\n"), Out: &out}); err != nil {
-		t.Fatal(err)
-	}
-
-	prompts := out.String()
-	for _, want := range []string{
-		"host [db.example]",
-		"port [5432]",
-		"dbname [abnch]",
-		"user [admin]",
-		"sslmode [require]",
-		"timeZone [America/New_York]",
-	} {
-		if !strings.Contains(prompts, want) {
-			t.Errorf("rerun prompt does not offer the stored value %q:\n%s", want, prompts)
-		}
-	}
-	if !strings.Contains(prompts, "password [stored]") {
-		t.Errorf("rerun password prompt does not offer the stored value:\n%s", prompts)
-	}
-	if strings.Contains(prompts, "s3cret") {
-		t.Errorf("rerun prompt reveals the stored secret:\n%s", prompts)
+	if cfg.URL != "http://localhost:9000" {
+		t.Errorf("url = %q, want the command's url", cfg.URL)
 	}
 }
 
@@ -158,7 +96,7 @@ func TestSetLocalAuthRerunKeepsOneDevIssuer(t *testing.T) {
 	home := t.TempDir()
 
 	for i := 0; i < 2; i++ {
-		if _, err := SetLocalAuth(Options{Port: 8080, RepoRoot: repo, HomeDir: home, In: strings.NewReader("db\n5432\nabnch\nadmin\npw\n\n\n"), Out: &bytes.Buffer{}}); err != nil {
+		if _, err := SetLocalAuth(Options{Port: 8080, RepoRoot: repo, HomeDir: home}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -186,7 +124,7 @@ func TestSetLocalAuthKeepsOtherCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := SetLocalAuth(Options{Port: 8080, RepoRoot: repo, HomeDir: home, In: strings.NewReader("db\n5432\nabnch\nadmin\npw\n\n\n"), Out: &bytes.Buffer{}}); err != nil {
+	if _, err := SetLocalAuth(Options{Port: 8080, RepoRoot: repo, HomeDir: home}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -229,80 +167,6 @@ func TestLocalServiceURL(t *testing.T) {
 		if got := LocalServiceURL(port); got != want {
 			t.Errorf("LocalServiceURL(%d) = %q, want %q", port, got, want)
 		}
-	}
-}
-
-func TestSetLocalAuthRejectsBadPostgresPort(t *testing.T) {
-	repo := t.TempDir()
-	in := strings.NewReader("db\nnot-a-port\nabnch\nadmin\npw\n\n\n")
-	if _, err := SetLocalAuth(Options{Port: 8080, RepoRoot: repo, HomeDir: t.TempDir(), In: in, Out: &bytes.Buffer{}}); err == nil {
-		t.Fatal("want an error for a bad postgres port")
-	}
-}
-
-func TestAskPostgresPromptsEachFieldInTurn(t *testing.T) {
-	var out bytes.Buffer
-	in := strings.NewReader("db.example\n5432\nabnch\nadmin\ns3cret\nrequire\nAmerica/New_York\n")
-
-	pg, err := askPostgres(NewPrompter(in, &out), Postgres{})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	want := Postgres{Host: "db.example", Port: 5432, DBName: "abnch", User: "admin", Password: "s3cret", SSLMode: "require", TimeZone: "America/New_York"}
-	if !reflect.DeepEqual(pg, want) {
-		t.Errorf("postgres = %#v, want %#v", pg, want)
-	}
-	assertPromptsInOrder(t, out.String(), "host", "port", "dbname", "user", "password", "sslmode", "timeZone")
-}
-
-func TestAskPostgresDefaultsSSLModeAndTimeZone(t *testing.T) {
-	var out bytes.Buffer
-	in := strings.NewReader("db.example\n5432\nabnch\nadmin\ns3cret\n\n\n")
-
-	pg, err := askPostgres(NewPrompter(in, &out), Postgres{})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if pg.SSLMode != "disable" {
-		t.Errorf("sslmode = %q, want disable", pg.SSLMode)
-	}
-	if pg.TimeZone != "UTC" {
-		t.Errorf("timeZone = %q, want UTC", pg.TimeZone)
-	}
-	if !strings.Contains(out.String(), "sslmode [disable]") {
-		t.Errorf("sslmode prompt does not offer disable: %q", out.String())
-	}
-	if !strings.Contains(out.String(), "timeZone [UTC]") {
-		t.Errorf("timeZone prompt does not offer UTC: %q", out.String())
-	}
-}
-
-func TestAskPostgresHidesPasswordPrompt(t *testing.T) {
-	var out bytes.Buffer
-	p := NewPrompter(strings.NewReader("db.example\n5432\nabnch\nadmin\ns3cret\n\n\n"), &out)
-	var off int
-	p.echoOff = func() { off++ }
-	p.echoOn = func() {}
-
-	if _, err := askPostgres(p, Postgres{}); err != nil {
-		t.Fatal(err)
-	}
-	if off != 1 {
-		t.Errorf("echo off called %d times, want 1 for the password prompt", off)
-	}
-}
-
-func assertPromptsInOrder(t *testing.T, out string, labels ...string) {
-	t.Helper()
-	at := 0
-	for _, label := range labels {
-		i := strings.Index(out[at:], label)
-		if i < 0 {
-			t.Fatalf("prompt %q is missing or out of order in %q", label, out)
-		}
-		at += i + len(label)
 	}
 }
 

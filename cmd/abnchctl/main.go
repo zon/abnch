@@ -45,8 +45,6 @@ func (c localAuthCmd) Run(deps deps) error {
 		Port:     c.Port,
 		RepoRoot: deps.repoRoot,
 		HomeDir:  deps.homeDir,
-		In:       deps.in,
-		Out:      deps.out,
 	})
 	if err != nil {
 		return err
@@ -79,7 +77,6 @@ func (checkConfigCmd) Run(deps deps) error {
 type deps struct {
 	repoRoot string
 	homeDir  string
-	in       io.Reader
 	out      io.Writer
 }
 
@@ -100,14 +97,14 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
-	return runCLI(args, deps{repoRoot: root, homeDir: home, in: os.Stdin, out: os.Stdout}, os.Exit)
+	return runCLI(args, deps{repoRoot: root, homeDir: home, out: os.Stdout}, os.Exit)
 }
 
 // runIn parses a command with explicit directories and streams. It uses a
 // non-terminating exit so a test observes help and parse failures as return
 // values instead of a process exit.
-func runIn(args []string, repoRoot, homeDir string, in io.Reader, out io.Writer) error {
-	return runCLI(args, deps{repoRoot: repoRoot, homeDir: homeDir, in: in, out: out}, func(int) {})
+func runIn(args []string, repoRoot, homeDir string, out io.Writer) error {
+	return runCLI(args, deps{repoRoot: repoRoot, homeDir: homeDir, out: out}, func(int) {})
 }
 
 func runCLI(args []string, env deps, exit func(int)) error {

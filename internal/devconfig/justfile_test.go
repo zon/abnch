@@ -80,16 +80,36 @@ func TestJustConfigForwardsGivenPort(t *testing.T) {
 	}
 }
 
-// TestJustConfigFailsWhenSetLocalAuthFails runs the config recipe with a real
-// abnchctl that rejects the Postgres port, so set local-auth fails. The recipe
-// must exit non-zero, report the failure, and never reach check config.
+// postgresBlock stands in for the Postgres details a human or an agent writes
+// into the local service config before running the recipe.
+const postgresBlock = "postgres:\n" +
+	"  host: db\n" +
+	"  port: 5432\n" +
+	"  dbname: abnch\n" +
+	"  user: admin\n" +
+	"  password: pw\n" +
+	"  sslmode: disable\n" +
+	"  timeZone: UTC\n"
+
+// TestJustConfigSetsUpLocalService runs the real config recipe over a
+// hand-written Postgres config and checks that both steps pass.
+func TestJustConfigSetsUpLocalService(t *testing.T) {
+	out, err := runConfigRecipe(t, postgresBlock)
+	if err != nil {
+		t.Fatalf("just config = %v, want success:\n%s", err, out)
+	}
+	if !strings.Contains(out, "is ready") {
+		t.Errorf("just config did not confirm the config:\n%s", out)
+	}
+}
+
+// TestJustConfigFailsWhenSetLocalAuthFails runs the config recipe with a
+// malformed local service config, so set local-auth fails to read it. The
+// recipe must exit non-zero, report the failure, and never reach check config.
 func TestJustConfigFailsWhenSetLocalAuthFails(t *testing.T) {
-	out, err := runConfigRecipe(t, "db\nnot-a-port\n")
+	out, err := runConfigRecipe(t, "postgres: [\n")
 	if err == nil {
 		t.Fatalf("just config = nil, want a non-zero exit when set local-auth fails:\n%s", out)
-	}
-	if !strings.Contains(out, "postgres port") {
-		t.Errorf("just config does not report the set local-auth failure:\n%s", out)
 	}
 	if !strings.Contains(out, "Recipe `config` failed") {
 		t.Errorf("just config does not report the failing recipe:\n%s", out)
@@ -99,15 +119,15 @@ func TestJustConfigFailsWhenSetLocalAuthFails(t *testing.T) {
 	}
 }
 
-// TestJustConfigFailsWhenCheckConfigFails runs the config recipe with a real
-// abnchctl that writes a config with no Postgres password, so set local-auth
-// succeeds but check config fails. The recipe must exit non-zero and report it.
+// TestJustConfigFailsWhenCheckConfigFails runs the config recipe with no
+// Postgres block, so set local-auth succeeds but check config fails. The recipe
+// must exit non-zero and report it.
 func TestJustConfigFailsWhenCheckConfigFails(t *testing.T) {
-	out, err := runConfigRecipe(t, "db\n5432\nabnch\nadmin\n\n\n\n")
+	out, err := runConfigRecipe(t, "")
 	if err == nil {
 		t.Fatalf("just config = nil, want a non-zero exit when check config fails:\n%s", out)
 	}
-	if !strings.Contains(out, "missing password") {
+	if !strings.Contains(out, "postgres config is missing") {
 		t.Errorf("just config does not report the check config failure:\n%s", out)
 	}
 	if !strings.Contains(out, "Recipe `config` failed") {
@@ -116,10 +136,10 @@ func TestJustConfigFailsWhenCheckConfigFails(t *testing.T) {
 }
 
 // runConfigRecipe runs the real config recipe end to end and returns just's
-// combined output. It builds abnchctl, then substitutes a stub `go` that runs
-// that binary from an isolated repo root and HOME, so the recipe's writes stay
-// in temp directories.
-func runConfigRecipe(t *testing.T, stdin string) (string, error) {
+// combined output. It seeds seed as the local service config, then builds
+// abnchctl and substitutes a stub `go` that runs that binary from an isolated
+// repo root and HOME, so the recipe's writes stay in temp directories.
+func runConfigRecipe(t *testing.T, seed string) (string, error) {
 	t.Helper()
 
 	just, err := exec.LookPath("just")
@@ -140,6 +160,11 @@ func runConfigRecipe(t *testing.T, stdin string) (string, error) {
 	}
 
 	work := t.TempDir()
+	if seed != "" {
+		if err := os.WriteFile(filepath.Join(work, ConfigFileName), []byte(seed), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	stubDir := t.TempDir()
 	stub := "#!/bin/sh\n" +
 		"if [ \"$1\" = \"run\" ]; then shift; fi\n" +
@@ -151,7 +176,6 @@ func runConfigRecipe(t *testing.T, stdin string) (string, error) {
 	}
 
 	cmd := exec.Command(just, "--justfile", filepath.Join(root, "Justfile"), "config")
-	cmd.Stdin = strings.NewReader(stdin)
 	cmd.Env = envWith(map[string]string{
 		"PATH": stubDir + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"HOME": t.TempDir(),

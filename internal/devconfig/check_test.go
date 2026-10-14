@@ -76,12 +76,22 @@ func TestLoadConfigMissingFileIsClearError(t *testing.T) {
 
 func TestLoadConfigReadsWrittenConfig(t *testing.T) {
 	repo := t.TempDir()
+	seed := "postgres:\n" +
+		"  host: db\n" +
+		"  port: 5432\n" +
+		"  dbname: abnch\n" +
+		"  user: admin\n" +
+		"  password: pw\n" +
+		"  sslmode: disable\n" +
+		"  timeZone: UTC\n"
+	if err := os.WriteFile(ConfigPath(repo), []byte(seed), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
 	if _, err := SetLocalAuth(Options{
 		Port:     8080,
 		RepoRoot: repo,
 		HomeDir:  t.TempDir(),
-		In:       strings.NewReader("db\n5432\nabnch\nadmin\npw\n\n\n"),
-		Out:      &strings.Builder{},
 	}); err != nil {
 		t.Fatal(err)
 	}
