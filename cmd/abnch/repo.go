@@ -7,6 +7,30 @@ import (
 	"strings"
 )
 
+// repoTarget is the repo a command acts on and the client it reaches the
+// service with.
+type repoTarget struct {
+	org    string
+	stub   string
+	client *serviceClient
+}
+
+// resolveRepo derives the repo under the working directory and builds the client
+// a command reaches serviceURL with. It derives the repo first, so a command
+// that needs a repo fails without resolving a credential or sending any request
+// when it cannot derive one.
+func resolveRepo(deps deps, serviceURL string) (repoTarget, error) {
+	org, stub, err := inferRepo(deps.workDir)
+	if err != nil {
+		return repoTarget{}, err
+	}
+	client, err := newServiceClient(deps, serviceURL)
+	if err != nil {
+		return repoTarget{}, err
+	}
+	return repoTarget{org: org, stub: stub, client: client}, nil
+}
+
 // inferRepo derives the org stub and repo stub for the repo under workDir from
 // the Git remote `origin`.
 func inferRepo(workDir string) (org, stub string, err error) {

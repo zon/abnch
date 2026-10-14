@@ -1,8 +1,14 @@
 package main
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"os/exec"
+	"strings"
 	"testing"
+
+	"github.com/zon/abnch/internal/devconfig"
 )
 
 // remoteRepo is the org stub and repo stub a remote URL derives.
@@ -112,5 +118,90 @@ func TestInferRepoFailsOutsideGitRepo(t *testing.T) {
 
 	if org, stub, err := inferRepo(t.TempDir()); err == nil {
 		t.Errorf("inferRepo = %q/%q, want an error outside a Git repo", org, stub)
+	}
+}
+
+// countingService records how many requests reach it.
+func countingService(t *testing.T) (*httptest.Server, *int) {
+	t.Helper()
+
+	count := new(int)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		*count++
+	}))
+	t.Cleanup(srv.Close)
+	return srv, count
+}
+
+// withSession stores a session for the service URL and returns the deps a
+// command works with.
+func withSession(t *testing.T, workDir, serviceURL string) deps {
+	t.Helper()
+
+	home := t.TempDir()
+	if err := devconfig.StoreSession(home, serviceURL, "session-token"); err != nil {
+		t.Fatal(err)
+	}
+	return deps{homeDir: home, workDir: workDir, ctx: context.Background()}
+}
+
+func TestResolveRepoDerivesRepoAndClient(t *testing.T) {
+	workDir := t.TempDir()
+	addRemote(t, workDir, "git@github.com:acme/widgets.git")
+	srv, requests := countingService(t)
+
+	target, err := resolveRepo(withSession(t, workDir, srv.URL), srv.URL)
+	if err != nil {
+		t.Fatalf("resolveRepo = %v, want no error", err)
+	}
+	if target.org != "acme" || target.stub != "widgets" {
+		t.Errorf("resolveRepo = %q/%q, want acme/widgets", target.org, target.stub)
+	}
+	if target.client == nil {
+		t.Error("resolveRepo returned no client")
+	}
+	if *requests != 0 {
+		t.Errorf("requests = %d, want none from resolving a repo", *requests)
+	}
+}
+
+func TestResolveRepoSendsNoRequestOutsideGitRepo(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	srv, requests := countingService(t)
+
+	target, err := resolveRepo(withSession(t, t.TempDir(), srv.URL), srv.URL)
+	if err == nil {
+		t.Fatal("resolveRepo = nil, want an error outside a Git repo")
+	}
+	if target.client != nil {
+		t.Error("resolveRepo returned a client without a repo")
+	}
+	if *requests != 0 {
+		t.Errorf("requests = %d, want none without a repo", *requests)
+	}
+	if strings.Contains(err.Error(), "abnch login") {
+		t.Errorf("error = %q, want a repo error before the credential is resolved", err)
+	}
+}
+
+func TestResolveRepoSendsNoRequestForUnparseableRemote(t *testing.T) {
+	workDir := t.TempDir()
+	addRemote(t, workDir, "https://github.com/acme")
+	srv, requests := countingService(t)
+
+	target, err := resolveRepo(withSession(t, workDir, srv.URL), srv.URL)
+	if err == nil {
+		t.Fatal("resolveRepo = nil, want an error for a remote without a repo")
+	}
+	if target.client != nil {
+		t.Error("resolveRepo returned a client without a repo")
+	}
+	if *requests != 0 {
+		t.Errorf("requests = %d, want none without a repo", *requests)
+	}
+	if strings.Contains(err.Error(), "abnch login") {
+		t.Errorf("error = %q, want a repo error before the credential is resolved", err)
 	}
 }
