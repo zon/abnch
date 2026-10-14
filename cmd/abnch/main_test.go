@@ -256,6 +256,76 @@ func TestLoginFailsWithoutURL(t *testing.T) {
 	noSession(t, home)
 }
 
+func TestLogoutRemovesSession(t *testing.T) {
+	home := t.TempDir()
+	service := "https://bench.example.com"
+	if err := devconfig.StoreSession(home, service, "token"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runIn([]string{"logout", "--url", service}, home, unusedBrowser(t), context.Background(), io.Discard); err != nil {
+		t.Fatalf("logout = %v, want no error", err)
+	}
+
+	creds, err := devconfig.LoadCredentials(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := creds[service].Session; got != "" {
+		t.Errorf("session = %q, want it removed", got)
+	}
+}
+
+func TestLogoutKeepsOtherSessions(t *testing.T) {
+	home := t.TempDir()
+	other := "https://other.example.com"
+	service := "https://bench.example.com"
+	if err := devconfig.StoreSession(home, other, "other-token"); err != nil {
+		t.Fatal(err)
+	}
+	if err := devconfig.StoreSession(home, service, "token"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runIn([]string{"logout", "--url", service}, home, unusedBrowser(t), context.Background(), io.Discard); err != nil {
+		t.Fatal(err)
+	}
+
+	creds, err := devconfig.LoadCredentials(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if creds[other].Session != "other-token" {
+		t.Errorf("other session = %q, want it kept", creds[other].Session)
+	}
+	if creds[service].Session != "" {
+		t.Errorf("session = %q, want it removed", creds[service].Session)
+	}
+}
+
+func TestLogoutWithoutSessionSucceeds(t *testing.T) {
+	home := t.TempDir()
+
+	if err := runIn([]string{"logout", "--url", "https://bench.example.com"}, home, unusedBrowser(t), context.Background(), io.Discard); err != nil {
+		t.Fatalf("logout = %v, want no error", err)
+	}
+
+	noSession(t, home)
+}
+
+func TestLogoutFailsWithoutURL(t *testing.T) {
+	home := t.TempDir()
+
+	err := runIn([]string{"logout"}, home, unusedBrowser(t), context.Background(), io.Discard)
+	if err == nil {
+		t.Fatal("logout = nil, want an error without a service url")
+	}
+	if !strings.Contains(err.Error(), "url") {
+		t.Errorf("error = %q, want it to name the missing url", err)
+	}
+	noSession(t, home)
+}
+
 func TestLoginOpensBrowserAtTheServiceSignIn(t *testing.T) {
 	home := t.TempDir()
 	service := signInService(t, "session-token")

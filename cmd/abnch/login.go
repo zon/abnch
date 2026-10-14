@@ -25,8 +25,8 @@ const signInTimeout = 5 * time.Minute
 // in a browser, and stores the session the service grants. It stores nothing
 // when sign-in fails.
 func login(deps deps, serviceURL string) error {
-	if serviceURL == "" {
-		return errors.New("no service url: pass --url")
+	if err := requireServiceURL(serviceURL); err != nil {
+		return err
 	}
 
 	session, err := signIn(deps, serviceURL)

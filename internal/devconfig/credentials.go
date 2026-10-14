@@ -42,6 +42,27 @@ func StoreSession(homeDir, url, session string) error {
 	return saveCredentials(homeDir, UpsertCredential(creds, url, cred))
 }
 
+// RemoveSession clears the stored session for url in the credential store under
+// homeDir, keeping every other URL and the URL's other credential fields. A URL
+// with no stored session changes nothing.
+func RemoveSession(homeDir, url string) error {
+	creds, err := LoadCredentials(homeDir)
+	if err != nil {
+		return err
+	}
+	cred, ok := creds[url]
+	if !ok || cred.Session == "" {
+		return nil
+	}
+	cred.Session = ""
+	if cred == (Credential{}) {
+		delete(creds, url)
+	} else {
+		creds[url] = cred
+	}
+	return saveCredentials(homeDir, creds)
+}
+
 // LocalCredential builds the CLI credential for a local service URL from the
 // dev issuer the service trusts, so the CLI authenticates as the issuer's
 // local-cli subject without signing in.

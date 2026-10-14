@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,7 +13,8 @@ import (
 
 // cli is the abnch command line.
 type cli struct {
-	Login loginCmd `cmd:"" help:"Sign in a human user and store the session."`
+	Login  loginCmd  `cmd:"" help:"Sign in a human user and store the session."`
+	Logout logoutCmd `cmd:"" help:"Remove the stored session."`
 }
 
 // loginCmd signs a human user in through the service.
@@ -23,6 +25,24 @@ type loginCmd struct {
 // Run signs in and stores the session for the service URL.
 func (c loginCmd) Run(deps deps) error {
 	return login(deps, c.URL)
+}
+
+// logoutCmd removes the stored session for the service.
+type logoutCmd struct {
+	URL string `help:"Service URL." optional:""`
+}
+
+// Run removes the stored session for the service URL.
+func (c logoutCmd) Run(deps deps) error {
+	return logout(deps, c.URL)
+}
+
+// requireServiceURL rejects a command with no service URL.
+func requireServiceURL(serviceURL string) error {
+	if serviceURL == "" {
+		return errors.New("no service url: pass --url")
+	}
+	return nil
 }
 
 // deps carries the directories, streams, and browser a command works with.
