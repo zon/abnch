@@ -29,7 +29,7 @@ func Check(cfg Config) error {
 	if err := CheckPostgres(cfg.Postgres); err != nil {
 		return err
 	}
-	if len(cfg.OAuth.Issuers) == 0 {
+	if len(cfg.OAuth.Issuers) == 0 && cfg.OIDC.Issuer == "" {
 		return fmt.Errorf("no auth entry: the config needs an oidc or oauth entry")
 	}
 	return nil

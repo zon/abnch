@@ -71,12 +71,17 @@ func Run(ctx context.Context, opts Options) error {
 		out = io.Discard
 	}
 
-	authenticator := opts.Authenticator
-	if authenticator == nil {
-		authenticator = auth.Workload(cfg.OAuth.Issuers)
+	human, err := humanSignIn(cfg)
+	if err != nil {
+		return err
 	}
 
-	handler, err := serviceHandler(cfg, opts.ConfigPath, authenticator)
+	authenticator := opts.Authenticator
+	if authenticator == nil {
+		authenticator = defaultAuthenticator(cfg, human)
+	}
+
+	handler, err := serviceHandler(cfg, opts.ConfigPath, authenticator, human)
 	if err != nil {
 		return err
 	}
@@ -85,8 +90,8 @@ func Run(ctx context.Context, opts Options) error {
 }
 
 // serviceHandler builds the service's routes: the local dev issuer it hosts,
-// when its config trusts one, plus the authenticated API.
-func serviceHandler(cfg devconfig.Config, configPath string, authenticator auth.Authenticator) (http.Handler, error) {
+// when its config trusts one, the human sign-in, and the authenticated API.
+func serviceHandler(cfg devconfig.Config, configPath string, authenticator auth.Authenticator, human *auth.Human) (http.Handler, error) {
 	dev, err := devIssuer(cfg, configPath)
 	if err != nil {
 		return nil, err
@@ -96,8 +101,35 @@ func serviceHandler(cfg devconfig.Config, configPath string, authenticator auth.
 	if dev != nil {
 		dev.Register(mux)
 	}
+	if human != nil {
+		human.Register(mux)
+	}
 	mux.Handle("/", auth.Middleware(authenticator, http.NewServeMux()))
 	return mux, nil
+}
+
+// humanSignIn builds the human sign-in from the config's OIDC provider, or
+// returns nil when the config names none.
+func humanSignIn(cfg devconfig.Config) (*auth.Human, error) {
+	if cfg.OIDC.Issuer == "" {
+		return nil, nil
+	}
+
+	human, err := auth.NewHuman(cfg.OIDC)
+	if err != nil {
+		return nil, fmt.Errorf("oidc config: %w", err)
+	}
+	return human, nil
+}
+
+// defaultAuthenticator authenticates a request with a session the service
+// granted, or a workload token from an issuer the config trusts.
+func defaultAuthenticator(cfg devconfig.Config, human *auth.Human) auth.Authenticator {
+	workload := auth.Workload(cfg.OAuth.Issuers)
+	if human == nil {
+		return workload
+	}
+	return auth.Any(human.Authenticate, workload)
 }
 
 // devIssuer returns the local dev issuer the config trusts for its url, or nil

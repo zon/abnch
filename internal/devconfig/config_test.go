@@ -66,6 +66,33 @@ func TestConfigRoundTrip(t *testing.T) {
 	}
 }
 
+func TestConfigRoundTripKeepsOIDC(t *testing.T) {
+	cfg := Config{
+		URL:      "http://localhost:8080",
+		Postgres: Postgres{Host: "localhost", Port: 5432, DBName: "abnch", User: "postgres", Password: "pw", SSLMode: "disable", TimeZone: "UTC"},
+		OIDC: OIDC{
+			Issuer:       "https://id.example.com",
+			ClientID:     "client",
+			ClientSecret: "secret",
+			RedirectURL:  "http://localhost:8080/auth/callback",
+			Scopes:       []string{"openid", "email"},
+			RoleClaim:    "roles",
+			RoleMap:      map[string]string{"admin": "Admin"},
+		},
+	}
+	data, err := cfg.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := UnmarshalConfig(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got.OIDC, cfg.OIDC) {
+		t.Errorf("oidc round trip = %#v, want %#v", got.OIDC, cfg.OIDC)
+	}
+}
+
 func TestUpsertCredentialKeepsOtherURLs(t *testing.T) {
 	creds := map[string]Credential{"https://bench.example.com": {Subject: "human"}}
 	creds = UpsertCredential(creds, "http://localhost:8080", Credential{Subject: "local-cli"})

@@ -14,6 +14,7 @@ var ErrUnauthenticated = errors.New("unauthenticated")
 // Caller is the caller an authenticated request identifies.
 type Caller struct {
 	Subject string
+	Roles   []string
 }
 
 // Authenticator authenticates a request. It returns the caller the request
@@ -25,6 +26,22 @@ type Authenticator func(*http.Request) (Caller, error)
 // credentials.
 func Deny(*http.Request) (Caller, error) {
 	return Caller{}, ErrUnauthenticated
+}
+
+// Any authenticates a request when any of the authenticators does, returning
+// the first caller identified. It rejects the request when none does.
+func Any(authenticators ...Authenticator) Authenticator {
+	return func(r *http.Request) (Caller, error) {
+		for _, a := range authenticators {
+			if a == nil {
+				continue
+			}
+			if caller, err := a(r); err == nil {
+				return caller, nil
+			}
+		}
+		return Caller{}, ErrUnauthenticated
+	}
 }
 
 // Middleware authenticates each request with a, then calls next. A request

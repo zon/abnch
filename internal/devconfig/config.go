@@ -30,11 +30,23 @@ type OAuth struct {
 	Issuers []Issuer `yaml:"issuers"`
 }
 
+// OIDC is the provider the service signs human users in through.
+type OIDC struct {
+	Issuer       string            `yaml:"issuer"`
+	ClientID     string            `yaml:"clientId"`
+	ClientSecret string            `yaml:"clientSecret"`
+	RedirectURL  string            `yaml:"redirectUrl"`
+	Scopes       []string          `yaml:"scopes"`
+	RoleClaim    string            `yaml:"roleClaim"`
+	RoleMap      map[string]string `yaml:"roleMap"`
+}
+
 // Config is the local service configuration.
 type Config struct {
 	URL      string   `yaml:"url"`
 	Postgres Postgres `yaml:"postgres"`
 	OAuth    OAuth    `yaml:"oauth"`
+	OIDC     OIDC     `yaml:"oidc,omitempty"`
 }
 
 // LocalCLISubject is the dev issuer subject the local CLI authenticates as.

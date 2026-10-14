@@ -8,7 +8,7 @@
   description: Starts the service from a service config file.
 
 - path: internal/auth
-  description: Authenticates service callers and publishes the local dev issuer.
+  description: Authenticates service callers, signs human users in, and publishes the local dev issuer.
 
 - path: internal/devconfig
   description: Collects and stores the local service configuration.
