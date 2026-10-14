@@ -42,14 +42,24 @@ func newServiceClient(deps deps, serviceURL string) (*serviceClient, error) {
 	}, nil
 }
 
-// do sends a request to the service with the caller's credential presented.
+// do sends a request to the service with the caller's credential presented. A
+// service that rejects the credential with 401 fails the command and tells the
+// user to sign in. It does not retry the request with another credential.
 func (c *serviceClient) do(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
-	return c.http.Do(req)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		resp.Body.Close()
+		return nil, rejectedCredentialError(c.baseURL)
+	}
+	return resp, nil
 }
 
 // serviceCredential returns the bearer token the CLI presents to the service at
@@ -76,6 +86,12 @@ func serviceCredential(homeDir, serviceURL string) (string, error) {
 // signInError tells the user how to get a credential for a service URL.
 func signInError(serviceURL string) error {
 	return fmt.Errorf("no session for %s: run `abnch login`", serviceURL)
+}
+
+// rejectedCredentialError tells the user how to replace a credential the
+// service rejected.
+func rejectedCredentialError(serviceURL string) error {
+	return fmt.Errorf("the service rejected the credential for %s: run `abnch login`", serviceURL)
 }
 
 // sessionExpired reports whether a stored session carries an expiry in the

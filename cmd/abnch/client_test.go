@@ -15,6 +15,7 @@ import (
 
 	"github.com/zon/abnch/internal/auth"
 	"github.com/zon/abnch/internal/devconfig"
+	"github.com/zon/abnch/internal/httpx"
 )
 
 // captureAuth records the Authorization header of the first request a service
@@ -304,5 +305,67 @@ func TestServiceClientPresentsUnreadableSession(t *testing.T) {
 
 	if got := *header; got != "Bearer opaque-token" {
 		t.Errorf("Authorization = %q, want the unreadable session presented", got)
+	}
+}
+
+// rejectingService answers every request with the service's 401 error.
+func rejectingService(t *testing.T) (*httptest.Server, *[]string) {
+	t.Helper()
+	headers := new([]string)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		*headers = append(*headers, r.Header.Get("Authorization"))
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthenticated")
+	}))
+	t.Cleanup(srv.Close)
+	return srv, headers
+}
+
+func TestServiceClientFailsWhenServiceRejectsCredential(t *testing.T) {
+	home := t.TempDir()
+	srv, _ := rejectingService(t)
+	if err := devconfig.StoreSession(home, srv.URL, "session-token"); err != nil {
+		t.Fatal(err)
+	}
+
+	client, err := newServiceClient(deps{homeDir: home, ctx: context.Background()}, srv.URL)
+	if err != nil {
+		t.Fatalf("newServiceClient = %v, want no error", err)
+	}
+	resp, err := client.do(context.Background(), http.MethodGet, "/repos", nil)
+	if err == nil {
+		t.Fatal("do = nil, want an error when the service rejects the credential")
+	}
+	if resp != nil {
+		t.Errorf("response = %v, want none on a rejected credential", resp)
+	}
+	if !strings.Contains(err.Error(), "abnch login") {
+		t.Errorf("error = %q, want it to tell the user to run abnch login", err)
+	}
+}
+
+func TestServiceClientDoesNotRetryWithOtherCredentials(t *testing.T) {
+	home := t.TempDir()
+	keyPath := filepath.Join(t.TempDir(), "dev-issuer.key")
+	if err := devconfig.EnsureDevKey(keyPath); err != nil {
+		t.Fatal(err)
+	}
+	srv, headers := rejectingService(t)
+	cred := devconfig.LocalCredential(srv.URL, keyPath)
+	cred.Session = "rejected-session"
+	storeCredential(t, home, srv.URL, cred)
+
+	client, err := newServiceClient(deps{homeDir: home, ctx: context.Background()}, srv.URL)
+	if err != nil {
+		t.Fatalf("newServiceClient = %v, want no error", err)
+	}
+	if _, err := client.do(context.Background(), http.MethodGet, "/repos", nil); err == nil {
+		t.Fatal("do = nil, want an error for a rejected credential")
+	}
+
+	if len(*headers) != 1 {
+		t.Fatalf("requests = %d, want one request with no retry", len(*headers))
+	}
+	if got := (*headers)[0]; got != "Bearer rejected-session" {
+		t.Errorf("Authorization = %q, want the stored session and no fallback to the local credential", got)
 	}
 }
