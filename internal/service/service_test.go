@@ -349,11 +349,13 @@ func unusedOpener(t *testing.T) Opener {
 
 // fakeDB is a store a test controls without a database.
 type fakeDB struct {
-	closed  bool
-	repos   []store.Repo
-	listErr error
-	getErr  error
-	saveErr error
+	closed       bool
+	repos        []store.Repo
+	tasks        []store.Task
+	listErr      error
+	getErr       error
+	saveErr      error
+	listTasksErr error
 }
 
 func (f *fakeDB) GetRepo(org, stub string) (store.Repo, error) {
@@ -373,6 +375,19 @@ func (f *fakeDB) ListRepos() ([]store.Repo, error) {
 		return nil, f.listErr
 	}
 	return f.repos, nil
+}
+
+func (f *fakeDB) ListTasks(org, repo string) ([]store.Task, error) {
+	if f.listTasksErr != nil {
+		return nil, f.listTasksErr
+	}
+	var tasks []store.Task
+	for _, t := range f.tasks {
+		if t.Org == org && t.Repo == repo {
+			tasks = append(tasks, t)
+		}
+	}
+	return tasks, nil
 }
 
 func (f *fakeDB) SaveRepo(r store.Repo) error {

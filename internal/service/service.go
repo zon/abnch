@@ -23,6 +23,8 @@ type Store interface {
 	GetRepo(org, stub string) (store.Repo, error)
 	// ListRepos returns every repo, ordered by org stub and repo stub.
 	ListRepos() ([]store.Repo, error)
+	// ListTasks returns a repo's tasks, ordered by stub.
+	ListTasks(org, repo string) ([]store.Task, error)
 	// SaveRepo creates or replaces the repo with the given stubs.
 	SaveRepo(r store.Repo) error
 	// Close closes the store.
@@ -125,6 +127,7 @@ func api(st Store) http.Handler {
 	mux.HandleFunc("GET /repos", listRepos(st))
 	mux.HandleFunc("GET /repos/{org}/{stub}", getRepo(st))
 	mux.HandleFunc("PUT /repos/{org}/{stub}", putRepo(st))
+	mux.HandleFunc("GET /repos/{org}/{repo}/tasks", listTasks(st))
 	mux.HandleFunc("/", notFound)
 	return mux
 }
