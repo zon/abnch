@@ -2,9 +2,28 @@
 
 ## Purpose
 
-Configure a local service for development. The `just config` recipe drives the `abnchctl` developer CLI, which does the work: it collects the local service values, writes them outside version control, and generates local auth. The local service config and its credentials are defined in the [Dev Config Design](../../docs/design/dev-config.md), and the `abnchctl` commands in the [Dev Tooling Design](../../docs/design/app/abnchctl.md).
+Configure a local service for development. The `just config` recipe drives the `abnchctl` developer CLI, which writes the local service URL and the local auth outside version control. A human or an agent writes the Postgres connection details. The local service config and its credentials are defined in the [Dev Config Design](../../docs/design/dev-config.md), and the `abnchctl` commands in the [Dev Tooling Design](../../docs/design/app/abnchctl.md).
 
 ## Requirements
+
+### Requirement: Config Location
+
+`abnchctl` SHALL read and write the local service config at `.abnchd/config.yaml` under the repo root, and SHALL keep the file out of version control.
+
+The `--config` option SHALL override the path for both `set local-auth` and `check config`.
+
+#### Scenario: Default path
+
+- GIVEN a repo and no `--config` override
+- WHEN `abnchctl set local-auth` runs
+- THEN it writes the config to `.abnchd/config.yaml` under the repo root
+- AND git ignores the file
+
+#### Scenario: Path override
+
+- GIVEN the user passes `--config` a path
+- WHEN `abnchctl set local-auth` or `abnchctl check config` runs
+- THEN it uses that path instead of `.abnchd/config.yaml`
 
 ### Requirement: Service Port
 
@@ -22,22 +41,15 @@ Configure a local service for development. The `just config` recipe drives the `
 - WHEN `abnchctl set local-auth` builds the local service URL
 - THEN the local service URL uses that port
 
-### Requirement: Postgres Config
+### Requirement: Auth Only
 
-`abnchctl set local-auth` SHALL prompt for each Postgres field (host, port, dbname, user, password, sslmode, and timeZone) and write the local service config. The password prompt SHALL hide typing, sslmode SHALL default to `disable`, and timeZone SHALL default to `UTC`. A value already in the config SHALL become the prompt default.
+`abnchctl set local-auth` SHALL write only local auth config. It SHALL NOT prompt for or change the Postgres config.
 
-#### Scenario: Write the config
+#### Scenario: Postgres config is preserved
 
-- GIVEN the user answers each Postgres prompt
+- GIVEN a local service config holds a Postgres block
 - WHEN `abnchctl set local-auth` finishes
-- THEN it writes the local service config
-- AND it reports the file path
-
-#### Scenario: Re-run
-
-- GIVEN a local service config exists
-- WHEN the user runs `just config` again
-- THEN each existing value is the prompt default
+- THEN the Postgres block is unchanged
 
 ### Requirement: Local Auth
 
@@ -57,7 +69,7 @@ After `abnchctl set local-auth` succeeds, `just config` SHALL run `abnchctl chec
 
 #### Scenario: Confirm the config
 
-- GIVEN `abnchctl set local-auth` wrote the Postgres config
+- GIVEN `abnchctl set local-auth` wrote the local auth config
 - WHEN the user runs `just config`
 - THEN the recipe runs `abnchctl check config`
 - AND it confirms the Postgres config is present

@@ -1,5 +1,7 @@
 # Stack
 
+Use the latest stable version of each dependency when feasible.
+
 * [Go](https://go.dev/)
 * [Kong](https://github.com/alecthomas/kong)
 * [Gin](https://gin-gonic.com/)
