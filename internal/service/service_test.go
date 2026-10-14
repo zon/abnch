@@ -30,6 +30,26 @@ func validConfig(port int) string {
 	return fmt.Sprintf("url: http://127.0.0.1:%d\n", port) + postgresYAML
 }
 
+// testPostgres is the Postgres block a test config carries.
+func testPostgres() devconfig.Postgres {
+	return devconfig.Postgres{
+		Host: "db", Port: 5432, DBName: "abnch",
+		User: "admin", Password: "pw", SSLMode: "disable", TimeZone: "UTC",
+	}
+}
+
+// configYAML renders a service config for url that trusts the given issuers.
+func configYAML(t *testing.T, url string, issuers []devconfig.Issuer) string {
+	t.Helper()
+
+	cfg := devconfig.Config{URL: url, Postgres: testPostgres(), OAuth: devconfig.OAuth{Issuers: issuers}}
+	data, err := cfg.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
 func TestRunRejectsMissingConfigFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 

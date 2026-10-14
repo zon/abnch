@@ -22,19 +22,7 @@ func devIssuerConfig(t *testing.T, port int) string {
 	t.Helper()
 
 	url := fmt.Sprintf("http://127.0.0.1:%d", port)
-	cfg := devconfig.Config{
-		URL: url,
-		Postgres: devconfig.Postgres{
-			Host: "db", Port: 5432, DBName: "abnch",
-			User: "admin", Password: "pw", SSLMode: "disable", TimeZone: "UTC",
-		},
-		OAuth: devconfig.OAuth{Issuers: []devconfig.Issuer{devconfig.DevIssuer(url)}},
-	}
-	data, err := cfg.Marshal()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(data)
+	return configYAML(t, url, []devconfig.Issuer{devconfig.DevIssuer(url)})
 }
 
 // TestRunServesDevIssuer checks the service serves the dev issuer's OIDC

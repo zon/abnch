@@ -11,6 +11,8 @@ import (
 	"time"
 
 	jose "github.com/go-jose/go-jose/v4"
+
+	"github.com/zon/abnch/internal/devconfig"
 )
 
 // workloadIssuer serves the OIDC configuration and JWKS of a fake workload
@@ -56,8 +58,8 @@ func (i *workloadIssuer) jwks(w http.ResponseWriter, _ *http.Request) {
 	}}})
 }
 
-// token signs a valid claim set from the issuer into a workload token.
-func (i *workloadIssuer) token(t *testing.T) string {
+// token signs claims from the issuer into a workload token.
+func (i *workloadIssuer) token(t *testing.T, claims map[string]any) string {
 	t.Helper()
 
 	signer, err := jose.NewSigner(
@@ -67,12 +69,7 @@ func (i *workloadIssuer) token(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload, err := json.Marshal(map[string]any{
-		"iss": i.url,
-		"aud": "abnch",
-		"sub": "local-cli",
-		"exp": time.Now().Add(time.Hour).Unix(),
-	})
+	payload, err := json.Marshal(claims)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,6 +82,20 @@ func (i *workloadIssuer) token(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return token
+}
+
+// claims returns a valid claim set from the issuer, with extra overriding it.
+func (i *workloadIssuer) claims(extra map[string]any) map[string]any {
+	claims := map[string]any{
+		"iss": i.url,
+		"aud": "abnch",
+		"sub": "local-cli",
+		"exp": time.Now().Add(time.Hour).Unix(),
+	}
+	for key, value := range extra {
+		claims[key] = value
+	}
+	return claims
 }
 
 func writeJSON(w http.ResponseWriter, body any) {
@@ -119,8 +130,8 @@ func TestRunAuthenticatesWorkloadToken(t *testing.T) {
 		auth string
 		want int
 	}{
-		{name: "trusted issuer", auth: "Bearer " + trusted.token(t), want: http.StatusNotFound},
-		{name: "unknown issuer", auth: "Bearer " + other.token(t), want: http.StatusUnauthorized},
+		{name: "trusted issuer", auth: "Bearer " + trusted.token(t, trusted.claims(nil)), want: http.StatusNotFound},
+		{name: "unknown issuer", auth: "Bearer " + other.token(t, other.claims(nil)), want: http.StatusUnauthorized},
 		{name: "no credentials", want: http.StatusUnauthorized},
 		{name: "unverifiable credentials", auth: "Bearer not-a-token", want: http.StatusUnauthorized},
 	} {
@@ -140,6 +151,72 @@ func TestRunAuthenticatesWorkloadToken(t *testing.T) {
 			resp.Body.Close()
 			if resp.StatusCode != tc.want {
 				t.Errorf("status = %d, want %d", resp.StatusCode, tc.want)
+			}
+		})
+	}
+}
+
+// TestRunAcceptsWorkloadCredentials checks the service accepts a Kubernetes
+// service account token, a GitHub workflow token, and a token from the local
+// dev issuer as workload credentials.
+func TestRunAcceptsWorkloadCredentials(t *testing.T) {
+	kubernetes := newWorkloadIssuer(t)
+	github := newWorkloadIssuer(t)
+
+	port := freePort(t)
+	url := fmt.Sprintf("http://127.0.0.1:%d", port)
+	path := writeConfig(t, configYAML(t, url, []devconfig.Issuer{
+		{Issuer: kubernetes.url, Audience: "abnch", RoleClaim: "sub"},
+		{Issuer: github.url, Audience: "abnch", RoleClaim: "repository"},
+		devconfig.DevIssuer(url),
+	}))
+	if err := devconfig.EnsureDevKey(devconfig.KeyPath(path)); err != nil {
+		t.Fatal(err)
+	}
+	base := startServiceWith(t, port, Options{ConfigPath: path})
+
+	devKey, err := devconfig.LoadDevKey(devconfig.KeyPath(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name  string
+		token string
+	}{
+		{
+			name: "kubernetes service account",
+			token: kubernetes.token(t, kubernetes.claims(map[string]any{
+				"aud": []string{"abnch"},
+				"sub": "system:serviceaccount:abnch:agent-runner",
+			})),
+		},
+		{
+			name: "github workflow",
+			token: github.token(t, github.claims(map[string]any{
+				"sub":        "repo:zon/abnch:ref:refs/heads/main",
+				"repository": "zon/abnch",
+			})),
+		},
+		{
+			name:  "local dev issuer",
+			token: signDevToken(t, devKey, url+"/dev"),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodGet, base, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("Authorization", "Bearer "+tc.token)
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusNotFound {
+				t.Errorf("status = %d, want %d for an authenticated request", resp.StatusCode, http.StatusNotFound)
 			}
 		})
 	}
