@@ -302,6 +302,33 @@ func TestPutRepoSameStubsIsOneRepo(t *testing.T) {
 	}
 }
 
+// TestPutRepoUpdateMergesBody checks an update whose body omits the URL keeps
+// the stored URL and returns 200, so the body merges into the existing repo.
+func TestPutRepoUpdateMergesBody(t *testing.T) {
+	st := &fakeDB{repos: []store.Repo{
+		{Org: "acme", Stub: "widgets", URL: "https://github.com/acme/widgets"},
+	}}
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+
+	update := sendRepoPut(t, base, "repos/acme/widgets", `{}`)
+	defer update.Body.Close()
+	if update.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", update.StatusCode, http.StatusOK)
+	}
+
+	var got repoBody
+	if err := json.NewDecoder(update.Body).Decode(&got); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	want := repoBody{Org: "acme", Stub: "widgets", URL: "https://github.com/acme/widgets"}
+	if got != want {
+		t.Errorf("repo = %#v, want the stored URL %#v", got, want)
+	}
+	if len(st.repos) != 1 {
+		t.Fatalf("store holds %d repos, want 1", len(st.repos))
+	}
+}
+
 // TestPutRepoRejectsMissingURLCreate checks a create without a URL returns 422
 // and writes no repo.
 func TestPutRepoRejectsMissingURLCreate(t *testing.T) {
