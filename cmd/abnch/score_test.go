@@ -486,6 +486,54 @@ func TestScoreFailsWhenScoreOutputHasNoDictionary(t *testing.T) {
 	}
 }
 
+func TestScoreReportsMissingMarkerOnStderr(t *testing.T) {
+	workDir := t.TempDir()
+	addRemote(t, workDir, "git@github.com:acme/widgets.git")
+	fake := newFakeService(t)
+	ref := seedScoreResult(t, fake, `{"prompt":"hi"}`, `{"answer":"hi"}`)
+	writeScript(t, workDir, "build.sh", "echo build >> build.log\n")
+	writeScript(t, workDir, "grade.sh", "echo no marker here\n")
+	d, _ := runDeps(t, workDir, fake.url, scoreConfig(fake.url))
+
+	code, out, errOut := exitCode(t, []string{"score", ref}, d)
+	if code == 0 {
+		t.Error("exit = 0, want a non-zero exit when the output carries no marker")
+	}
+	if out != "" {
+		t.Errorf("stdout = %q, want nothing when the output carries no marker", out)
+	}
+	if !strings.Contains(errOut, "marker") {
+		t.Errorf("stderr = %q, want the missing marker reported", errOut)
+	}
+	if got := fake.scoreRefs("acme", "widgets"); len(got) != 0 {
+		t.Errorf("recorded %v scores, want none without a marker", got)
+	}
+}
+
+func TestScoreReportsMissingDictionaryOnStderr(t *testing.T) {
+	workDir := t.TempDir()
+	addRemote(t, workDir, "git@github.com:acme/widgets.git")
+	fake := newFakeService(t)
+	ref := seedScoreResult(t, fake, `{"prompt":"hi"}`, `{"answer":"hi"}`)
+	writeScript(t, workDir, "build.sh", "echo build >> build.log\n")
+	writeScript(t, workDir, "grade.sh", "printf '__abnch__\\n{\"inputTokens\":1}\\n'\n")
+	d, _ := runDeps(t, workDir, fake.url, scoreConfig(fake.url))
+
+	code, out, errOut := exitCode(t, []string{"score", ref}, d)
+	if code == 0 {
+		t.Error("exit = 0, want a non-zero exit when the score output carries no dictionary")
+	}
+	if out != "" {
+		t.Errorf("stdout = %q, want nothing when the score output carries no dictionary", out)
+	}
+	if !strings.Contains(errOut, "score") {
+		t.Errorf("stderr = %q, want the missing score dictionary reported", errOut)
+	}
+	if got := fake.scoreRefs("acme", "widgets"); len(got) != 0 {
+		t.Errorf("recorded %v scores, want none without a dictionary", got)
+	}
+}
+
 func TestScoreModelFlagOverridesTheTaskModel(t *testing.T) {
 	workDir := t.TempDir()
 	addRemote(t, workDir, "git@github.com:acme/widgets.git")
