@@ -42,6 +42,7 @@ func (f *fakeService) serveAddResult(w http.ResponseWriter, org, repo string, bo
 		TokenCost: req.TokenCost, Duration: req.Duration, Local: req.Local,
 	}
 	ref := store.ResultRef(result)
+	result.Ref = ref
 	key := org + "/" + repo + "/" + ref
 	_, existed := f.results[key]
 	f.results[key] = result

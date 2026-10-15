@@ -99,6 +99,34 @@ func getData(d deps, path string) error {
 	return writeJSON(d.out, datum)
 }
 
+// getResults writes the inferred repo's results as YAML. It fails when the repo
+// is missing.
+func getResults(d deps) error {
+	target, err := resolveTarget(d)
+	if err != nil {
+		return err
+	}
+	refs, err := readResultRefs(d.ctx, target.client, target.org, target.stub)
+	if err != nil {
+		return err
+	}
+	return writeYAML(d.out, refs)
+}
+
+// getResult writes the result the ref names as JSON. It fails when the result is
+// missing.
+func getResult(d deps, ref string) error {
+	target, err := resolveTarget(d)
+	if err != nil {
+		return err
+	}
+	body, err := readResult(d.ctx, target.client, target.org, target.stub, ref)
+	if err != nil {
+		return err
+	}
+	return writeJSON(d.out, body)
+}
+
 // resolveTarget resolves the service URL and the repo a command acts on.
 func resolveTarget(d deps) (repoTarget, error) {
 	serviceURL, err := resolveServiceURL("", d.workDir)

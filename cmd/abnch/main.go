@@ -53,14 +53,34 @@ func (c addDataCmd) Run(deps deps) error {
 
 // getCmd groups the commands that read resources.
 type getCmd struct {
-	Tasks  getTasksCmd  `cmd:"" help:"List the tasks in the inferred repo."`
-	Task   getTaskCmd   `cmd:"" help:"Print one task as YAML."`
-	Tests  getTestsCmd  `cmd:"" help:"List a task's tests as YAML."`
-	Test   getTestCmd   `cmd:"" help:"Print one test as YAML."`
-	Data   getDataCmd   `cmd:"" help:"List a test's data refs or print one datum as JSON."`
-	Models getModelsCmd `cmd:"" help:"List the models in the CLI config as YAML."`
-	Model  getModelCmd  `cmd:"" help:"Print one model as YAML."`
-	Agent  getAgentCmd  `cmd:"" help:"Print a task's agent as YAML."`
+	Tasks   getTasksCmd   `cmd:"" help:"List the tasks in the inferred repo."`
+	Task    getTaskCmd    `cmd:"" help:"Print one task as YAML."`
+	Tests   getTestsCmd   `cmd:"" help:"List a task's tests as YAML."`
+	Test    getTestCmd    `cmd:"" help:"Print one test as YAML."`
+	Data    getDataCmd    `cmd:"" help:"List a test's data refs or print one datum as JSON."`
+	Models  getModelsCmd  `cmd:"" help:"List the models in the CLI config as YAML."`
+	Model   getModelCmd   `cmd:"" help:"Print one model as YAML."`
+	Agent   getAgentCmd   `cmd:"" help:"Print a task's agent as YAML."`
+	Results getResultsCmd `cmd:"" help:"List the inferred repo's results as YAML."`
+	Result  getResultCmd  `cmd:"" help:"Print one result as JSON."`
+}
+
+// getResultsCmd lists the inferred repo's results.
+type getResultsCmd struct{}
+
+// Run lists the inferred repo's results as YAML.
+func (c getResultsCmd) Run(deps deps) error {
+	return getResults(deps)
+}
+
+// getResultCmd prints one result as JSON.
+type getResultCmd struct {
+	Ref string `arg:"" help:"Result ref."`
+}
+
+// Run prints the result as JSON.
+func (c getResultCmd) Run(deps deps) error {
+	return getResult(deps, c.Ref)
 }
 
 // getAgentCmd prints one task's agent as YAML.
