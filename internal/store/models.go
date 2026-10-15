@@ -63,3 +63,15 @@ type SchemaKey struct {
 	Stub string `json:"stub"`
 	Name string `json:"name"`
 }
+
+// Datum is the JSON a test passes to an agent, one per case. It is identified by
+// its repo, task stub, test stub, and ref, so two data with the same identity
+// are the same datum.
+type Datum struct {
+	Org  string `gorm:"primaryKey"`
+	Repo string `gorm:"primaryKey"`
+	Task string `gorm:"primaryKey"`
+	Test string `gorm:"primaryKey"`
+	Ref  string `gorm:"primaryKey"`
+	JSON string
+}

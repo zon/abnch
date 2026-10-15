@@ -36,7 +36,7 @@ func New(db *gorm.DB) *Store {
 
 // Migrate creates the tables the store needs.
 func (s *Store) Migrate() error {
-	return s.db.AutoMigrate(&Repo{}, &Task{}, &Test{})
+	return s.db.AutoMigrate(&Repo{}, &Task{}, &Test{}, &Datum{})
 }
 
 // Close closes the store's database connection.
@@ -135,6 +135,40 @@ func (s *Store) ListTests(org, repo, task string) ([]Test, error) {
 		return nil, err
 	}
 	return tests, nil
+}
+
+// SaveDatum stores the JSON a test passes to an agent and returns the datum's
+// ref. The ref is derived from the JSON, so saving the same JSON in the same
+// test again returns the same ref and leaves one datum. It stores the JSON
+// unchanged.
+func (s *Store) SaveDatum(org, repo, task, test string, body []byte) (string, error) {
+	d := Datum{
+		Org: org, Repo: repo, Task: task, Test: test,
+		Ref:  DatumRef(body),
+		JSON: string(body),
+	}
+	if err := s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&d).Error; err != nil {
+		return "", err
+	}
+	return d.Ref, nil
+}
+
+// GetDatum returns the datum with the given ref in a test, or ErrNotFound.
+func (s *Store) GetDatum(org, repo, task, test, ref string) (Datum, error) {
+	var d Datum
+	if err := s.db.First(&d, "org = ? AND repo = ? AND task = ? AND test = ? AND ref = ?", org, repo, task, test, ref).Error; err != nil {
+		return Datum{}, notFound(err)
+	}
+	return d, nil
+}
+
+// ListData returns a test's data, ordered by ref.
+func (s *Store) ListData(org, repo, task, test string) ([]Datum, error) {
+	var data []Datum
+	if err := s.db.Where("org = ? AND repo = ? AND task = ? AND test = ?", org, repo, task, test).Order("ref").Find(&data).Error; err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 // MoveTask renames the task with the given stub to newStub and returns the

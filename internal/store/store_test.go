@@ -3,13 +3,14 @@ package store
 import (
 	"errors"
 	"reflect"
+	"sort"
 	"testing"
 )
 
 func TestMigrateCreatesTables(t *testing.T) {
 	s := newTestStore(t)
 
-	for _, model := range []any{&Repo{}, &Task{}, &Test{}} {
+	for _, model := range []any{&Repo{}, &Task{}, &Test{}, &Datum{}} {
 		if !s.db.Migrator().HasTable(model) {
 			t.Errorf("Migrate did not create the table for %T", model)
 		}
@@ -735,5 +736,164 @@ func TestMoveTestRejectsInvalidStub(t *testing.T) {
 				t.Errorf("test = %#v, want the unchanged test %#v", got, want)
 			}
 		})
+	}
+}
+
+// TestSaveAndGetDatum checks a datum's JSON round trips through the store
+// unchanged under its ref.
+func TestSaveAndGetDatum(t *testing.T) {
+	s := newTestStore(t)
+	body := []byte(`{"prompt":  "hi"}`)
+
+	ref, err := s.SaveDatum("acme", "widgets", "fix-bug", "basic", body)
+	if err != nil {
+		t.Fatalf("SaveDatum: %v", err)
+	}
+	if ref == "" {
+		t.Fatal("SaveDatum returned an empty ref")
+	}
+
+	got, err := s.GetDatum("acme", "widgets", "fix-bug", "basic", ref)
+	if err != nil {
+		t.Fatalf("GetDatum: %v", err)
+	}
+	want := Datum{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Ref: ref, JSON: string(body)}
+	if got != want {
+		t.Errorf("GetDatum = %#v, want %#v", got, want)
+	}
+}
+
+// TestSaveDatumSameJSONSameRef checks saving the same JSON in a test again
+// returns the same ref and leaves one datum.
+func TestSaveDatumSameJSONSameRef(t *testing.T) {
+	s := newTestStore(t)
+	body := []byte(`{"prompt":"hi"}`)
+
+	first, err := s.SaveDatum("acme", "widgets", "fix-bug", "basic", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.SaveDatum("acme", "widgets", "fix-bug", "basic", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second != first {
+		t.Errorf("second ref = %q, want the first ref %q", second, first)
+	}
+
+	data, err := s.ListData("acme", "widgets", "fix-bug", "basic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) != 1 {
+		t.Errorf("ListData returned %d data, want 1", len(data))
+	}
+}
+
+// TestSaveDatumDifferentJSONDifferentRef checks different JSON in a test gets a
+// different ref and adds a second datum.
+func TestSaveDatumDifferentJSONDifferentRef(t *testing.T) {
+	s := newTestStore(t)
+
+	first, err := s.SaveDatum("acme", "widgets", "fix-bug", "basic", []byte(`{"prompt":"hi"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.SaveDatum("acme", "widgets", "fix-bug", "basic", []byte(`{"prompt":"bye"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second == first {
+		t.Errorf("second ref = %q, want a different ref", second)
+	}
+
+	data, err := s.ListData("acme", "widgets", "fix-bug", "basic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) != 2 {
+		t.Errorf("ListData returned %d data, want 2", len(data))
+	}
+}
+
+// TestSaveDatumIdentityIncludesTest checks the same JSON in two tests is two
+// data, not one, because a datum's identity includes its test.
+func TestSaveDatumIdentityIncludesTest(t *testing.T) {
+	s := newTestStore(t)
+	body := []byte(`{"prompt":"hi"}`)
+	for _, test := range []string{"basic", "other"} {
+		if _, err := s.SaveDatum("acme", "widgets", "fix-bug", test, body); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, test := range []string{"basic", "other"} {
+		data, err := s.ListData("acme", "widgets", "fix-bug", test)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(data) != 1 {
+			t.Fatalf("ListData(%q) returned %d data, want 1", test, len(data))
+		}
+		if data[0].Test != test {
+			t.Errorf("datum test = %q, want %q", data[0].Test, test)
+		}
+	}
+}
+
+// TestListData checks ListData returns only a test's data, ordered by ref.
+func TestListData(t *testing.T) {
+	s := newTestStore(t)
+	want := map[string]string{}
+	for _, body := range []string{`{"n":1}`, `{"n":2}`} {
+		ref, err := s.SaveDatum("acme", "widgets", "fix-bug", "basic", []byte(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		want[ref] = body
+	}
+	if _, err := s.SaveDatum("acme", "widgets", "fix-bug", "other", []byte(`{"n":3}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := s.ListData("acme", "widgets", "fix-bug", "basic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) != len(want) {
+		t.Fatalf("ListData returned %d data, want %d", len(data), len(want))
+	}
+	refs := make([]string, len(data))
+	for i, d := range data {
+		if want[d.Ref] != d.JSON {
+			t.Errorf("datum %q JSON = %q, want %q", d.Ref, d.JSON, want[d.Ref])
+		}
+		refs[i] = d.Ref
+	}
+	if !sort.StringsAreSorted(refs) {
+		t.Errorf("ListData refs = %q, want them ordered", refs)
+	}
+}
+
+func TestGetDatumMissing(t *testing.T) {
+	s := newTestStore(t)
+
+	if _, err := s.GetDatum("acme", "widgets", "fix-bug", "basic", "missing"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("GetDatum error = %v, want ErrNotFound", err)
+	}
+}
+
+// TestDatumRef checks a ref is short and URL-safe, and that it is the same for
+// the same JSON and different for different JSON.
+func TestDatumRef(t *testing.T) {
+	first := DatumRef([]byte(`{"prompt":"hi"}`))
+	if first != DatumRef([]byte(`{"prompt":"hi"}`)) {
+		t.Errorf("DatumRef returned different refs for the same JSON")
+	}
+	if first == DatumRef([]byte(`{"prompt":"bye"}`)) {
+		t.Errorf("DatumRef returned the same ref for different JSON")
+	}
+	if first == "" || !ValidStub(first) {
+		t.Errorf("DatumRef(%q) = %q, want a non-empty URL-safe ref", `{"prompt":"hi"}`, first)
 	}
 }
