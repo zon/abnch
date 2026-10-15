@@ -2,6 +2,16 @@ mode: remote
 model: deepseek/deepseek-flash
 variant: high
 
+before:
+  - name: build-service
+    command: go
+    args: [build, -o, ./tmp/abnchd, ./cmd/abnchd]
+
+services:
+  - name: abnchd
+    command: air
+    port: 8080
+
 workflow:
   context: lab
   namespace: ralph-abnch
