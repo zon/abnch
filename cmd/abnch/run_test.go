@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -518,5 +519,194 @@ func TestRunFailsWhenRunOutputHasNoResult(t *testing.T) {
 	}
 	if got := fake.resultRefs("acme", "widgets"); len(got) != 0 {
 		t.Errorf("recorded %v results, want none without a result JSON", got)
+	}
+}
+
+// commitWorkDir commits an empty change so the Git repo under dir is on a
+// branch. It skips the test when git is not installed.
+func commitWorkDir(t *testing.T, dir string) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	cmd := exec.Command("git",
+		"-c", "user.email=test@example.com",
+		"-c", "user.name=Test",
+		"commit", "--allow-empty", "-q", "-m", "init")
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v\n%s", err, out)
+	}
+}
+
+// runInputRecord is the run input a test reads back from the agent's recorded
+// stdin.
+type runInputRecord struct {
+	Model struct {
+		Provider string `json:"provider"`
+		Name     string `json:"name"`
+		Variant  string `json:"variant"`
+	} `json:"model"`
+	Data json.RawMessage `json:"data"`
+}
+
+// readRunInput reads the last run input the agent recorded on stdin.
+func readRunInput(t *testing.T, workDir string) runInputRecord {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(workDir, "inputs.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	var got runInputRecord
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &got); err != nil {
+		t.Fatalf("stdin is not JSON: %v\n%s", err, data)
+	}
+	return got
+}
+
+func TestRunModelFlagOverridesTheTaskModel(t *testing.T) {
+	workDir := t.TempDir()
+	addRemote(t, workDir, "git@github.com:acme/widgets.git")
+	fake := newFakeService(t)
+	seedDataTest(fake)
+	fake.seedDatum("acme", "widgets", "fix-bug", "basic", `{"prompt":"hi"}`)
+	writeRunScripts(t, workDir)
+	config := "url: " + fake.url + "\n" +
+		"models:\n  sonnet:\n    provider: anthropic\n    name: claude-sonnet\n    variant: high\n" +
+		"  opus:\n    provider: anthropic\n    name: claude-opus\n    variant: low\n" +
+		"tasks:\n  fix-bug:\n    model: sonnet\n    agent:\n      runCmd: sh run.sh\n"
+	d, _ := runDeps(t, workDir, fake.url, config)
+
+	if err := runRun([]string{"fix-bug/basic", "--model", "opus"}, d); err != nil {
+		t.Fatalf("run = %v, want no error", err)
+	}
+
+	got := readRunInput(t, workDir)
+	if got.Model.Provider != "anthropic" || got.Model.Name != "claude-opus" || got.Model.Variant != "low" {
+		t.Errorf("model = %+v, want the flag's model", got.Model)
+	}
+}
+
+func TestRunFailsWhenModelFlagNamesAMissingModel(t *testing.T) {
+	workDir := t.TempDir()
+	writeCLIConfig(t, workDir,
+		"models:\n  sonnet:\n    provider: anthropic\n    name: claude-sonnet\n"+
+			"tasks:\n  fix-bug:\n    model: sonnet\n    agent:\n      runCmd: sh run.sh\n")
+	d, out := getConfigDeps(t, workDir)
+
+	err := runRun([]string{"fix-bug/basic", "--model", "ghost"}, d)
+	if err == nil {
+		t.Fatal("run = nil, want an error for a model the config does not hold")
+	}
+	if !strings.Contains(err.Error(), "ghost") {
+		t.Errorf("error = %q, want it to name the missing model", err)
+	}
+	if out.Len() != 0 {
+		t.Errorf("output = %q, want nothing for a missing model", out.String())
+	}
+}
+
+func TestRunReportsMissingModelFlagOnStderr(t *testing.T) {
+	workDir := t.TempDir()
+	writeCLIConfig(t, workDir,
+		"models:\n  sonnet:\n    provider: anthropic\n    name: claude-sonnet\n"+
+			"tasks:\n  fix-bug:\n    model: sonnet\n    agent:\n      runCmd: sh run.sh\n")
+	d, _ := getConfigDeps(t, workDir)
+
+	code, out, errOut := exitCode(t, []string{"run", "fix-bug/basic", "--model", "ghost"}, d)
+	if code == 0 {
+		t.Error("exit = 0, want a non-zero exit for a model the config does not hold")
+	}
+	if out != "" {
+		t.Errorf("stdout = %q, want nothing for a missing model", out)
+	}
+	if !strings.Contains(errOut, "ghost") {
+		t.Errorf("stderr = %q, want the missing model named", errOut)
+	}
+}
+
+func TestRunLimitCapsTheData(t *testing.T) {
+	workDir := t.TempDir()
+	addRemote(t, workDir, "git@github.com:acme/widgets.git")
+	fake := newFakeService(t)
+	seedDataTest(fake)
+	for _, body := range []string{`{"prompt":"one"}`, `{"prompt":"two"}`, `{"prompt":"three"}`} {
+		fake.seedDatum("acme", "widgets", "fix-bug", "basic", body)
+	}
+	writeRunScripts(t, workDir)
+	d, _ := runDeps(t, workDir, fake.url, runConfig(fake.url))
+
+	if err := runRun([]string{"fix-bug/basic", "--limit", "2"}, d); err != nil {
+		t.Fatalf("run = %v, want no error", err)
+	}
+
+	if got := countLines(t, filepath.Join(workDir, "runs.log")); got != 2 {
+		t.Errorf("agent ran %d times, want the limit of 2", got)
+	}
+	if got := fake.resultRefs("acme", "widgets"); len(got) != 2 {
+		t.Errorf("recorded %d results, want the limit of 2", len(got))
+	}
+}
+
+func TestRunShuffleRandomizesTheDataOrder(t *testing.T) {
+	workDir := t.TempDir()
+	addRemote(t, workDir, "git@github.com:acme/widgets.git")
+	fake := newFakeService(t)
+	seedDataTest(fake)
+	var refs []string
+	for _, body := range []string{`{"prompt":"one"}`, `{"prompt":"two"}`, `{"prompt":"three"}`} {
+		refs = append(refs, fake.seedDatum("acme", "widgets", "fix-bug", "basic", body))
+	}
+	sort.Strings(refs)
+	writeRunScripts(t, workDir)
+	d, out := runDeps(t, workDir, fake.url, runConfig(fake.url))
+
+	original := shuffleRunData
+	shuffleRunData = func(data []runDatum) {
+		for i, j := 0, len(data)-1; i < j; i, j = i+1, j-1 {
+			data[i], data[j] = data[j], data[i]
+		}
+	}
+	t.Cleanup(func() { shuffleRunData = original })
+
+	if err := runRun([]string{"fix-bug/basic", "--shuffle"}, d); err != nil {
+		t.Fatalf("run = %v, want no error", err)
+	}
+
+	want := make([]string, len(refs))
+	for i, datum := range refs {
+		result := store.Result{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Data: datum, JSON: `{"answer":"hi"}`}
+		want[len(refs)-1-i] = store.ResultRef(result)
+	}
+	if got := strings.Fields(out.String()); strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("printed %v, want the shuffled order %v", got, want)
+	}
+}
+
+func TestRunLocalRecordsTheLocalBranch(t *testing.T) {
+	workDir := t.TempDir()
+	addRemote(t, workDir, "git@github.com:acme/widgets.git")
+	commitWorkDir(t, workDir)
+	fake := newFakeService(t)
+	seedDataTest(fake)
+	fake.seedDatum("acme", "widgets", "fix-bug", "basic", `{"prompt":"hi"}`)
+	writeRunScripts(t, workDir)
+	d, _ := runDeps(t, workDir, fake.url, runConfig(fake.url))
+
+	if err := runRun([]string{"fix-bug/basic", "--local"}, d); err != nil {
+		t.Fatalf("run = %v, want no error", err)
+	}
+
+	recorded := fake.resultRefs("acme", "widgets")
+	if len(recorded) != 1 {
+		t.Fatalf("recorded %d results, want 1", len(recorded))
+	}
+	got, ok := fake.result("acme", "widgets", recorded[0])
+	if !ok {
+		t.Fatal("the result was not recorded")
+	}
+	if got.Local == "" {
+		t.Error("local branch is empty, want the working directory's branch")
 	}
 }

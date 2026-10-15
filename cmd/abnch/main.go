@@ -23,7 +23,11 @@ type cli struct {
 
 // runCmd runs a task's agent against the data in a test.
 type runCmd struct {
-	Path string `arg:"" help:"Task, test, and optional datum ref as <task>/<test>[/<ref>]."`
+	Path    string `arg:"" help:"Task, test, and optional datum ref as <task>/<test>[/<ref>]."`
+	Model   string `help:"Override the task's default model." optional:""`
+	Limit   int    `help:"Cap the number of data run." default:"-1"`
+	Shuffle bool   `help:"Randomize the data order."`
+	Local   bool   `help:"Select a local run, the only run mode."`
 }
 
 // Run runs the agent against the test's data and records a result for each.

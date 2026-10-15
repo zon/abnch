@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"net/http"
 	"os/exec"
 	"strings"
@@ -66,9 +67,11 @@ type runDatum struct {
 
 // runTask runs the task's agent against the test's data and records a result for
 // each, printing the result refs. A path carrying a ref runs against that one
-// datum. It resolves the task's agent and model before it reads the data or runs
+// datum. It resolves the agent and model before it reads the data or runs
 // anything, so it fails without running the agent when the task has no agent, no
-// model is set, the model is missing, or the test or datum is missing.
+// model is set, the model is missing, or the test or datum is missing. The model
+// flag overrides the task's default model, the limit caps the data, and shuffle
+// randomizes the data order.
 func runTask(d deps, c runCmd) error {
 	taskStub, testStub, ref, err := splitDataPath(c.Path)
 	if err != nil {
@@ -83,12 +86,9 @@ func runTask(d deps, c runCmd) error {
 	if !ok || task.Agent == nil || task.Agent.RunCmd == "" {
 		return fmt.Errorf("task %s has no agent", taskStub)
 	}
-	if task.Model == "" {
-		return fmt.Errorf("task %s has no model", taskStub)
-	}
-	model, ok := cfg.Models[task.Model]
-	if !ok {
-		return fmt.Errorf("model %s not found", task.Model)
+	model, err := resolveRunModel(cfg, task, c.Model, taskStub)
+	if err != nil {
+		return err
 	}
 
 	target, err := resolveTarget(d)
@@ -96,9 +96,12 @@ func runTask(d deps, c runCmd) error {
 		return err
 	}
 
-	data, err := readRunData(d.ctx, target, taskStub, testStub, ref)
+	data, err := readRunData(d.ctx, target, taskStub, testStub, ref, c.Limit)
 	if err != nil {
 		return err
+	}
+	if c.Shuffle {
+		shuffleRunData(data)
 	}
 
 	if task.Agent.BuildCmd != "" {
@@ -122,22 +125,36 @@ func runTask(d deps, c runCmd) error {
 	return nil
 }
 
-// readRunData returns the data a run executes: the datum the ref names when it
-// carries one, and every datum in the test otherwise. A missing repo, task,
-// test, or datum is an error.
-func readRunData(ctx context.Context, target repoTarget, taskStub, testStub, ref string) ([]runDatum, error) {
-	if ref != "" {
-		body, err := readDatum(ctx, target.client, target.org, target.stub, taskStub, testStub, ref)
-		if err != nil {
-			return nil, err
-		}
-		return []runDatum{{ref: ref, body: body}}, nil
+// resolveRunModel returns the model a run uses: the model the flag names when
+// given, and the task's default model otherwise. It fails when no model is set
+// or when the config does not hold the model.
+func resolveRunModel(cfg cliConfig, task configTask, override, taskStub string) (configModel, error) {
+	stub := override
+	if stub == "" {
+		stub = task.Model
 	}
+	if stub == "" {
+		return configModel{}, fmt.Errorf("task %s has no model", taskStub)
+	}
+	model, ok := cfg.Models[stub]
+	if !ok {
+		return configModel{}, fmt.Errorf("model %s not found", stub)
+	}
+	return model, nil
+}
 
-	refs, err := readDataRefs(ctx, target.client, target.org, target.stub, taskStub, testStub)
+// readRunData returns the data a run executes: the datum the ref names when it
+// carries one, and every datum in the test otherwise, capped to limit when it is
+// zero or greater. A missing repo, task, test, or datum is an error.
+func readRunData(ctx context.Context, target repoTarget, taskStub, testStub, ref string, limit int) ([]runDatum, error) {
+	refs, err := runDataRefs(ctx, target, taskStub, testStub, ref)
 	if err != nil {
 		return nil, err
 	}
+	if limit >= 0 && limit < len(refs) {
+		refs = refs[:limit]
+	}
+
 	data := make([]runDatum, 0, len(refs))
 	for _, ref := range refs {
 		body, err := readDatum(ctx, target.client, target.org, target.stub, taskStub, testStub, ref)
@@ -147,6 +164,21 @@ func readRunData(ctx context.Context, target repoTarget, taskStub, testStub, ref
 		data = append(data, runDatum{ref: ref, body: body})
 	}
 	return data, nil
+}
+
+// runDataRefs returns the refs a run executes: the one ref the path names, and
+// every ref in the test otherwise.
+func runDataRefs(ctx context.Context, target repoTarget, taskStub, testStub, ref string) ([]string, error) {
+	if ref != "" {
+		return []string{ref}, nil
+	}
+	return readDataRefs(ctx, target.client, target.org, target.stub, taskStub, testStub)
+}
+
+// shuffleRunData randomizes the order of the data a run executes. It is a
+// variable so a test can make the order deterministic.
+var shuffleRunData = func(data []runDatum) {
+	rand.Shuffle(len(data), func(i, j int) { data[i], data[j] = data[j], data[i] })
 }
 
 // runAgent runs the agent's run command against one datum, writing the run input
