@@ -479,6 +479,28 @@ func TestSaveTestRejectsMissingRequiredFields(t *testing.T) {
 	}
 }
 
+// TestSaveTestRejectsDuplicateSchemaStub checks a test whose score schema gives
+// two keys the same stub is refused and stored nowhere.
+func TestSaveTestRejectsDuplicateSchemaStub(t *testing.T) {
+	s := newTestStore(t)
+
+	test := Test{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic",
+		Name: "Basic", Version: "1",
+		Schema: []SchemaKey{{Stub: "style", Name: "Style"}, {Stub: "style", Name: "Other"}},
+	}
+	if err := s.SaveTest(test); !errors.Is(err, ErrInvalidSchema) {
+		t.Errorf("SaveTest error = %v, want ErrInvalidSchema", err)
+	}
+	tests, err := s.ListTests("acme", "widgets", "fix-bug")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tests) != 0 {
+		t.Errorf("ListTests returned %d tests, want none", len(tests))
+	}
+}
+
 // TestSaveTestAllowsEmptySchema checks a test with no schema keys is allowed and
 // round trips with an empty schema.
 func TestSaveTestAllowsEmptySchema(t *testing.T) {
@@ -509,8 +531,8 @@ func TestSaveTestAllowsEmptySchema(t *testing.T) {
 	}
 }
 
-// TestTestValidate checks a test needs a non-empty name and version and may
-// carry an empty schema.
+// TestTestValidate checks a test needs a non-empty name and version, may carry
+// an empty schema, and rejects a schema whose key stubs are not unique.
 func TestTestValidate(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -521,6 +543,7 @@ func TestTestValidate(t *testing.T) {
 		{"valid with schema", Test{Name: "Basic", Version: "1", Schema: []SchemaKey{{Stub: "style", Name: "Style"}}}, nil},
 		{"empty name", Test{Version: "1"}, ErrInvalidTest},
 		{"empty version", Test{Name: "Basic"}, ErrInvalidTest},
+		{"duplicate schema stub", Test{Name: "Basic", Version: "1", Schema: []SchemaKey{{Stub: "style", Name: "Style"}, {Stub: "style", Name: "Other"}}}, ErrInvalidSchema},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if err := tc.test.Validate(); !errors.Is(err, tc.want) {

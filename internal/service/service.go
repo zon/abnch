@@ -41,7 +41,8 @@ type Store interface {
 	SaveTask(t store.Task) error
 	// SaveTest creates or replaces the test with the given repo, task stub, and
 	// test stub. It reports store.ErrInvalidTest when the test misses a required
-	// field.
+	// field and store.ErrInvalidSchema when its score schema breaks its
+	// contract.
 	SaveTest(t store.Test) error
 	// Close closes the store.
 	Close() error

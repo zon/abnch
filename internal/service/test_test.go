@@ -116,6 +116,22 @@ func TestPutTestRejectsMissingRequiredField(t *testing.T) {
 	}
 }
 
+// TestPutTestRejectsDuplicateSchemaStub checks a create whose score schema gives
+// two keys the same stub returns 422 and writes no test.
+func TestPutTestRejectsDuplicateSchemaStub(t *testing.T) {
+	st := testStore()
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+
+	resp := sendTestPut(t, base, "repos/acme/widgets/tasks/fix-bug/tests/basic",
+		`{"name":"Basic","version":"1","schema":[{"stub":"style","name":"Style"},{"stub":"style","name":"Other"}]}`)
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusUnprocessableEntity)
+	if len(st.tests) != 0 {
+		t.Errorf("store holds %d tests, want none", len(st.tests))
+	}
+}
+
 // TestPutTestUpdatesExistingTest checks a write to a stored test merges the body
 // into it, returns 200, and replaces the schema when the body carries one.
 func TestPutTestUpdatesExistingTest(t *testing.T) {

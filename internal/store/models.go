@@ -33,12 +33,28 @@ type Test struct {
 }
 
 // Validate reports whether the test carries the fields it needs: a non-empty
-// name and version. An empty score schema is allowed.
+// name and version, and a score schema whose key stubs are unique. An empty
+// score schema is allowed.
 func (t Test) Validate() error {
 	if t.Name == "" || t.Version == "" {
 		return ErrInvalidTest
 	}
+	if !uniqueSchemaStubs(t.Schema) {
+		return ErrInvalidSchema
+	}
 	return nil
+}
+
+// uniqueSchemaStubs reports whether every schema key holds a distinct stub.
+func uniqueSchemaStubs(schema []SchemaKey) bool {
+	seen := make(map[string]struct{}, len(schema))
+	for _, key := range schema {
+		if _, ok := seen[key.Stub]; ok {
+			return false
+		}
+		seen[key.Stub] = struct{}{}
+	}
+	return true
 }
 
 // SchemaKey is one key of a test's score schema. Its stub is the key stored in

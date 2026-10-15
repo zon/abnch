@@ -99,6 +99,8 @@ func writeSavedTest(w http.ResponseWriter, st Store, t store.Test, status int) {
 		switch {
 		case errors.Is(err, store.ErrInvalidTest):
 			httpx.WriteError(w, http.StatusUnprocessableEntity, "test name and version are required")
+		case errors.Is(err, store.ErrInvalidSchema):
+			httpx.WriteError(w, http.StatusUnprocessableEntity, "score schema key stubs must be unique")
 		case errors.Is(err, store.ErrInvalidStub):
 			httpx.WriteError(w, http.StatusUnprocessableEntity, "test stub is not URL-safe")
 		default:
