@@ -36,7 +36,7 @@ func New(db *gorm.DB) *Store {
 
 // Migrate creates the tables the store needs.
 func (s *Store) Migrate() error {
-	return s.db.AutoMigrate(&Repo{}, &Task{}, &Test{}, &Datum{})
+	return s.db.AutoMigrate(&Repo{}, &Task{}, &Test{}, &Datum{}, &Result{})
 }
 
 // Close closes the store's database connection.
@@ -169,6 +169,36 @@ func (s *Store) ListData(org, repo, task, test string) ([]Datum, error) {
 		return nil, err
 	}
 	return data, nil
+}
+
+// SaveResult stores the JSON an agent produced for a datum and returns the
+// result's ref. The ref is derived from the JSON within its datum, so saving
+// the same JSON for the same datum again returns the same ref and leaves one
+// result.
+func (s *Store) SaveResult(r Result) (string, error) {
+	r.Ref = ResultRef(r)
+	if err := s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&r).Error; err != nil {
+		return "", err
+	}
+	return r.Ref, nil
+}
+
+// GetResult returns the result with the given ref in a repo, or ErrNotFound.
+func (s *Store) GetResult(org, repo, ref string) (Result, error) {
+	var r Result
+	if err := s.db.First(&r, "org = ? AND repo = ? AND ref = ?", org, repo, ref).Error; err != nil {
+		return Result{}, notFound(err)
+	}
+	return r, nil
+}
+
+// ListResults returns a repo's results, ordered by ref.
+func (s *Store) ListResults(org, repo string) ([]Result, error) {
+	var results []Result
+	if err := s.db.Where("org = ? AND repo = ?", org, repo).Order("ref").Find(&results).Error; err != nil {
+		return nil, err
+	}
+	return results, nil
 }
 
 // MoveTask renames the task with the given stub to newStub and returns the

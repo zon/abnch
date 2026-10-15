@@ -75,3 +75,23 @@ type Datum struct {
 	Ref  string `gorm:"primaryKey"`
 	JSON string
 }
+
+// Result is the JSON an agent produced for a datum, with the logs and run
+// metrics that came with it. It is identified by its repo, task stub, test
+// stub, datum ref, and ref, so two results with the same identity are the same
+// result. Local is the local branch that produced it, empty for a remote run.
+type Result struct {
+	Org          string `gorm:"primaryKey"`
+	Repo         string `gorm:"primaryKey"`
+	Task         string `gorm:"primaryKey"`
+	Test         string `gorm:"primaryKey"`
+	Data         string `gorm:"primaryKey"`
+	Ref          string `gorm:"primaryKey"`
+	JSON         string
+	Logs         string
+	InputTokens  int
+	OutputTokens int
+	TokenCost    float64
+	Duration     float64
+	Local        string
+}

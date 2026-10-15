@@ -11,7 +11,7 @@ import (
 func TestMigrateCreatesTables(t *testing.T) {
 	s := newTestStore(t)
 
-	for _, model := range []any{&Repo{}, &Task{}, &Test{}, &Datum{}} {
+	for _, model := range []any{&Repo{}, &Task{}, &Test{}, &Datum{}, &Result{}} {
 		if !s.db.Migrator().HasTable(model) {
 			t.Errorf("Migrate did not create the table for %T", model)
 		}
@@ -964,5 +964,209 @@ func TestDatumRef(t *testing.T) {
 	}
 	if first == "" || !ValidStub(first) {
 		t.Errorf("DatumRef(%q) = %q, want a non-empty URL-safe ref", `{"prompt":"hi"}`, first)
+	}
+}
+
+// TestSaveAndGetResult checks a result round trips through the store with its
+// JSON, logs, token counts, cost, duration, and local branch under its ref.
+func TestSaveAndGetResult(t *testing.T) {
+	s := newTestStore(t)
+	want := Result{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Data: "56ac1b0e4f0d",
+		JSON: `{"answer":"hi"}`, Logs: "resolving the prompt",
+		InputTokens: 12, OutputTokens: 3, TokenCost: 0.01, Duration: 1.5,
+		Local: "main",
+	}
+
+	ref, err := s.SaveResult(want)
+	if err != nil {
+		t.Fatalf("SaveResult: %v", err)
+	}
+	if ref == "" {
+		t.Fatal("SaveResult returned an empty ref")
+	}
+
+	got, err := s.GetResult("acme", "widgets", ref)
+	if err != nil {
+		t.Fatalf("GetResult: %v", err)
+	}
+	want.Ref = ref
+	if got != want {
+		t.Errorf("GetResult = %#v, want %#v", got, want)
+	}
+}
+
+// TestSaveResultSameIdentitySameRef checks saving the same JSON for the same
+// datum again returns the same ref and leaves one result.
+func TestSaveResultSameIdentitySameRef(t *testing.T) {
+	s := newTestStore(t)
+	r := Result{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Data: "56ac1b0e4f0d", JSON: `{"answer":"hi"}`,
+	}
+
+	first, err := s.SaveResult(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.SaveResult(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second != first {
+		t.Errorf("second ref = %q, want the first ref %q", second, first)
+	}
+
+	results, err := s.ListResults("acme", "widgets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Errorf("ListResults returned %d results, want 1", len(results))
+	}
+}
+
+// TestSaveResultDifferentJSONDifferentRef checks different JSON for the same
+// datum gets a different ref and adds a second result.
+func TestSaveResultDifferentJSONDifferentRef(t *testing.T) {
+	s := newTestStore(t)
+	coords := Result{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Data: "56ac1b0e4f0d"}
+
+	first := coords
+	first.JSON = `{"answer":"hi"}`
+	second := coords
+	second.JSON = `{"answer":"bye"}`
+
+	firstRef, err := s.SaveResult(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondRef, err := s.SaveResult(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secondRef == firstRef {
+		t.Errorf("second ref = %q, want a different ref", secondRef)
+	}
+
+	results, err := s.ListResults("acme", "widgets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 {
+		t.Errorf("ListResults returned %d results, want 2", len(results))
+	}
+}
+
+// TestSaveResultIdentityIncludesData checks the same JSON for two data in one
+// test is two results under different refs, because a result's identity
+// includes its datum.
+func TestSaveResultIdentityIncludesData(t *testing.T) {
+	s := newTestStore(t)
+	coords := Result{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", JSON: `{"answer":"hi"}`}
+
+	first := coords
+	first.Data = "56ac1b0e4f0d"
+	second := coords
+	second.Data = "ffffffffffff"
+
+	firstRef, err := s.SaveResult(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondRef, err := s.SaveResult(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secondRef == firstRef {
+		t.Errorf("second ref = %q, want a different ref for a different datum", secondRef)
+	}
+
+	results, err := s.ListResults("acme", "widgets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 {
+		t.Errorf("ListResults returned %d results, want 2", len(results))
+	}
+}
+
+// TestListResults checks ListResults returns only a repo's results, ordered by
+// ref, without another repo's results.
+func TestListResults(t *testing.T) {
+	s := newTestStore(t)
+	want := map[string]Result{}
+	for _, body := range []string{`{"n":1}`, `{"n":2}`, `{"n":3}`} {
+		r := Result{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Data: "56ac1b0e4f0d", JSON: body}
+		ref, err := s.SaveResult(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.Ref = ref
+		want[ref] = r
+	}
+	other := Result{Org: "acme", Repo: "gadgets", Task: "fix-bug", Test: "basic", Data: "56ac1b0e4f0d", JSON: `{"n":1}`}
+	if _, err := s.SaveResult(other); err != nil {
+		t.Fatal(err)
+	}
+
+	results, err := s.ListResults("acme", "widgets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != len(want) {
+		t.Fatalf("ListResults returned %d results, want %d", len(results), len(want))
+	}
+	refs := make([]string, len(results))
+	for i, r := range results {
+		if got := want[r.Ref]; got != r {
+			t.Errorf("result %q = %#v, want %#v", r.Ref, r, got)
+		}
+		refs[i] = r.Ref
+	}
+	if !sort.StringsAreSorted(refs) {
+		t.Errorf("ListResults refs = %q, want them ordered", refs)
+	}
+}
+
+func TestGetResultMissing(t *testing.T) {
+	s := newTestStore(t)
+
+	if _, err := s.GetResult("acme", "widgets", "missing"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("GetResult error = %v, want ErrNotFound", err)
+	}
+}
+
+// TestResultRef checks a ref is short and URL-safe, is stable for the same
+// result JSON in the same datum, and changes when the JSON or any part of the
+// datum's identity changes.
+func TestResultRef(t *testing.T) {
+	base := Result{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Data: "56ac1b0e4f0d", JSON: `{"answer":"hi"}`,
+	}
+	ref := ResultRef(base)
+	if ref != ResultRef(base) {
+		t.Errorf("ResultRef returned different refs for the same result")
+	}
+	if ref == "" || !ValidStub(ref) {
+		t.Errorf("ResultRef = %q, want a non-empty URL-safe ref", ref)
+	}
+
+	for _, tc := range []struct {
+		name   string
+		change func(Result) Result
+	}{
+		{"different JSON", func(r Result) Result { r.JSON = `{"answer":"bye"}`; return r }},
+		{"different datum", func(r Result) Result { r.Data = "ffffffffffff"; return r }},
+		{"different test", func(r Result) Result { r.Test = "other"; return r }},
+		{"different task", func(r Result) Result { r.Task = "other"; return r }},
+		{"different repo", func(r Result) Result { r.Repo = "gadgets"; return r }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ResultRef(tc.change(base)); got == ref {
+				t.Errorf("ResultRef = %q, want a different ref", got)
+			}
+		})
 	}
 }
