@@ -147,3 +147,156 @@ func TestGetDataDeniedForUnpermittedRole(t *testing.T) {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusForbidden)
 	}
 }
+
+// TestGetOneDataReturnsJSON checks GET
+// /repos/{org}/{repo}/tasks/{task}/tests/{test}/data/{ref} returns one datum's
+// JSON, unchanged and only that datum's.
+func TestGetOneDataReturnsJSON(t *testing.T) {
+	st := dataStore()
+	st.data = []store.Datum{
+		{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Ref: "aaa111", JSON: `{"prompt":  "hi"}`},
+		{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Ref: "bbb222", JSON: `{"prompt":"bye"}`},
+	}
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets/tasks/fix-bug/tests/basic/data/aaa111")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(body); got != `{"prompt":  "hi"}` {
+		t.Errorf("body = %q, want the datum's JSON unchanged", got)
+	}
+}
+
+// TestGetOneDataReturnsFileReference checks a datum whose JSON holds a file
+// reference comes back unchanged, with its URL and checksum readable.
+func TestGetOneDataReturnsFileReference(t *testing.T) {
+	st := dataStore()
+	st.data = []store.Datum{{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Ref: "aaa111",
+		JSON: `{"input": {"url": "https://example.com/input.txt", "checksum": "sha256:abc123"}}`,
+	}}
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets/tasks/fix-bug/tests/basic/data/aaa111")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	var body struct {
+		Input struct {
+			URL      string `json:"url"`
+			Checksum string `json:"checksum"`
+		} `json:"input"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.Input.URL != "https://example.com/input.txt" || body.Input.Checksum != "sha256:abc123" {
+		t.Errorf("file reference = %#v, want its URL and checksum unchanged", body.Input)
+	}
+}
+
+// TestGetOneDataMissingDatum checks a request for a ref the test does not hold
+// returns the service error response.
+func TestGetOneDataMissingDatum(t *testing.T) {
+	st := dataStore()
+	st.data = []store.Datum{
+		{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Ref: "aaa111", JSON: `{"n":1}`},
+	}
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets/tasks/fix-bug/tests/basic/data/missing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusNotFound)
+}
+
+// TestGetOneDataMissingTest checks a request for a datum of a test that does not
+// exist returns the service error response.
+func TestGetOneDataMissingTest(t *testing.T) {
+	st := dataStore()
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets/tasks/fix-bug/tests/missing/data/aaa111")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusNotFound)
+}
+
+// TestGetOneDataMissingTask checks a request for a datum in a task that does not
+// exist returns the service error response.
+func TestGetOneDataMissingTask(t *testing.T) {
+	st := &fakeDB{
+		repos: []store.Repo{{Org: "acme", Stub: "widgets", URL: "https://github.com/acme/widgets"}},
+	}
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets/tasks/fix-bug/tests/basic/data/aaa111")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusNotFound)
+}
+
+// TestGetOneDataReportsStoreFailure checks a store failure returns the service
+// error response instead of a partial body.
+func TestGetOneDataReportsStoreFailure(t *testing.T) {
+	st := dataStore()
+	st.getDataErr = errors.New("boom")
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets/tasks/fix-bug/tests/basic/data/aaa111")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusInternalServerError)
+}
+
+// TestGetOneDataDeniedForUnpermittedRole checks a role without read access
+// reaches no datum.
+func TestGetOneDataDeniedForUnpermittedRole(t *testing.T) {
+	st := dataStore()
+	st.data = []store.Datum{
+		{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Ref: "aaa111", JSON: `{"n":1}`},
+	}
+	base := startServiceWithStore(t, st, auth.RoleAgent)
+
+	resp, err := http.Get(base + "repos/acme/widgets/tasks/fix-bug/tests/basic/data/aaa111")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusForbidden)
+	}
+}

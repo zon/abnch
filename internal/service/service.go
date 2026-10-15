@@ -44,6 +44,9 @@ type Store interface {
 	MoveTest(org, repo, task, stub, newStub string) (store.Test, error)
 	// ListData returns a test's data, ordered by ref.
 	ListData(org, repo, task, test string) ([]store.Datum, error)
+	// GetDatum returns the datum with the given ref in a test, or
+	// store.ErrNotFound.
+	GetDatum(org, repo, task, test, ref string) (store.Datum, error)
 	// SaveRepo creates or replaces the repo with the given stubs.
 	SaveRepo(r store.Repo) error
 	// SaveTask creates or replaces the task with the given repo and stub.
@@ -164,6 +167,7 @@ func api(st Store) http.Handler {
 	mux.HandleFunc("PUT /repos/{org}/{repo}/tasks/{task}/tests/{stub}", putTest(st))
 	mux.HandleFunc("POST /repos/{org}/{repo}/tasks/{task}/tests/{stub}/move", moveTest(st))
 	mux.HandleFunc("GET /repos/{org}/{repo}/tasks/{task}/tests/{test}/data", listData(st))
+	mux.HandleFunc("GET /repos/{org}/{repo}/tasks/{task}/tests/{test}/data/{ref}", getData(st))
 	mux.HandleFunc("/", notFound)
 	return mux
 }

@@ -23,6 +23,15 @@ func WriteJSON(w http.ResponseWriter, status int, body any) {
 	_ = json.NewEncoder(w).Encode(body)
 }
 
+// WriteRawJSON writes a service response with the given status and a JSON body
+// the caller already encoded. It writes the bytes unchanged, so a stored value
+// comes back exactly as the client gave it.
+func WriteRawJSON(w http.ResponseWriter, status int, body []byte) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_, _ = w.Write(body)
+}
+
 // WriteError writes a service error response with the given status and message.
 func WriteError(w http.ResponseWriter, status int, message string) {
 	WriteJSON(w, status, errorBody{Error: errorMessage{Message: message}})

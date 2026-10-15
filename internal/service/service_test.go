@@ -334,6 +334,7 @@ type fakeDB struct {
 	listTasksErr error
 	listTestsErr error
 	listDataErr  error
+	getDataErr   error
 	moveTaskErr  error
 	saveTaskErr  error
 	moveTestErr  error
@@ -474,6 +475,18 @@ func (f *fakeDB) ListData(org, repo, task, test string) ([]store.Datum, error) {
 		}
 	}
 	return data, nil
+}
+
+func (f *fakeDB) GetDatum(org, repo, task, test, ref string) (store.Datum, error) {
+	if f.getDataErr != nil {
+		return store.Datum{}, f.getDataErr
+	}
+	for _, d := range f.data {
+		if d.Org == org && d.Repo == repo && d.Task == task && d.Test == test && d.Ref == ref {
+			return d, nil
+		}
+	}
+	return store.Datum{}, store.ErrNotFound
 }
 
 func (f *fakeDB) MoveTest(org, repo, task, stub, newStub string) (store.Test, error) {
