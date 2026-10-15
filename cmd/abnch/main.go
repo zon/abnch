@@ -42,6 +42,7 @@ type getCmd struct {
 	Task  getTaskCmd  `cmd:"" help:"Print one task as YAML."`
 	Tests getTestsCmd `cmd:"" help:"List a task's tests as YAML."`
 	Test  getTestCmd  `cmd:"" help:"Print one test as YAML."`
+	Data  getDataCmd  `cmd:"" help:"List a test's data refs or print one datum as JSON."`
 }
 
 // getTasksCmd lists the tasks in the inferred repo.
@@ -80,6 +81,16 @@ type getTestCmd struct {
 // Run prints the test as YAML.
 func (c getTestCmd) Run(deps deps) error {
 	return getTest(deps, c.Path)
+}
+
+// getDataCmd lists a test's data or prints one datum as JSON.
+type getDataCmd struct {
+	Path string `arg:"" help:"Task, test, and optional ref as <task>/<test>[/<ref>]."`
+}
+
+// Run lists the test's data refs or prints one datum as JSON.
+func (c getDataCmd) Run(deps deps) error {
+	return getData(deps, c.Path)
 }
 
 // setCmd groups the commands that create or update resources.

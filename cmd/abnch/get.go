@@ -74,6 +74,31 @@ func getTest(d deps, path string) error {
 	return writeYAML(d.out, t)
 }
 
+// getData lists the refs of the test the path names, or prints one datum as
+// JSON when the path carries a ref. It fails when the test or datum is missing.
+func getData(d deps, path string) error {
+	task, stub, ref, err := splitDataPath(path)
+	if err != nil {
+		return err
+	}
+	target, err := resolveTarget(d)
+	if err != nil {
+		return err
+	}
+	if ref == "" {
+		refs, err := readDataRefs(d.ctx, target.client, target.org, target.stub, task, stub)
+		if err != nil {
+			return err
+		}
+		return writeRefs(d.out, refs)
+	}
+	datum, err := readDatum(d.ctx, target.client, target.org, target.stub, task, stub, ref)
+	if err != nil {
+		return err
+	}
+	return writeJSON(d.out, datum)
+}
+
 // resolveTarget resolves the service URL and the repo a command acts on.
 func resolveTarget(d deps) (repoTarget, error) {
 	serviceURL, err := resolveServiceURL("", d.workDir)

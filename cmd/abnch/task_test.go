@@ -77,6 +77,10 @@ func (f *fakeService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.servePutTest(w, segments[1], segments[2], segments[4], segments[6], body)
 	case r.Method == http.MethodPost && len(segments) == 8 && segments[0] == "repos" && segments[3] == "tasks" && segments[5] == "tests" && segments[7] == "move":
 		f.serveMoveTest(w, segments[1], segments[2], segments[4], segments[6], body)
+	case r.Method == http.MethodGet && len(segments) == 8 && segments[0] == "repos" && segments[3] == "tasks" && segments[5] == "tests" && segments[7] == "data":
+		f.serveListData(w, segments[1], segments[2], segments[4], segments[6])
+	case r.Method == http.MethodGet && len(segments) == 9 && segments[0] == "repos" && segments[3] == "tasks" && segments[5] == "tests" && segments[7] == "data":
+		f.serveGetData(w, segments[1], segments[2], segments[4], segments[6], segments[8])
 	case r.Method == http.MethodPost && len(segments) == 8 && segments[0] == "repos" && segments[3] == "tasks" && segments[5] == "tests" && segments[7] == "data":
 		f.serveAddData(w, segments[1], segments[2], segments[4], segments[6], body)
 	default:
