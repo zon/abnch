@@ -49,12 +49,14 @@ type setCmd struct {
 	Test setTestCmd `cmd:"" help:"Create or update a test in the inferred repo."`
 }
 
-// setTestCmd creates or updates a test under a task in the inferred repo.
+// setTestCmd creates, updates, or renames a test under a task in the inferred
+// repo.
 type setTestCmd struct {
 	Path        string `arg:"" help:"Task and test stub as <task>/<stub>."`
 	Name        string `help:"Test name." optional:""`
 	Description string `help:"Test description." optional:""`
 	Version     string `help:"Test version." optional:""`
+	Move        string `help:"Rename the test to this stub." optional:""`
 }
 
 // Run creates or updates the test in the inferred repo.

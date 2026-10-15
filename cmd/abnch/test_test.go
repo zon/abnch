@@ -77,6 +77,39 @@ func (f *fakeService) servePutTest(w http.ResponseWriter, org, repo, task, stub 
 	httpx.WriteJSON(w, status, t)
 }
 
+// serveMoveTest renames a test, mirroring the service's 404 for a missing test
+// and 409 for a stub already held by another test in the task.
+func (f *fakeService) serveMoveTest(w http.ResponseWriter, org, repo, task, stub string, body []byte) {
+	if _, ok := f.repos[org+"/"+repo]; !ok {
+		httpx.WriteError(w, http.StatusNotFound, "repo not found")
+		return
+	}
+	if _, ok := f.tasks[org+"/"+repo+"/"+task]; !ok {
+		httpx.WriteError(w, http.StatusNotFound, "task not found")
+		return
+	}
+	var req moveTestRequest
+	if err := json.Unmarshal(body, &req); err != nil || req.Stub == "" {
+		httpx.WriteError(w, http.StatusUnprocessableEntity, "invalid test body")
+		return
+	}
+	key := org + "/" + repo + "/" + task + "/" + stub
+	t, ok := f.tests[key]
+	if !ok {
+		httpx.WriteError(w, http.StatusNotFound, "test not found")
+		return
+	}
+	newKey := org + "/" + repo + "/" + task + "/" + req.Stub
+	if _, taken := f.tests[newKey]; taken {
+		httpx.WriteError(w, http.StatusConflict, "test stub is taken")
+		return
+	}
+	delete(f.tests, key)
+	t.Stub = req.Stub
+	f.tests[newKey] = t
+	httpx.WriteJSON(w, http.StatusOK, t)
+}
+
 // seedTest adds a test to the fake service.
 func (f *fakeService) seedTest(org, repo, task string, t test) {
 	f.mu.Lock()
@@ -349,6 +382,70 @@ func TestSetTestFailsOnInvalidPath(t *testing.T) {
 	}
 	if fake.count() != 0 {
 		t.Errorf("requests = %d, want none for an invalid path", fake.count())
+	}
+}
+
+func TestSetTestMovesTest(t *testing.T) {
+	workDir := t.TempDir()
+	addRemote(t, workDir, "git@github.com:acme/widgets.git")
+	fake := newFakeService(t)
+	seedTestTask(fake)
+	fake.seedTest("acme", "widgets", "fix-bug", test{
+		Stub: "basic", Name: "Basic", Version: "1", Schema: []schemaKey{{Stub: "correctness", Name: "Correctness"}},
+	})
+	d := setTestDeps(t, workDir, fake.url, "")
+
+	if err := runSetTest([]string{"fix-bug/basic", "--move", "smoke"}, d); err != nil {
+		t.Fatalf("set test = %v, want no error", err)
+	}
+
+	if _, ok := fake.test("acme", "widgets", "fix-bug", "basic"); ok {
+		t.Error("the old stub still holds a test")
+	}
+	moved, ok := fake.test("acme", "widgets", "fix-bug", "smoke")
+	if !ok {
+		t.Fatal("the test was not renamed")
+	}
+	if moved.Name != "Basic" || moved.Version != "1" || len(moved.Schema) != 1 {
+		t.Errorf("test = %+v, want the original fields", moved)
+	}
+	if !contains(fake.methods(), "POST /repos/acme/widgets/tasks/fix-bug/tests/basic/move") {
+		t.Errorf("requests = %v, want the move request", fake.methods())
+	}
+}
+
+func TestSetTestMoveFailsWhenTestMissing(t *testing.T) {
+	workDir := t.TempDir()
+	addRemote(t, workDir, "git@github.com:acme/widgets.git")
+	fake := newFakeService(t)
+	seedTestTask(fake)
+	d := setTestDeps(t, workDir, fake.url, "")
+
+	if err := runSetTest([]string{"fix-bug/basic", "--move", "smoke"}, d); err == nil {
+		t.Fatal("set test = nil, want an error for a missing test")
+	}
+	if _, ok := fake.test("acme", "widgets", "fix-bug", "smoke"); ok {
+		t.Error("a test was created by a move of a missing test")
+	}
+}
+
+func TestSetTestMoveFailsWhenStubTaken(t *testing.T) {
+	workDir := t.TempDir()
+	addRemote(t, workDir, "git@github.com:acme/widgets.git")
+	fake := newFakeService(t)
+	seedTestTask(fake)
+	fake.seedTest("acme", "widgets", "fix-bug", test{Stub: "basic", Name: "Basic", Version: "1"})
+	fake.seedTest("acme", "widgets", "fix-bug", test{Stub: "smoke", Name: "Smoke", Version: "1"})
+	d := setTestDeps(t, workDir, fake.url, "")
+
+	if err := runSetTest([]string{"fix-bug/basic", "--move", "smoke"}, d); err == nil {
+		t.Fatal("set test = nil, want an error when the new stub is taken")
+	}
+	if _, ok := fake.test("acme", "widgets", "fix-bug", "basic"); !ok {
+		t.Error("the moved test was changed")
+	}
+	if _, ok := fake.test("acme", "widgets", "fix-bug", "smoke"); !ok {
+		t.Error("the test holding the new stub was changed")
 	}
 }
 

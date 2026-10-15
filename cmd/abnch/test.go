@@ -37,6 +37,11 @@ type testBody struct {
 	Schema      []schemaKey `json:"schema" yaml:"schema"`
 }
 
+// moveTestRequest is the JSON body a test move carries.
+type moveTestRequest struct {
+	Stub string `json:"stub"`
+}
+
 // testMissingMessage is the message the service reports for a test it does not
 // know.
 const testMissingMessage = "test not found"
@@ -45,10 +50,10 @@ const testMissingMessage = "test not found"
 // know.
 const taskMissingMessage = "task not found"
 
-// setTest creates or updates the test the command names under the task in the
-// inferred repo. It merges the options and the stdin body with the stored test
-// and fails when the test would miss a required field or its task or repo is
-// missing.
+// setTest creates, updates, or renames the test the command names under the task
+// in the inferred repo. It renames the test when `--move` is given and otherwise
+// merges the options and the stdin body with the stored test, failing when the
+// test would miss a required field or its task or repo is missing.
 func setTest(d deps, c setTestCmd) error {
 	task, stub, err := splitTestPath(c.Path)
 	if err != nil {
@@ -58,6 +63,14 @@ func setTest(d deps, c setTestCmd) error {
 	target, err := resolveTarget(d)
 	if err != nil {
 		return err
+	}
+
+	if c.Move != "" {
+		if err := moveTest(d.ctx, target.client, target.org, target.stub, task, stub, c.Move); err != nil {
+			return err
+		}
+		fmt.Fprintf(d.out, "Moved test %s/%s/%s/%s to %s\n", target.org, target.stub, task, stub, c.Move)
+		return nil
 	}
 
 	body, err := readTestBody(d.in)
@@ -196,4 +209,21 @@ func writeTest(ctx context.Context, client *serviceClient, org, repo, task, stub
 // testPath returns the API path for a test.
 func testPath(org, repo, task, stub string) string {
 	return taskPath(org, repo, task) + "/tests/" + url.PathEscape(stub)
+}
+
+// moveTest renames the test the repo, task, and stub identify to newStub.
+func moveTest(ctx context.Context, client *serviceClient, org, repo, task, stub, newStub string) error {
+	payload, err := json.Marshal(moveTestRequest{Stub: newStub})
+	if err != nil {
+		return err
+	}
+	resp, err := client.do(ctx, http.MethodPost, testPath(org, repo, task, stub)+"/move", bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return serviceError(resp)
+	}
+	resp.Body.Close()
+	return nil
 }

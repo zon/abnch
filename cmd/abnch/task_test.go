@@ -72,6 +72,8 @@ func (f *fakeService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.serveGetTest(w, segments[1], segments[2], segments[4], segments[6])
 	case r.Method == http.MethodPut && len(segments) == 7 && segments[0] == "repos" && segments[3] == "tasks" && segments[5] == "tests":
 		f.servePutTest(w, segments[1], segments[2], segments[4], segments[6], body)
+	case r.Method == http.MethodPost && len(segments) == 8 && segments[0] == "repos" && segments[3] == "tasks" && segments[5] == "tests" && segments[7] == "move":
+		f.serveMoveTest(w, segments[1], segments[2], segments[4], segments[6], body)
 	default:
 		httpx.WriteError(w, http.StatusNotFound, "route not found")
 	}
