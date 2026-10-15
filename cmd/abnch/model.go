@@ -6,11 +6,12 @@ import (
 	"strings"
 )
 
-// configModel is a model entry in the CLI config.
+// configModel is a model entry in the CLI config. The JSON tags shape the model
+// a run passes to an agent.
 type configModel struct {
-	Provider string `yaml:"provider"`
-	Name     string `yaml:"name"`
-	Variant  string `yaml:"variant"`
+	Provider string `yaml:"provider" json:"provider"`
+	Name     string `yaml:"name" json:"name"`
+	Variant  string `yaml:"variant" json:"variant"`
 }
 
 // modelView is a model as the get commands print it. It carries the stub the

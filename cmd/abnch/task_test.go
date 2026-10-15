@@ -16,6 +16,7 @@ import (
 
 	"github.com/zon/abnch/internal/devconfig"
 	"github.com/zon/abnch/internal/httpx"
+	"github.com/zon/abnch/internal/store"
 )
 
 // serviceRequest records one request the CLI sent to the fake service.
@@ -33,6 +34,7 @@ type fakeService struct {
 	tasks    map[string]task
 	tests    map[string]test
 	data     map[string]string
+	results  map[string]store.Result
 	requests []serviceRequest
 	url      string
 }
@@ -40,7 +42,7 @@ type fakeService struct {
 // newFakeService starts a fake service and returns it.
 func newFakeService(t *testing.T) *fakeService {
 	t.Helper()
-	f := &fakeService{repos: map[string]string{}, tasks: map[string]task{}, tests: map[string]test{}, data: map[string]string{}}
+	f := &fakeService{repos: map[string]string{}, tasks: map[string]task{}, tests: map[string]test{}, data: map[string]string{}, results: map[string]store.Result{}}
 	srv := httptest.NewServer(f)
 	t.Cleanup(srv.Close)
 	f.url = srv.URL
@@ -83,6 +85,8 @@ func (f *fakeService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.serveGetData(w, segments[1], segments[2], segments[4], segments[6], segments[8])
 	case r.Method == http.MethodPost && len(segments) == 8 && segments[0] == "repos" && segments[3] == "tasks" && segments[5] == "tests" && segments[7] == "data":
 		f.serveAddData(w, segments[1], segments[2], segments[4], segments[6], body)
+	case r.Method == http.MethodPost && len(segments) == 4 && segments[0] == "repos" && segments[3] == "results":
+		f.serveAddResult(w, segments[1], segments[2], body)
 	default:
 		httpx.WriteError(w, http.StatusNotFound, "route not found")
 	}

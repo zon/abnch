@@ -18,6 +18,17 @@ type cli struct {
 	Get    getCmd    `cmd:"" help:"Read resources from the inferred repo."`
 	Set    setCmd    `cmd:"" help:"Create or update resources in the inferred repo."`
 	Add    addCmd    `cmd:"" help:"Add resources to the inferred repo."`
+	Run    runCmd    `cmd:"" help:"Run a task's agent against a test's data."`
+}
+
+// runCmd runs a task's agent against the data in a test.
+type runCmd struct {
+	Path string `arg:"" help:"Task and test stub as <task>/<test>."`
+}
+
+// Run runs the agent against the test's data and records a result for each.
+func (c runCmd) Run(deps deps) error {
+	return runTask(deps, c)
 }
 
 // addCmd groups the commands that add resources.
