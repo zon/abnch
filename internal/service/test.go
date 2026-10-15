@@ -27,6 +27,28 @@ type testRequest struct {
 	Schema      *[]store.SchemaKey `json:"schema"`
 }
 
+// listTests writes the tests of the task the route identifies as a JSON array,
+// or the service error response when the repo or task does not exist.
+func listTests(st Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		org, repo := r.PathValue("org"), r.PathValue("repo")
+		if _, ok := requireRepo(w, st, org, repo); !ok {
+			return
+		}
+		task := r.PathValue("task")
+		if _, ok := requireTask(w, st, org, repo, task); !ok {
+			return
+		}
+
+		tests, err := st.ListTests(org, repo, task)
+		if err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "failed to list tests")
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, testsJSON(tests))
+	}
+}
+
 // putTest creates or updates the test the route identifies and writes it as
 // JSON. It answers 201 when it creates a test and 200 when it updates one. A
 // write the store rejects is a client error, so a create that misses a required
@@ -109,6 +131,16 @@ func writeSavedTest(w http.ResponseWriter, st Store, t store.Test, status int) {
 		return
 	}
 	httpx.WriteJSON(w, status, testJSON(t))
+}
+
+// testsJSON returns the tests as the API represents them. An empty list is an
+// empty JSON array rather than null.
+func testsJSON(tests []store.Test) []test {
+	out := make([]test, 0, len(tests))
+	for _, t := range tests {
+		out = append(out, testJSON(t))
+	}
+	return out
 }
 
 // testJSON returns one test as the API represents it. An empty schema is an

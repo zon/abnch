@@ -330,6 +330,7 @@ type fakeDB struct {
 	saveErr      error
 	getTaskErr   error
 	listTasksErr error
+	listTestsErr error
 	moveTaskErr  error
 	saveTaskErr  error
 }
@@ -440,6 +441,19 @@ func (f *fakeDB) GetTest(org, repo, task, stub string) (store.Test, error) {
 		}
 	}
 	return store.Test{}, store.ErrNotFound
+}
+
+func (f *fakeDB) ListTests(org, repo, task string) ([]store.Test, error) {
+	if f.listTestsErr != nil {
+		return nil, f.listTestsErr
+	}
+	var tests []store.Test
+	for _, t := range f.tests {
+		if t.Org == org && t.Repo == repo && t.Task == task {
+			tests = append(tests, t)
+		}
+	}
+	return tests, nil
 }
 
 func (f *fakeDB) SaveTest(t store.Test) error {

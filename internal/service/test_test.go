@@ -2,6 +2,8 @@ package service
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -182,6 +184,125 @@ func TestPutTestMissingTask(t *testing.T) {
 	assertServiceError(t, resp, http.StatusNotFound)
 	if len(st.tasks) != 0 || len(st.tests) != 0 {
 		t.Errorf("store holds %d tasks and %d tests, want none", len(st.tasks), len(st.tests))
+	}
+}
+
+// TestGetTestsListsTests checks GET /repos/{org}/{repo}/tasks/{task}/tests
+// returns the task's tests as a JSON array.
+func TestGetTestsListsTests(t *testing.T) {
+	st := testStore()
+	st.tests = []store.Test{
+		{
+			Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic",
+			Name: "Basic", Description: "A basic test", Version: "1",
+			Schema: []store.SchemaKey{{Stub: "correctness", Name: "Correctness"}},
+		},
+		{
+			Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "smoke",
+			Name: "Smoke", Description: "A smoke test", Version: "2",
+			Schema: []store.SchemaKey{{Stub: "style", Name: "Style"}},
+		},
+	}
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets/tasks/fix-bug/tests")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+
+	var got []testBody
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("body listed %d tests, want 2", len(got))
+	}
+	if got[0].Stub != "basic" || got[0].Name != "Basic" || got[0].Description != "A basic test" || got[0].Version != "1" {
+		t.Errorf("test 0 = %#v, want the first test's fields", got[0])
+	}
+	if len(got[0].Schema) != 1 || got[0].Schema[0] != (store.SchemaKey{Stub: "correctness", Name: "Correctness"}) {
+		t.Errorf("test 0 schema = %#v, want the correctness key", got[0].Schema)
+	}
+	if got[1].Stub != "smoke" || got[1].Name != "Smoke" || got[1].Version != "2" {
+		t.Errorf("test 1 = %#v, want the second test's fields", got[1])
+	}
+}
+
+// TestGetTestsEmptyList checks a task with no tests returns an empty JSON array
+// rather than a null body.
+func TestGetTestsEmptyList(t *testing.T) {
+	st := testStore()
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets/tasks/fix-bug/tests")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(body)); got != "[]" {
+		t.Errorf("body = %q, want %q", got, "[]")
+	}
+}
+
+// TestGetTestsMissingTask checks a request for the tests of a task that does not
+// exist returns the service error response.
+func TestGetTestsMissingTask(t *testing.T) {
+	st := &fakeDB{
+		repos: []store.Repo{{Org: "acme", Stub: "widgets", URL: "https://github.com/acme/widgets"}},
+	}
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets/tasks/fix-bug/tests")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusNotFound)
+}
+
+// TestGetTestsReportsStoreFailure checks a store failure returns the service
+// error response instead of a partial list.
+func TestGetTestsReportsStoreFailure(t *testing.T) {
+	st := testStore()
+	st.listTestsErr = errors.New("boom")
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets/tasks/fix-bug/tests")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusInternalServerError)
+}
+
+// TestGetTestsDeniedForUnpermittedRole checks a role without read access reaches
+// no test list.
+func TestGetTestsDeniedForUnpermittedRole(t *testing.T) {
+	st := testStore()
+	base := startServiceWithStore(t, st, auth.RoleAgent)
+
+	resp, err := http.Get(base + "repos/acme/widgets/tasks/fix-bug/tests")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusForbidden)
 	}
 }
 

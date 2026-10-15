@@ -35,6 +35,8 @@ type Store interface {
 	// GetTest returns the test with the given repo, task stub, and test stub, or
 	// store.ErrNotFound.
 	GetTest(org, repo, task, stub string) (store.Test, error)
+	// ListTests returns a task's tests, ordered by stub.
+	ListTests(org, repo, task string) ([]store.Test, error)
 	// SaveRepo creates or replaces the repo with the given stubs.
 	SaveRepo(r store.Repo) error
 	// SaveTask creates or replaces the task with the given repo and stub.
@@ -150,6 +152,7 @@ func api(st Store) http.Handler {
 	mux.HandleFunc("GET /repos/{org}/{repo}/tasks/{stub}", getTask(st))
 	mux.HandleFunc("PUT /repos/{org}/{repo}/tasks/{stub}", putTask(st))
 	mux.HandleFunc("POST /repos/{org}/{repo}/tasks/{stub}/move", moveTask(st))
+	mux.HandleFunc("GET /repos/{org}/{repo}/tasks/{task}/tests", listTests(st))
 	mux.HandleFunc("PUT /repos/{org}/{repo}/tasks/{task}/tests/{stub}", putTest(st))
 	mux.HandleFunc("/", notFound)
 	return mux
