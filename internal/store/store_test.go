@@ -452,6 +452,84 @@ func TestSaveTestRejectsInvalidStub(t *testing.T) {
 	}
 }
 
+// TestSaveTestRejectsMissingRequiredFields checks a test without a name or a
+// version is refused and stored nowhere.
+func TestSaveTestRejectsMissingRequiredFields(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		test Test
+	}{
+		{"empty name", Test{Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic", Version: "1"}},
+		{"empty version", Test{Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic", Name: "Basic"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTestStore(t)
+
+			if err := s.SaveTest(tc.test); !errors.Is(err, ErrInvalidTest) {
+				t.Errorf("SaveTest error = %v, want ErrInvalidTest", err)
+			}
+			tests, err := s.ListTests("acme", "widgets", "fix-bug")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(tests) != 0 {
+				t.Errorf("ListTests returned %d tests, want none", len(tests))
+			}
+		})
+	}
+}
+
+// TestSaveTestAllowsEmptySchema checks a test with no schema keys is allowed and
+// round trips with an empty schema.
+func TestSaveTestAllowsEmptySchema(t *testing.T) {
+	s := newTestStore(t)
+	want := Test{
+		Org:         "acme",
+		Repo:        "widgets",
+		Task:        "fix-bug",
+		Stub:        "basic",
+		Name:        "Basic",
+		Description: "A basic test",
+		Version:     "1",
+	}
+
+	if err := s.SaveTest(want); err != nil {
+		t.Fatalf("SaveTest: %v", err)
+	}
+
+	got, err := s.GetTest("acme", "widgets", "fix-bug", "basic")
+	if err != nil {
+		t.Fatalf("GetTest: %v", err)
+	}
+	if len(got.Schema) != 0 {
+		t.Errorf("Schema = %#v, want an empty schema", got.Schema)
+	}
+	if got.Name != want.Name || got.Description != want.Description || got.Version != want.Version {
+		t.Errorf("GetTest = %#v, want %#v", got, want)
+	}
+}
+
+// TestTestValidate checks a test needs a non-empty name and version and may
+// carry an empty schema.
+func TestTestValidate(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		test Test
+		want error
+	}{
+		{"valid", Test{Name: "Basic", Version: "1"}, nil},
+		{"valid with schema", Test{Name: "Basic", Version: "1", Schema: []SchemaKey{{Stub: "style", Name: "Style"}}}, nil},
+		{"empty name", Test{Version: "1"}, ErrInvalidTest},
+		{"empty version", Test{Name: "Basic"}, ErrInvalidTest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.test.Validate(); !errors.Is(err, tc.want) {
+				t.Errorf("Validate error = %v, want %v", err, tc.want)
+			}
+		})
+	}
+}
+
 // TestSaveTestIdentityIncludesTask checks the same test stub in two tasks is two
 // tests, not one, because a test's identity includes its task stub.
 func TestSaveTestIdentityIncludesTask(t *testing.T) {

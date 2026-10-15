@@ -32,6 +32,15 @@ type Test struct {
 	Schema      []SchemaKey `gorm:"serializer:json;type:jsonb"`
 }
 
+// Validate reports whether the test carries the fields it needs: a non-empty
+// name and version. An empty score schema is allowed.
+func (t Test) Validate() error {
+	if t.Name == "" || t.Version == "" {
+		return ErrInvalidTest
+	}
+	return nil
+}
+
 // SchemaKey is one key of a test's score schema. Its stub is the key stored in
 // scores and its name is what the UI displays.
 type SchemaKey struct {

@@ -17,6 +17,9 @@ var ErrInvalidStub = errors.New("invalid stub")
 // ErrConflict reports that a write would collide with an existing record.
 var ErrConflict = errors.New("conflict")
 
+// ErrInvalidTest reports that a test is missing a required field.
+var ErrInvalidTest = errors.New("invalid test")
+
 // Store reads and writes the service's domain data in Postgres.
 type Store struct {
 	db *gorm.DB
@@ -99,10 +102,14 @@ func (s *Store) ListTasks(org, repo string) ([]Task, error) {
 
 // SaveTest writes a test, creating it or replacing the stored test with the
 // same repo, task stub, and test stub. It returns ErrInvalidStub when the test
-// stub is empty or not URL-safe.
+// stub is empty or not URL-safe, and ErrInvalidTest when the test misses a
+// required field.
 func (s *Store) SaveTest(t Test) error {
 	if !ValidStub(t.Stub) {
 		return ErrInvalidStub
+	}
+	if err := t.Validate(); err != nil {
+		return err
 	}
 	return s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&t).Error
 }
