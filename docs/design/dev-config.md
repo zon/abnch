@@ -31,3 +31,5 @@ It also writes the local service URL to the [CLI config](app/abnch-config.md) at
 ## Running the Service
 
 `just service` starts `abnchd` against `.abnchd/config.yaml`. Run `just config` first. The service connects to Postgres with the details in the file. See [Service Config Design](app/abnchd-config.md).
+
+Run the service through [Air](https://github.com/air-verse/air) for live reload. `just service` runs `air`, which builds `cmd/abnchd` into `tmp/` and restarts the binary on a Go source change. The build and its output stay out of git. Install Air with `go install github.com/air-verse/air@latest`.

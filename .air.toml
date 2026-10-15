@@ -1,0 +1,15 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -o ./tmp/abnchd ./cmd/abnchd"
+  delay = 100
+  entrypoint = ["./tmp/abnchd"]
+  exclude_dir = ["tmp", "vendor", "testdata"]
+  exclude_regex = ["_test.go"]
+  full_bin = "./tmp/abnchd .abnchd/config.yaml"
+  include_ext = ["go"]
+  kill_delay = "500ms"
+
+[misc]
+  clean_on_exit = true

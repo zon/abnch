@@ -10,3 +10,4 @@ Use the latest stable version of each dependency when feasible.
 * [Argo Workflows](https://argo-workflows.readthedocs.io/en/latest/go-sdk-guide/)
 * [Helm](https://helm.sh/)
 * [Just](https://just.systems/)
+* [Air](https://github.com/air-verse/air)
