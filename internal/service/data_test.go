@@ -499,6 +499,86 @@ func TestAddDataDeniedForUnpermittedRole(t *testing.T) {
 	}
 }
 
+// TestDataReadAllowedForRoles checks the data read operations are allowed for
+// the Reader, Service, and Admin roles.
+func TestDataReadAllowedForRoles(t *testing.T) {
+	for _, role := range []string{auth.RoleReader, auth.RoleService, auth.RoleAdmin} {
+		t.Run(role, func(t *testing.T) {
+			st := dataStore()
+			st.data = []store.Datum{{
+				Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+				Ref: "aaa111", JSON: `{"prompt":"hi"}`,
+			}}
+			base := startServiceWithStore(t, st, role)
+
+			for _, path := range []string{
+				"repos/acme/widgets/tasks/fix-bug/tests/basic/data",
+				"repos/acme/widgets/tasks/fix-bug/tests/basic/data/aaa111",
+			} {
+				resp, err := http.Get(base + path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				resp.Body.Close()
+				if resp.StatusCode != http.StatusOK {
+					t.Errorf("%s status = %d, want %d", path, resp.StatusCode, http.StatusOK)
+				}
+			}
+		})
+	}
+}
+
+// TestDataReadDeniedForUnpermittedRole checks a role without read access is
+// refused with 403, and a store read that fails proves the service reached no
+// datum.
+func TestDataReadDeniedForUnpermittedRole(t *testing.T) {
+	for _, role := range []string{auth.RoleAgent, auth.RoleGrader} {
+		t.Run(role, func(t *testing.T) {
+			st := dataStore()
+			st.listDataErr = errors.New("read denied")
+			st.getDataErr = errors.New("read denied")
+			base := startServiceWithStore(t, st, role)
+
+			for _, path := range []string{
+				"repos/acme/widgets/tasks/fix-bug/tests/basic/data",
+				"repos/acme/widgets/tasks/fix-bug/tests/basic/data/aaa111",
+			} {
+				resp, err := http.Get(base + path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				resp.Body.Close()
+				if resp.StatusCode != http.StatusForbidden {
+					t.Errorf("%s status = %d, want %d", path, resp.StatusCode, http.StatusForbidden)
+				}
+			}
+		})
+	}
+}
+
+// TestDataWriteDeniedForUnpermittedRole checks every role but Admin is refused a
+// datum write with 403, and a refused write creates no datum.
+func TestDataWriteDeniedForUnpermittedRole(t *testing.T) {
+	for _, role := range []string{auth.RoleReader, auth.RoleService, auth.RoleAgent, auth.RoleGrader} {
+		t.Run(role, func(t *testing.T) {
+			st := dataStore()
+			st.getDataErr = errors.New("write denied")
+			st.saveDatumErr = errors.New("write denied")
+			base := startServiceWithStore(t, st, role)
+
+			resp := sendDataPost(t, base, "repos/acme/widgets/tasks/fix-bug/tests/basic/data", `{"prompt":"hi"}`)
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusForbidden {
+				t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusForbidden)
+			}
+			if len(st.data) != 0 {
+				t.Errorf("store holds %d data, want none", len(st.data))
+			}
+		})
+	}
+}
+
 // sendDataPost sends a datum write to the service and returns the response.
 func sendDataPost(t *testing.T, base, path, body string) *http.Response {
 	t.Helper()
