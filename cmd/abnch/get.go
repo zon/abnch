@@ -55,6 +55,10 @@ func readTasks(ctx context.Context, client *serviceClient, org, repo string) ([]
 	if err != nil {
 		return nil, err
 	}
+	if resp.StatusCode == http.StatusNotFound {
+		resp.Body.Close()
+		return nil, repoMissing{org: org, repo: repo}
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, serviceError(resp)
 	}

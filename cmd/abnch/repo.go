@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -53,6 +54,29 @@ func inferRepo(workDir string) (org, stub, remote string, err error) {
 		return "", "", "", err
 	}
 	return org, stub, remote, nil
+}
+
+// repoMissingMessage is the message the service reports for a repo it does not
+// know.
+const repoMissingMessage = "repo not found"
+
+// repoMissing reports that the service does not know the repo under the working
+// directory. A command that creates a missing repo treats it as an absent repo.
+// A command that only reads reports it to the user.
+type repoMissing struct {
+	org  string
+	repo string
+}
+
+// Error names the repo and tells the user how to register it.
+func (e repoMissing) Error() string {
+	return fmt.Sprintf("the repo %s/%s is not registered with the service. Register it with a `set` command, such as `abnch set task <stub> --name <name> --description <description>`", e.org, e.repo)
+}
+
+// isRepoMissing reports whether err is a repo the service does not know.
+func isRepoMissing(err error) bool {
+	var missing repoMissing
+	return errors.As(err, &missing)
 }
 
 // ensureRepo creates the repo on the service when it is missing. The repo is

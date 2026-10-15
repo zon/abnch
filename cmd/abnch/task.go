@@ -66,7 +66,7 @@ func setTask(d deps, c setTaskCmd) error {
 	}
 
 	existing, found, err := readTask(d.ctx, target.client, target.org, target.stub, c.Stub)
-	if err != nil {
+	if err != nil && !isRepoMissing(err) {
 		return err
 	}
 
@@ -142,7 +142,9 @@ func readTask(ctx context.Context, client *serviceClient, org, repo, stub string
 		return task{}, false, err
 	}
 	if resp.StatusCode == http.StatusNotFound {
-		resp.Body.Close()
+		if message, _ := serviceMessage(resp); message == repoMissingMessage {
+			return task{}, false, repoMissing{org: org, repo: repo}
+		}
 		return task{}, false, nil
 	}
 	if resp.StatusCode != http.StatusOK {

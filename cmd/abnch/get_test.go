@@ -139,8 +139,30 @@ func TestGetTasksFailsWhenRepoMissing(t *testing.T) {
 	fake := newFakeService(t)
 	d, out := getDeps(t, workDir, fake.url)
 
-	if err := runGet([]string{"tasks"}, d); err == nil {
+	err := runGet([]string{"tasks"}, d)
+	if err == nil {
 		t.Fatal("get tasks = nil, want an error for a missing repo")
+	}
+	if !strings.Contains(err.Error(), "acme/widgets") || !strings.Contains(err.Error(), "not registered") {
+		t.Errorf("error = %q, want the repo named and reported as unregistered", err)
+	}
+	if out.Len() != 0 {
+		t.Errorf("output = %q, want nothing for a missing repo", out.String())
+	}
+}
+
+func TestGetTaskFailsWhenRepoMissing(t *testing.T) {
+	workDir := t.TempDir()
+	addRemote(t, workDir, "git@github.com:acme/widgets.git")
+	fake := newFakeService(t)
+	d, out := getDeps(t, workDir, fake.url)
+
+	err := runGet([]string{"task", "fix-bug"}, d)
+	if err == nil {
+		t.Fatal("get task = nil, want an error for a missing repo")
+	}
+	if !strings.Contains(err.Error(), "acme/widgets") || !strings.Contains(err.Error(), "not registered") {
+		t.Errorf("error = %q, want the repo named and reported as unregistered", err)
 	}
 	if out.Len() != 0 {
 		t.Errorf("output = %q, want nothing for a missing repo", out.String())

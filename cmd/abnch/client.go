@@ -92,6 +92,16 @@ func signInError(serviceURL string) error {
 // serviceError closes a service error response and returns the message the
 // service reported, falling back to the status.
 func serviceError(resp *http.Response) error {
+	message, ok := serviceMessage(resp)
+	if !ok {
+		return fmt.Errorf("service returned %s", resp.Status)
+	}
+	return errors.New(message)
+}
+
+// serviceMessage closes a service error response and returns the message it
+// reported, and whether it carried one.
+func serviceMessage(resp *http.Response) (string, bool) {
 	defer resp.Body.Close()
 	var body struct {
 		Error struct {
@@ -99,9 +109,9 @@ func serviceError(resp *http.Response) error {
 		} `json:"error"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil || body.Error.Message == "" {
-		return fmt.Errorf("service returned %s", resp.Status)
+		return "", false
 	}
-	return errors.New(body.Error.Message)
+	return body.Error.Message, true
 }
 
 // rejectedCredentialError tells the user how to replace a credential the
