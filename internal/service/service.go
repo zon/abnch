@@ -184,6 +184,7 @@ func api(st Store) http.Handler {
 	mux.HandleFunc("POST /repos/{org}/{repo}/tasks/{task}/tests/{test}/data", addData(st))
 	mux.HandleFunc("GET /repos/{org}/{repo}/tasks/{task}/tests/{test}/data/{ref}", getData(st))
 	mux.HandleFunc("GET /repos/{org}/{repo}/results", listResults(st))
+	mux.HandleFunc("GET /repos/{org}/{repo}/results/{ref}", getResult(st))
 	mux.HandleFunc("POST /repos/{org}/{repo}/results", addResult(st))
 	mux.HandleFunc("/", notFound)
 	return mux

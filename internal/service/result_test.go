@@ -330,6 +330,149 @@ func TestGetResultsReadAllowedForRoles(t *testing.T) {
 	}
 }
 
+// TestGetResultReturnsFields checks GET /repos/{org}/{repo}/results/{ref}
+// returns one result with its ref, task, test, datum ref, JSON, logs, tokens,
+// cost, duration, and local branch.
+func TestGetResultReturnsFields(t *testing.T) {
+	st := resultStore()
+	st.results = []store.Result{{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Data: st.data[0].Ref, Ref: "aaa111", JSON: `{"answer":"hi"}`, Logs: "worked",
+		InputTokens: 12, OutputTokens: 3, TokenCost: 0.01, Duration: 1.5, Local: "main",
+	}}
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets/results/aaa111")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+
+	var got struct {
+		Ref          string          `json:"ref"`
+		Task         string          `json:"task"`
+		Test         string          `json:"test"`
+		Data         string          `json:"data"`
+		JSON         json.RawMessage `json:"json"`
+		Logs         string          `json:"logs"`
+		InputTokens  int             `json:"inputTokens"`
+		OutputTokens int             `json:"outputTokens"`
+		TokenCost    float64         `json:"tokenCost"`
+		Duration     float64         `json:"duration"`
+		Local        string          `json:"local"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if got.Ref != "aaa111" || got.Task != "fix-bug" || got.Test != "basic" || got.Data != st.data[0].Ref {
+		t.Errorf("result identity = %#v, want the stored ref, task, test, and datum ref", got)
+	}
+	if string(got.JSON) != `{"answer":"hi"}` {
+		t.Errorf("result JSON = %s, want the stored JSON", got.JSON)
+	}
+	if got.Logs != "worked" || got.InputTokens != 12 || got.OutputTokens != 3 || got.TokenCost != 0.01 || got.Duration != 1.5 || got.Local != "main" {
+		t.Errorf("result = %#v, want the stored logs, metrics, and local branch", got)
+	}
+}
+
+// TestGetResultMissing checks a request for a ref that does not exist returns
+// the service error response.
+func TestGetResultMissing(t *testing.T) {
+	st := resultStore()
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets/results/missing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusNotFound)
+}
+
+// TestGetResultMissingRepo checks a request for a result in a repo that does not
+// exist returns the service error response.
+func TestGetResultMissingRepo(t *testing.T) {
+	st := &fakeDB{}
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets/results/aaa111")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusNotFound)
+}
+
+// TestGetResultReportsStoreFailure checks a store failure returns the service
+// error response instead of a partial result.
+func TestGetResultReportsStoreFailure(t *testing.T) {
+	st := resultStore()
+	st.getResultErr = errors.New("boom")
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets/results/aaa111")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusInternalServerError)
+}
+
+// TestGetResultDeniedForUnpermittedRole checks a role without read access
+// reaches no result.
+func TestGetResultDeniedForUnpermittedRole(t *testing.T) {
+	st := resultStore()
+	st.results = []store.Result{{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Data: st.data[0].Ref, Ref: "aaa111", JSON: `{"answer":"hi"}`,
+	}}
+	base := startServiceWithStore(t, st, auth.RoleAgent)
+
+	resp, err := http.Get(base + "repos/acme/widgets/results/aaa111")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusForbidden)
+	}
+}
+
+// TestGetResultReadAllowedForRoles checks reading one result is allowed for the
+// Reader, Service, and Admin roles.
+func TestGetResultReadAllowedForRoles(t *testing.T) {
+	for _, role := range []string{auth.RoleReader, auth.RoleService, auth.RoleAdmin} {
+		t.Run(role, func(t *testing.T) {
+			st := resultStore()
+			st.results = []store.Result{{
+				Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+				Data: st.data[0].Ref, Ref: "aaa111", JSON: `{"answer":"hi"}`,
+			}}
+			base := startServiceWithStore(t, st, role)
+
+			resp, err := http.Get(base + "repos/acme/widgets/results/aaa111")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+			}
+		})
+	}
+}
+
 // sendResultPost sends a result write to the service and returns the response.
 func sendResultPost(t *testing.T, base, path, body string) *http.Response {
 	t.Helper()

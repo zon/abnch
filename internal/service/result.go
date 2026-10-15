@@ -14,6 +14,21 @@ type resultRef struct {
 	Ref string `json:"ref"`
 }
 
+// result is a result as the service API returns it.
+type result struct {
+	Ref          string          `json:"ref"`
+	Task         string          `json:"task"`
+	Test         string          `json:"test"`
+	Data         string          `json:"data"`
+	JSON         json.RawMessage `json:"json"`
+	Logs         string          `json:"logs"`
+	InputTokens  int             `json:"inputTokens"`
+	OutputTokens int             `json:"outputTokens"`
+	TokenCost    float64         `json:"tokenCost"`
+	Duration     float64         `json:"duration"`
+	Local        string          `json:"local"`
+}
+
 // resultRequest is the JSON body a result write carries. JSON is the result the
 // agent produced; the rest are its logs and run metrics.
 type resultRequest struct {
@@ -98,6 +113,43 @@ func listResults(st Store) http.HandlerFunc {
 			return
 		}
 		httpx.WriteJSON(w, http.StatusOK, resultRefs(results))
+	}
+}
+
+// getResult writes one result as JSON, or the service error response when the
+// repo or result does not exist.
+func getResult(st Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		org, repo := r.PathValue("org"), r.PathValue("repo")
+		if _, ok := requireRepo(w, st, org, repo); !ok {
+			return
+		}
+
+		res, err := st.GetResult(org, repo, r.PathValue("ref"))
+		if errors.Is(err, store.ErrNotFound) {
+			httpx.WriteError(w, http.StatusNotFound, "result not found")
+			return
+		}
+		if err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "failed to get result")
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, resultJSON(res))
+	}
+}
+
+// resultJSON returns one result as the API represents it. An empty result JSON
+// comes back as null rather than breaking the response.
+func resultJSON(r store.Result) result {
+	body := json.RawMessage(r.JSON)
+	if len(body) == 0 {
+		body = json.RawMessage("null")
+	}
+	return result{
+		Ref: r.Ref, Task: r.Task, Test: r.Test, Data: r.Data,
+		JSON: body, Logs: r.Logs,
+		InputTokens: r.InputTokens, OutputTokens: r.OutputTokens,
+		TokenCost: r.TokenCost, Duration: r.Duration, Local: r.Local,
 	}
 }
 
