@@ -555,6 +555,32 @@ func TestTestValidate(t *testing.T) {
 	}
 }
 
+// TestTestAllowsScore checks a test allows a score whose keys are all in its
+// schema, including a partial score, and refuses a key outside it or any key
+// when its schema is empty.
+func TestTestAllowsScore(t *testing.T) {
+	test := Test{Schema: []SchemaKey{{Stub: "correctness", Name: "Correctness"}, {Stub: "style", Name: "Style"}}}
+	for _, tc := range []struct {
+		name       string
+		test       Test
+		dictionary map[string]float64
+		want       bool
+	}{
+		{"every key", test, map[string]float64{"correctness": 1, "style": 0.5}, true},
+		{"partial score", test, map[string]float64{"correctness": 1}, true},
+		{"empty dictionary", test, map[string]float64{}, true},
+		{"unknown key", test, map[string]float64{"speed": 1}, false},
+		{"unknown key beside a known key", test, map[string]float64{"correctness": 1, "speed": 1}, false},
+		{"empty schema", Test{}, map[string]float64{"correctness": 1}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.test.AllowsScore(tc.dictionary); got != tc.want {
+				t.Errorf("AllowsScore = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestSaveTestIdentityIncludesTask checks the same test stub in two tasks is two
 // tests, not one, because a test's identity includes its task stub.
 func TestSaveTestIdentityIncludesTask(t *testing.T) {

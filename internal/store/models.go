@@ -57,6 +57,22 @@ func uniqueSchemaStubs(schema []SchemaKey) bool {
 	return true
 }
 
+// AllowsScore reports whether every key in the dictionary is a key in the
+// test's score schema. A dictionary may omit a schema key, and an empty
+// dictionary is allowed.
+func (t Test) AllowsScore(dictionary map[string]float64) bool {
+	keys := make(map[string]struct{}, len(t.Schema))
+	for _, key := range t.Schema {
+		keys[key.Stub] = struct{}{}
+	}
+	for stub := range dictionary {
+		if _, ok := keys[stub]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
 // SchemaKey is one key of a test's score schema. Its stub is the key stored in
 // scores and its name is what the UI displays.
 type SchemaKey struct {

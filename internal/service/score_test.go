@@ -16,9 +16,14 @@ type scoreRefBody struct {
 }
 
 // scoreStore returns a store holding the repo, task, test, datum, and result a
-// score write needs.
+// score write needs, with the test carrying a score schema.
 func scoreStore() *fakeDB {
 	st := resultStore()
+	st.tests = []store.Test{{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic",
+		Name: "Basic", Version: "1",
+		Schema: []store.SchemaKey{{Stub: "correctness", Name: "Correctness"}, {Stub: "style", Name: "Style"}},
+	}}
 	st.results = []store.Result{{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
 		Data: st.data[0].Ref, Ref: "aaa111", JSON: `{"answer":"hi"}`,
@@ -63,6 +68,79 @@ func TestAddScoreStoresScore(t *testing.T) {
 	}
 	if stored.InputTokens != 12 || stored.OutputTokens != 3 || stored.TokenCost != 0.01 || stored.Duration != 1.5 {
 		t.Errorf("stored score = %#v, want the body's metrics", stored)
+	}
+}
+
+// TestAddScoreAcceptsSchemaKeys checks a score whose keys are all in the
+// result's test score schema is created, including a score that omits a schema
+// key.
+func TestAddScoreAcceptsSchemaKeys(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		dictionary string
+	}{
+		{name: "every key", dictionary: `{"correctness":1,"style":0.5}`},
+		{name: "partial score", dictionary: `{"correctness":1}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := scoreStore()
+			base := startServiceWithStore(t, st, auth.RoleAdmin)
+			body := `{"task":"fix-bug","test":"basic","result":"aaa111","dictionary":` + tc.dictionary + `}`
+
+			resp := sendScorePost(t, base, "repos/acme/widgets/scores", body)
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusCreated {
+				t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusCreated)
+			}
+			if len(st.scores) != 1 {
+				t.Fatalf("store holds %d scores, want 1", len(st.scores))
+			}
+		})
+	}
+}
+
+// TestAddScoreRejectsUnknownSchemaKey checks a score with a key outside its
+// test's score schema returns 422 and creates no score.
+func TestAddScoreRejectsUnknownSchemaKey(t *testing.T) {
+	st := scoreStore()
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+	body := `{"task":"fix-bug","test":"basic","result":"aaa111","dictionary":{"speed":1}}`
+
+	resp := sendScorePost(t, base, "repos/acme/widgets/scores", body)
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusUnprocessableEntity)
+	if len(st.scores) != 0 {
+		t.Errorf("store holds %d scores, want none", len(st.scores))
+	}
+}
+
+// TestAddScoreRejectsNonNumberValue checks a score with a value that is not a
+// number returns 422 and creates no score.
+func TestAddScoreRejectsNonNumberValue(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		dictionary string
+	}{
+		{name: "string", dictionary: `{"correctness":"high"}`},
+		{name: "boolean", dictionary: `{"correctness":true}`},
+		{name: "null", dictionary: `{"correctness":null}`},
+		{name: "object", dictionary: `{"correctness":{"value":1}}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := scoreStore()
+			base := startServiceWithStore(t, st, auth.RoleAdmin)
+			body := `{"task":"fix-bug","test":"basic","result":"aaa111","dictionary":` + tc.dictionary + `}`
+
+			resp := sendScorePost(t, base, "repos/acme/widgets/scores", body)
+			defer resp.Body.Close()
+
+			assertServiceError(t, resp, http.StatusUnprocessableEntity)
+			if len(st.scores) != 0 {
+				t.Errorf("store holds %d scores, want none", len(st.scores))
+			}
+		})
 	}
 }
 
