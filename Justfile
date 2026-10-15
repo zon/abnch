@@ -4,6 +4,10 @@ config port="8080":
 	@go run ./cmd/abnchctl set local-auth --port {{port}}
 	@go run ./cmd/abnchctl check config
 
+# Start the local service from the config `just config` wrote
+service:
+	@go run ./cmd/abnchd .abnchd/config.yaml
+
 # List available recipes
 default:
 	@just --list

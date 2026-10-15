@@ -28,4 +28,4 @@ The recipe takes an optional port for the local service and defaults to `8080`. 
 
 ## Running the Service
 
-A local run points the service at `.abnchd/config.yaml`. The service then connects to Postgres with the details in the file. See [Service Config Design](app/abnchd-config.md).
+`just service` starts `abnchd` against `.abnchd/config.yaml`. Run `just config` first. The service connects to Postgres with the details in the file. See [Service Config Design](app/abnchd-config.md).
