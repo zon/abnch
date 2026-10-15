@@ -214,6 +214,80 @@ func TestScorePassesGraderInputOnStdin(t *testing.T) {
 	}
 }
 
+func TestScorePassesGraderInputAsJSONOnStdin(t *testing.T) {
+	workDir := t.TempDir()
+	addRemote(t, workDir, "git@github.com:acme/widgets.git")
+	fake := newFakeService(t)
+	body := `{"prompt":"hi"}`
+	resultJSON := `{"answer":"hi"}`
+	ref := seedScoreResult(t, fake, body, resultJSON)
+	writeGraderScripts(t, workDir)
+	d, _ := runDeps(t, workDir, fake.url, scoreConfig(fake.url))
+
+	if err := runScore([]string{ref}, d); err != nil {
+		t.Fatalf("score = %v, want no error", err)
+	}
+
+	raw, err := os.ReadFile(filepath.Join(workDir, "inputs.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var input map[string]json.RawMessage
+	if err := json.Unmarshal(bytes.TrimSpace(raw), &input); err != nil {
+		t.Fatalf("stdin is not a JSON object: %v\n%s", err, raw)
+	}
+	if len(input) != 3 || input["model"] == nil || input["data"] == nil || input["result"] == nil {
+		t.Fatalf("stdin = %s, want an object carrying only model, data, and result", raw)
+	}
+	var model map[string]json.RawMessage
+	if err := json.Unmarshal(input["model"], &model); err != nil {
+		t.Fatalf("model is not a JSON object: %v\n%s", err, input["model"])
+	}
+	for _, key := range []string{"name", "provider", "variant"} {
+		if _, ok := model[key]; !ok {
+			t.Errorf("model = %s, want it to carry %q", input["model"], key)
+		}
+	}
+	if string(input["data"]) != body {
+		t.Errorf("data = %s, want the datum %s", input["data"], body)
+	}
+	if string(input["result"]) != resultJSON {
+		t.Errorf("result = %s, want %s", input["result"], resultJSON)
+	}
+}
+
+func TestScorePassesModelWithoutVariantOnStdin(t *testing.T) {
+	workDir := t.TempDir()
+	addRemote(t, workDir, "git@github.com:acme/widgets.git")
+	fake := newFakeService(t)
+	body := `{"prompt":"hi"}`
+	resultJSON := `{"answer":"hi"}`
+	ref := seedScoreResult(t, fake, body, resultJSON)
+	writeGraderScripts(t, workDir)
+	config := "url: " + fake.url + "\n" +
+		"models:\n  sonnet:\n    provider: anthropic\n    name: claude-sonnet\n" +
+		"tasks:\n  fix-bug:\n    model: sonnet\n    grader:\n      runCmd: sh grade.sh\n"
+	d, _ := runDeps(t, workDir, fake.url, config)
+
+	if err := runScore([]string{ref}, d); err != nil {
+		t.Fatalf("score = %v, want no error", err)
+	}
+
+	got := readScoreInput(t, workDir)
+	if got.Model.Provider != "anthropic" || got.Model.Name != "claude-sonnet" {
+		t.Errorf("model = %+v, want the model's provider and name", got.Model)
+	}
+	if got.Model.Variant != "" {
+		t.Errorf("variant = %q, want empty for a model without a variant", got.Model.Variant)
+	}
+	if string(got.Data) != body {
+		t.Errorf("data = %s, want the datum %s", got.Data, body)
+	}
+	if string(got.Result) != resultJSON {
+		t.Errorf("result = %s, want %s", got.Result, resultJSON)
+	}
+}
+
 func TestScoreFailsWhenTaskHasNoGrader(t *testing.T) {
 	workDir := t.TempDir()
 	addRemote(t, workDir, "git@github.com:acme/widgets.git")
@@ -510,4 +584,31 @@ func TestScoreAcceptsTheLocalFlag(t *testing.T) {
 	if got := fake.scoreRefs("acme", "widgets"); len(got) != 1 {
 		t.Errorf("recorded %v scores, want 1 with --local", got)
 	}
+}
+
+// graderInputRecord is the grader input a test reads back from the grader's
+// recorded stdin.
+type graderInputRecord struct {
+	Model struct {
+		Provider string `json:"provider"`
+		Name     string `json:"name"`
+		Variant  string `json:"variant"`
+	} `json:"model"`
+	Data   json.RawMessage `json:"data"`
+	Result json.RawMessage `json:"result"`
+}
+
+// readScoreInput reads the last grader input the grader recorded on stdin.
+func readScoreInput(t *testing.T, workDir string) graderInputRecord {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(workDir, "inputs.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	var got graderInputRecord
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &got); err != nil {
+		t.Fatalf("stdin is not JSON: %v\n%s", err, data)
+	}
+	return got
 }
