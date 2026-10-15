@@ -71,6 +71,84 @@ func TestAddScoreStoresScore(t *testing.T) {
 	}
 }
 
+// TestAddScoreSameDictionaryReturnsExistingRef checks adding the same dictionary
+// for the same result twice returns the existing ref with 200 and leaves one
+// score.
+func TestAddScoreSameDictionaryReturnsExistingRef(t *testing.T) {
+	st := scoreStore()
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+	path := "repos/acme/widgets/scores"
+	body := `{"task":"fix-bug","test":"basic","result":"aaa111","dictionary":{"correctness":1}}`
+
+	first := sendScorePost(t, base, path, body)
+	defer first.Body.Close()
+	if first.StatusCode != http.StatusCreated {
+		t.Fatalf("first status = %d, want %d", first.StatusCode, http.StatusCreated)
+	}
+	var firstRef scoreRefBody
+	if err := json.NewDecoder(first.Body).Decode(&firstRef); err != nil {
+		t.Fatalf("decode first body: %v", err)
+	}
+
+	second := sendScorePost(t, base, path, body)
+	defer second.Body.Close()
+	if second.StatusCode != http.StatusOK {
+		t.Fatalf("second status = %d, want %d", second.StatusCode, http.StatusOK)
+	}
+	var secondRef scoreRefBody
+	if err := json.NewDecoder(second.Body).Decode(&secondRef); err != nil {
+		t.Fatalf("decode second body: %v", err)
+	}
+	if secondRef.Ref != firstRef.Ref {
+		t.Errorf("second ref = %q, want the existing ref %q", secondRef.Ref, firstRef.Ref)
+	}
+	if len(st.scores) != 1 {
+		t.Errorf("store holds %d scores, want 1", len(st.scores))
+	}
+}
+
+// TestAddScoreRejectsMalformedBody checks a body that carries no dictionary, or
+// is not valid JSON, returns 422 and creates no score.
+func TestAddScoreRejectsMalformedBody(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		tail string
+	}{
+		{name: "no dictionary", tail: `}`},
+		{name: "invalid json", tail: `,"dictionary":}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := scoreStore()
+			base := startServiceWithStore(t, st, auth.RoleAdmin)
+			body := `{"task":"fix-bug","test":"basic","result":"aaa111"` + tc.tail
+
+			resp := sendScorePost(t, base, "repos/acme/widgets/scores", body)
+			defer resp.Body.Close()
+
+			assertServiceError(t, resp, http.StatusUnprocessableEntity)
+			if len(st.scores) != 0 {
+				t.Errorf("store holds %d scores, want none", len(st.scores))
+			}
+		})
+	}
+}
+
+// TestAddScoreMissingResult checks adding a score for a result that does not
+// exist returns 404 and creates no score.
+func TestAddScoreMissingResult(t *testing.T) {
+	st := scoreStore()
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+
+	resp := sendScorePost(t, base, "repos/acme/widgets/scores",
+		`{"task":"fix-bug","test":"basic","result":"missing","dictionary":{"correctness":1}}`)
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusNotFound)
+	if len(st.scores) != 0 {
+		t.Errorf("store holds %d scores, want none", len(st.scores))
+	}
+}
+
 // TestAddScoreAcceptsSchemaKeys checks a score whose keys are all in the
 // result's test score schema is created, including a score that omits a schema
 // key.
