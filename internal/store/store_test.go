@@ -1091,6 +1091,62 @@ func TestSaveResultIdentityIncludesData(t *testing.T) {
 	}
 }
 
+// TestSaveResultIdentityIncludesDatum checks SaveResult returns the ref
+// ResultRef derives from the JSON within the result's datum, that the same JSON
+// for different data is a distinct result under a different ref, and that each
+// datum holds exactly one result for the same JSON.
+func TestSaveResultIdentityIncludesDatum(t *testing.T) {
+	s := newTestStore(t)
+	body := `{"answer":"hi"}`
+	coords := []struct{ repo, task, test, data string }{
+		{"widgets", "fix-bug", "basic", "56ac1b0e4f0d"},
+		{"widgets", "fix-bug", "basic", "ffffffffffff"},
+		{"widgets", "fix-bug", "other", "56ac1b0e4f0d"},
+		{"widgets", "ship-it", "basic", "56ac1b0e4f0d"},
+		{"gadgets", "fix-bug", "basic", "56ac1b0e4f0d"},
+	}
+
+	refs := map[string]struct{}{}
+	for _, c := range coords {
+		r := Result{Org: "acme", Repo: c.repo, Task: c.task, Test: c.test, Data: c.data, JSON: body}
+		ref, err := s.SaveResult(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := ResultRef(r); ref != want {
+			t.Errorf("SaveResult(%s/%s/%s/%s) ref = %q, want %q", c.repo, c.task, c.test, c.data, ref, want)
+		}
+		if _, ok := refs[ref]; ok {
+			t.Errorf("SaveResult(%s/%s/%s/%s) ref %q is not distinct from an earlier result", c.repo, c.task, c.test, c.data, ref)
+		}
+		refs[ref] = struct{}{}
+
+		again, err := s.SaveResult(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if again != ref {
+			t.Errorf("SaveResult(%s/%s/%s/%s) again = %q, want the ref %q", c.repo, c.task, c.test, c.data, again, ref)
+		}
+	}
+
+	for _, repo := range []string{"widgets", "gadgets"} {
+		want := 0
+		for _, c := range coords {
+			if c.repo == repo {
+				want++
+			}
+		}
+		results, err := s.ListResults("acme", repo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(results) != want {
+			t.Errorf("ListResults(%s) returned %d results, want %d", repo, len(results), want)
+		}
+	}
+}
+
 // TestListResults checks ListResults returns only a repo's results, ordered by
 // ref, without another repo's results.
 func TestListResults(t *testing.T) {
