@@ -321,28 +321,31 @@ func unusedOpener(t *testing.T) Opener {
 
 // fakeDB is a store a test controls without a database.
 type fakeDB struct {
-	closed        bool
-	repos         []store.Repo
-	tasks         []store.Task
-	tests         []store.Test
-	data          []store.Datum
-	results       []store.Result
-	listErr       error
-	getErr        error
-	saveErr       error
-	getTaskErr    error
-	getTestErr    error
-	listTasksErr  error
-	listTestsErr  error
-	listDataErr   error
-	getDataErr    error
-	saveDatumErr  error
-	moveTaskErr   error
-	saveTaskErr   error
-	moveTestErr   error
+	closed         bool
+	repos          []store.Repo
+	tasks          []store.Task
+	tests          []store.Test
+	data           []store.Datum
+	results        []store.Result
+	scores         []store.Score
+	listErr        error
+	getErr         error
+	saveErr        error
+	getTaskErr     error
+	getTestErr     error
+	listTasksErr   error
+	listTestsErr   error
+	listDataErr    error
+	getDataErr     error
+	saveDatumErr   error
+	moveTaskErr    error
+	saveTaskErr    error
+	moveTestErr    error
 	getResultErr   error
 	listResultsErr error
 	saveResultErr  error
+	getScoreErr    error
+	saveScoreErr   error
 }
 
 func (f *fakeDB) GetRepo(org, stub string) (store.Repo, error) {
@@ -588,6 +591,36 @@ func (f *fakeDB) SaveResult(r store.Result) (string, error) {
 	}
 	f.results = append(f.results, r)
 	return r.Ref, nil
+}
+
+func (f *fakeDB) GetScore(org, repo, ref string) (store.Score, error) {
+	if f.getScoreErr != nil {
+		return store.Score{}, f.getScoreErr
+	}
+	for _, sc := range f.scores {
+		if sc.Org == org && sc.Repo == repo && sc.Ref == ref {
+			return sc, nil
+		}
+	}
+	return store.Score{}, store.ErrNotFound
+}
+
+func (f *fakeDB) SaveScore(sc store.Score) (string, error) {
+	if f.saveScoreErr != nil {
+		return "", f.saveScoreErr
+	}
+	if err := sc.Validate(); err != nil {
+		return "", err
+	}
+	sc.Ref = store.ScoreRef(sc)
+	for i, existing := range f.scores {
+		if existing.Org == sc.Org && existing.Repo == sc.Repo && existing.Ref == sc.Ref {
+			f.scores[i] = sc
+			return sc.Ref, nil
+		}
+	}
+	f.scores = append(f.scores, sc)
+	return sc.Ref, nil
 }
 
 func (f *fakeDB) Close() error {

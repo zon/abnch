@@ -61,6 +61,15 @@ type Store interface {
 	// the same JSON for the same datum again returns the same ref and leaves one
 	// result. It reports store.ErrInvalidResult when a run metric is negative.
 	SaveResult(r store.Result) (string, error)
+	// GetScore returns the score with the given ref in a repo, or
+	// store.ErrNotFound.
+	GetScore(org, repo, ref string) (store.Score, error)
+	// SaveScore stores the key-number dictionary a grader produced for a result
+	// and returns the score's ref. The ref is derived from the dictionary within
+	// its result, so saving the same dictionary for the same result again
+	// returns the same ref and leaves one score. It reports store.ErrInvalidScore
+	// when a run metric is negative.
+	SaveScore(sc store.Score) (string, error)
 	// SaveRepo creates or replaces the repo with the given stubs.
 	SaveRepo(r store.Repo) error
 	// SaveTask creates or replaces the task with the given repo and stub.
@@ -192,6 +201,7 @@ func api(st Store) http.Handler {
 	mux.Handle("GET /repos/{org}/{repo}/results", read(listResults(st)))
 	mux.Handle("GET /repos/{org}/{repo}/results/{ref}", read(getResult(st)))
 	mux.Handle("POST /repos/{org}/{repo}/results", writeResult(addResult(st)))
+	mux.Handle("POST /repos/{org}/{repo}/scores", write(addScore(st)))
 	mux.Handle("/", auth.AuthorizeMethod(http.HandlerFunc(notFound)))
 	return mux
 }

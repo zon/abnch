@@ -125,17 +125,27 @@ func getResult(st Store) http.HandlerFunc {
 			return
 		}
 
-		res, err := st.GetResult(org, repo, r.PathValue("ref"))
-		if errors.Is(err, store.ErrNotFound) {
-			httpx.WriteError(w, http.StatusNotFound, "result not found")
-			return
-		}
-		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "failed to get result")
+		res, ok := requireResult(w, st, org, repo, r.PathValue("ref"))
+		if !ok {
 			return
 		}
 		httpx.WriteJSON(w, http.StatusOK, resultJSON(res))
 	}
+}
+
+// requireResult returns the result the route identifies under the repo, writing
+// the service error response and reporting false when it does not exist.
+func requireResult(w http.ResponseWriter, st Store, org, repo, ref string) (store.Result, bool) {
+	res, err := st.GetResult(org, repo, ref)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			httpx.WriteError(w, http.StatusNotFound, "result not found")
+		} else {
+			httpx.WriteError(w, http.StatusInternalServerError, "failed to get result")
+		}
+		return store.Result{}, false
+	}
+	return res, true
 }
 
 // resultJSON returns one result as the API represents it. An empty result JSON
