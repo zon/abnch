@@ -13,6 +13,27 @@ import (
 	"github.com/zon/abnch/internal/httpx"
 )
 
+// serveListTests writes a task's tests as a JSON array, or the service error
+// response when the repo or task does not exist.
+func (f *fakeService) serveListTests(w http.ResponseWriter, org, repo, task string) {
+	if _, ok := f.repos[org+"/"+repo]; !ok {
+		httpx.WriteError(w, http.StatusNotFound, "repo not found")
+		return
+	}
+	if _, ok := f.tasks[org+"/"+repo+"/"+task]; !ok {
+		httpx.WriteError(w, http.StatusNotFound, "task not found")
+		return
+	}
+	tests := make([]test, 0)
+	prefix := org + "/" + repo + "/" + task + "/"
+	for key, t := range f.tests {
+		if strings.HasPrefix(key, prefix) {
+			tests = append(tests, t)
+		}
+	}
+	httpx.WriteJSON(w, http.StatusOK, tests)
+}
+
 // serveGetTest writes one test as JSON, or the service error response when the
 // repo, task, or test does not exist.
 func (f *fakeService) serveGetTest(w http.ResponseWriter, org, repo, task, stub string) {

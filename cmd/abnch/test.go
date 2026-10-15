@@ -153,6 +153,40 @@ func readTest(ctx context.Context, client *serviceClient, org, repo, task, stub 
 	}
 }
 
+// readTests returns the tests of the task the repo and stub identify. A missing
+// repo or task is an error, because a task the service does not know cannot
+// hold tests.
+func readTests(ctx context.Context, client *serviceClient, org, repo, task string) ([]test, error) {
+	resp, err := client.do(ctx, http.MethodGet, testsPath(org, repo, task), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		defer resp.Body.Close()
+		var tests []test
+		if err := json.NewDecoder(resp.Body).Decode(&tests); err != nil {
+			return nil, fmt.Errorf("failed to read the tests: %w", err)
+		}
+		return tests, nil
+	case http.StatusNotFound:
+		message, ok := serviceMessage(resp)
+		switch {
+		case !ok:
+			return nil, fmt.Errorf("service returned %s", resp.Status)
+		case message == repoMissingMessage:
+			return nil, repoMissing{org: org, repo: repo}
+		case message == taskMissingMessage:
+			return nil, fmt.Errorf("task %s not found", task)
+		default:
+			return nil, errors.New(message)
+		}
+	default:
+		return nil, serviceError(resp)
+	}
+}
+
 // mergeTest replaces the fields body carries on t and keeps the rest. A body
 // that carries a schema replaces the stored schema.
 func mergeTest(t test, body testBody) test {
@@ -209,6 +243,11 @@ func writeTest(ctx context.Context, client *serviceClient, org, repo, task, stub
 // testPath returns the API path for a test.
 func testPath(org, repo, task, stub string) string {
 	return taskPath(org, repo, task) + "/tests/" + url.PathEscape(stub)
+}
+
+// testsPath returns the API path for a task's tests.
+func testsPath(org, repo, task string) string {
+	return taskPath(org, repo, task) + "/tests"
 }
 
 // moveTest renames the test the repo, task, and stub identify to newStub.

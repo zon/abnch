@@ -68,6 +68,8 @@ func (f *fakeService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.servePutTask(w, segments[1], segments[2], segments[4], body)
 	case r.Method == http.MethodPost && len(segments) == 6 && segments[0] == "repos" && segments[3] == "tasks" && segments[5] == "move":
 		f.serveMoveTask(w, segments[1], segments[2], segments[4], body)
+	case r.Method == http.MethodGet && len(segments) == 6 && segments[0] == "repos" && segments[3] == "tasks" && segments[5] == "tests":
+		f.serveListTests(w, segments[1], segments[2], segments[4])
 	case r.Method == http.MethodGet && len(segments) == 7 && segments[0] == "repos" && segments[3] == "tasks" && segments[5] == "tests":
 		f.serveGetTest(w, segments[1], segments[2], segments[4], segments[6])
 	case r.Method == http.MethodPut && len(segments) == 7 && segments[0] == "repos" && segments[3] == "tasks" && segments[5] == "tests":
