@@ -554,6 +554,36 @@ func TestSetRalphPublishesLocalConfig(t *testing.T) {
 	if len(applier.configMaps) != 1 || applier.configMaps[0].name != devconfig.RalphConfigMapName {
 		t.Errorf("configmaps = %#v, want the published %s", applier.configMaps, devconfig.RalphConfigMapName)
 	}
+
+	cfg, err := devconfig.UnmarshalConfig([]byte(applier.secrets[0].data[devconfig.ConfigFileName]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Postgres.Host != devconfig.RalphPostgresHost || cfg.Postgres.Port != devconfig.RalphPostgresPort {
+		t.Errorf("published postgres = %s:%d, want %s:%d",
+			cfg.Postgres.Host, cfg.Postgres.Port, devconfig.RalphPostgresHost, devconfig.RalphPostgresPort)
+	}
+}
+
+func TestSetRalphPostgresFlagsOverride(t *testing.T) {
+	repo := t.TempDir()
+	seedRalphRepo(t, repo)
+	applier := &recordingApplier{}
+
+	args := []string{"set", "ralph", "--postgres-host", "db.internal", "--postgres-port", "5433"}
+	if err := runInWithApplier(args, repo, t.TempDir(), &bytes.Buffer{}, applier); err != nil {
+		t.Fatal(err)
+	}
+	if len(applier.secrets) != 1 {
+		t.Fatalf("applied %d secrets, want 1", len(applier.secrets))
+	}
+	cfg, err := devconfig.UnmarshalConfig([]byte(applier.secrets[0].data[devconfig.ConfigFileName]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Postgres.Host != "db.internal" || cfg.Postgres.Port != 5433 {
+		t.Errorf("published postgres = %s:%d, want db.internal:5433", cfg.Postgres.Host, cfg.Postgres.Port)
+	}
 }
 
 func TestSetRalphNamespaceFlagOverridesConfig(t *testing.T) {

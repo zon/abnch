@@ -97,6 +97,8 @@ The `--config` option SHALL override the path for `set local-auth`, `set ralph`,
 
 `abnchctl set ralph` SHALL publish the local dev config to the Ralph namespace for remote runs. It SHALL write the local service config and the dev key beside it to the `abnchd-config` Secret, and the CLI config to the `abnch-config` ConfigMap.
 
+It SHALL set the published service config's Postgres host and port to the address a run inside the cluster uses, so a remote run reaches the database the local config reaches by a dev address. The host SHALL default to `postgres-rw.postgres` and the port to `5432`. The `--postgres-host` and `--postgres-port` options SHALL override them. It SHALL leave the local service config unchanged.
+
 It SHALL resolve the namespace from `workflow.namespace` in `.ralph/config.yaml` and the context from `workflow.context`. The `--namespace` and `--context` options SHALL override them. It SHALL fail when no namespace is set.
 
 It SHALL NOT change `.ralph/config.yaml`. The repo's config declares the mounts.
@@ -105,9 +107,25 @@ It SHALL NOT change `.ralph/config.yaml`. The repo's config declares the mounts.
 
 - GIVEN a repo with a local service config, a dev key, a CLI config, and `.ralph/config.yaml` setting `workflow.namespace: ralph-abnch`
 - WHEN `abnchctl set ralph` runs
-- THEN it writes the `abnchd-config` Secret with the local service config and the dev key
+- THEN it writes the `abnchd-config` Secret with the published service config and the dev key
 - AND it writes the `abnch-config` ConfigMap with the CLI config
 - AND `.ralph/config.yaml` is unchanged
+
+#### Scenario: Reach Postgres from the cluster
+
+- GIVEN a local service config whose Postgres host and port are a dev address
+- WHEN `abnchctl set ralph` runs
+- THEN the published config's Postgres host is `postgres-rw.postgres`
+- AND its Postgres port is `5432`
+- AND its other Postgres values are unchanged
+- AND the local service config is unchanged
+
+#### Scenario: Postgres flags
+
+- GIVEN a local service config
+- WHEN `abnchctl set ralph --postgres-host db.internal --postgres-port 5433` runs
+- THEN the published config's Postgres host is `db.internal`
+- AND its Postgres port is `5433`
 
 #### Scenario: Flags target another namespace
 

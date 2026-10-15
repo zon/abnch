@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 
 	"github.com/alecthomas/kong"
 
@@ -60,19 +61,23 @@ func (c localAuthCmd) Run(deps deps) error {
 
 // ralphCmd publishes the local dev config for Ralph remote runs.
 type ralphCmd struct {
-	Context   string `help:"Kubernetes context. Overrides workflow.context in .ralph/config.yaml." short:"c"`
-	Namespace string `help:"Kubernetes namespace. Overrides workflow.namespace in .ralph/config.yaml." short:"n"`
+	Context      string `help:"Kubernetes context. Overrides workflow.context in .ralph/config.yaml." short:"c"`
+	Namespace    string `help:"Kubernetes namespace. Overrides workflow.namespace in .ralph/config.yaml." short:"n"`
+	PostgresHost string `help:"In-cluster Postgres host remote runs use." default:"${ralphPostgresHost}"`
+	PostgresPort int    `help:"In-cluster Postgres port remote runs use." default:"${ralphPostgresPort}"`
 }
 
 // Run publishes the local service config, dev key, and CLI config to the Ralph
 // namespace and points .ralph/config.yaml at the published resources.
 func (c ralphCmd) Run(deps deps) error {
 	namespace, err := devconfig.SetRalph(devconfig.RalphOptions{
-		RepoRoot:   deps.repoRoot,
-		ConfigPath: deps.configPath,
-		Context:    c.Context,
-		Namespace:  c.Namespace,
-		Applier:    deps.applier,
+		RepoRoot:     deps.repoRoot,
+		ConfigPath:   deps.configPath,
+		Context:      c.Context,
+		Namespace:    c.Namespace,
+		PostgresHost: c.PostgresHost,
+		PostgresPort: c.PostgresPort,
+		Applier:      deps.applier,
 	})
 	if err != nil {
 		return err
@@ -152,7 +157,11 @@ func runCLI(args []string, env deps, exit func(int)) error {
 		kong.Description("Local development tooling for the Agent Benchmark service."),
 		kong.Writers(env.out, env.out),
 		kong.Exit(exit),
-		kong.Vars{"configPath": env.configPath},
+		kong.Vars{
+			"configPath":        env.configPath,
+			"ralphPostgresHost": devconfig.RalphPostgresHost,
+			"ralphPostgresPort": strconv.Itoa(devconfig.RalphPostgresPort),
+		},
 	)
 	if err != nil {
 		return err

@@ -166,6 +166,35 @@ func TestUpdateAuthPreservesOtherKeys(t *testing.T) {
 	}
 }
 
+// TestUpdatePostgresSetsHostAndPort guards the hand-written Postgres block: the
+// target address changes and every other value survives.
+func TestUpdatePostgresSetsHostAndPort(t *testing.T) {
+	in := "url: http://localhost:8080\n" +
+		"postgres:\n" +
+		"  host: avocado\n" +
+		"  port: 30543\n" +
+		"  sslmode: disable\n"
+
+	out, err := UpdatePostgres([]byte(in), "postgres-rw.postgres", 5432)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := UnmarshalConfig(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Postgres.Host != "postgres-rw.postgres" || cfg.Postgres.Port != 5432 {
+		t.Errorf("postgres = %s:%d, want postgres-rw.postgres:5432", cfg.Postgres.Host, cfg.Postgres.Port)
+	}
+	if cfg.Postgres.SSLMode != "disable" {
+		t.Errorf("postgres.sslmode = %q, want it kept", cfg.Postgres.SSLMode)
+	}
+	if cfg.URL != "http://localhost:8080" {
+		t.Errorf("url = %q, want it kept", cfg.URL)
+	}
+}
+
 func TestUpdateAuthReplacesDevIssuerForSameURL(t *testing.T) {
 	first, err := UpdateAuth(nil, "http://localhost:8080")
 	if err != nil {

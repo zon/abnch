@@ -1,13 +1,14 @@
 package devconfig
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
 
 const (
 	ralphSeed          = "mode: remote\nworkflow:\n  context: lab\n  namespace: ralph-abnch\n"
-	ralphServiceConfig = "url: http://localhost:8080\npostgres:\n  password: s3cret\n"
+	ralphServiceConfig = "url: http://localhost:8080\npostgres:\n  host: avocado\n  port: 30543\n  password: s3cret\n"
 	ralphDevKey        = "-----BEGIN PRIVATE KEY-----\nkey\n"
 	ralphCLIConfig     = "url: http://localhost:8080\n"
 )
@@ -35,11 +36,27 @@ func TestSetRalphPublishesLocalFiles(t *testing.T) {
 	if secret.namespace != "ralph-abnch" || secret.context != "lab" {
 		t.Errorf("secret target = %q/%q, want lab/ralph-abnch", secret.context, secret.namespace)
 	}
-	if secret.data[ConfigFileName] != ralphServiceConfig {
-		t.Errorf("secret %s = %q, want the local service config", ConfigFileName, secret.data[ConfigFileName])
+	published, err := UnmarshalConfig([]byte(secret.data[ConfigFileName]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if published.Postgres.Host != RalphPostgresHost || published.Postgres.Port != RalphPostgresPort {
+		t.Errorf("published postgres = %s:%d, want %s:%d",
+			published.Postgres.Host, published.Postgres.Port, RalphPostgresHost, RalphPostgresPort)
+	}
+	if published.Postgres.Password != "s3cret" {
+		t.Errorf("published postgres password = %q, want it kept", published.Postgres.Password)
 	}
 	if secret.data[KeyFileName] != ralphDevKey {
 		t.Errorf("secret %s = %q, want the dev key", KeyFileName, secret.data[KeyFileName])
+	}
+
+	local, err := os.ReadFile(ConfigPath(repo))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(local) != ralphServiceConfig {
+		t.Errorf("local config = %q, want it unchanged", local)
 	}
 
 	if len(applier.configMaps) != 1 {
@@ -73,6 +90,33 @@ func TestSetRalphFlagsOverrideTarget(t *testing.T) {
 	}
 	if len(applier.secrets) != 1 || applier.secrets[0].context != "canary" || applier.secrets[0].namespace != "staging" {
 		t.Errorf("secret target = %#v, want canary/staging", applier.secrets)
+	}
+}
+
+func TestSetRalphPostgresFlagsOverride(t *testing.T) {
+	repo := t.TempDir()
+	seedRalphRepo(t, repo)
+	applier := &fakeApplier{}
+
+	_, err := SetRalph(RalphOptions{
+		RepoRoot:     repo,
+		PostgresHost: "db.internal",
+		PostgresPort: 5433,
+		Applier:      applier,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(applier.secrets) != 1 {
+		t.Fatalf("applied %d secrets, want 1", len(applier.secrets))
+	}
+	published, err := UnmarshalConfig([]byte(applier.secrets[0].data[ConfigFileName]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if published.Postgres.Host != "db.internal" || published.Postgres.Port != 5433 {
+		t.Errorf("published postgres = %s:%d, want db.internal:5433",
+			published.Postgres.Host, published.Postgres.Port)
 	}
 }
 

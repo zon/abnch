@@ -132,6 +132,36 @@ func UpdateAuth(data []byte, url string) ([]byte, error) {
 	return marshalYAML(&doc)
 }
 
+// UpdatePostgres returns the service config with its postgres host and port
+// set. It edits the existing YAML document, so every other key survives,
+// including keys the typed Config does not model and comments on the kept
+// lines.
+func UpdatePostgres(data []byte, host string, port int) ([]byte, error) {
+	var doc yaml.Node
+	if len(data) > 0 {
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			return nil, err
+		}
+	}
+
+	root, err := configMapping(&doc)
+	if err != nil {
+		return nil, err
+	}
+	pg, err := childMapping(root, "postgres")
+	if err != nil {
+		return nil, err
+	}
+
+	var portNode yaml.Node
+	if err := portNode.Encode(port); err != nil {
+		return nil, err
+	}
+	setMappingValue(pg, "host", scalarNode(host))
+	setMappingValue(pg, "port", &portNode)
+	return marshalYAML(&doc)
+}
+
 // UpdateCLIConfigURL returns the CLI config with its url set. It edits the
 // existing YAML document, so every other key survives, including keys the CLI
 // config does not model and comments on the kept lines.

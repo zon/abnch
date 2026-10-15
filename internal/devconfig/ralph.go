@@ -15,11 +15,17 @@ const (
 	RalphConfigFileName = "config.yaml"
 
 	// RalphSecretName is the Secret published for remote runs. It holds the
-	// local service config and the dev signing key.
+	// published service config and the dev signing key.
 	RalphSecretName = "abnchd-config"
 	// RalphConfigMapName is the ConfigMap published for remote runs. It holds
 	// the CLI config.
 	RalphConfigMapName = "abnch-config"
+
+	// RalphPostgresHost is the in-cluster address a remote run uses to reach
+	// the database the local config reaches by a dev address.
+	RalphPostgresHost = "postgres-rw.postgres"
+	// RalphPostgresPort is the in-cluster port of RalphPostgresHost.
+	RalphPostgresPort = 5432
 )
 
 // ResourceApplier applies a ConfigMap or Secret to a Kubernetes cluster.
@@ -34,7 +40,11 @@ type RalphOptions struct {
 	ConfigPath string // local service config; the dev key sits beside it
 	Context    string // overrides workflow.context in .ralph/config.yaml
 	Namespace  string // overrides workflow.namespace in .ralph/config.yaml
-	Applier    ResourceApplier
+	// PostgresHost overrides the in-cluster Postgres host, RalphPostgresHost.
+	PostgresHost string
+	// PostgresPort overrides the in-cluster Postgres port, RalphPostgresPort.
+	PostgresPort int
+	Applier      ResourceApplier
 }
 
 // RalphConfigPath returns the Ralph config path in a repo root.
@@ -44,9 +54,10 @@ func RalphConfigPath(repoRoot string) string {
 
 // SetRalph publishes the local service config, its dev key, and the CLI config
 // to the Ralph namespace as a Secret and a ConfigMap, so a remote workflow that
-// mounts them reads the same config a local service uses. The repo's
-// .ralph/config.yaml declares those mounts. It returns the namespace it
-// published to.
+// mounts them reads the same config a local service uses. It rewrites the
+// published service config's Postgres host and port to the address a cluster run
+// uses. The repo's .ralph/config.yaml declares those mounts. It returns the
+// namespace it published to.
 func SetRalph(opts RalphOptions) (string, error) {
 	data, err := os.ReadFile(RalphConfigPath(opts.RepoRoot))
 	if err != nil {
@@ -106,9 +117,10 @@ func resolveRalphTarget(data []byte, opts RalphOptions) (ralphTarget, error) {
 }
 
 // ralphData reads the files published for remote runs: the local service config
-// and its dev key as the Secret data, and the CLI config as the ConfigMap data.
-// The keys are the file names, so a mount at the config's directory restores the
-// files under their original names.
+// with its Postgres host and port pointed at the cluster and its dev key as the
+// Secret data, and the CLI config as the ConfigMap data. The keys are the file
+// names, so a mount at the config's directory restores the files under their
+// original names.
 func ralphData(opts RalphOptions) (secret, configMap map[string]string, err error) {
 	configPath := opts.ConfigPath
 	if configPath == "" {
@@ -118,6 +130,11 @@ func ralphData(opts RalphOptions) (secret, configMap map[string]string, err erro
 	serviceConfig, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read %s: %w", configPath, err)
+	}
+	host, port := ralphPostgres(opts)
+	serviceConfig, err = UpdatePostgres(serviceConfig, host, port)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to adjust postgres in %s: %w", configPath, err)
 	}
 	keyPath := KeyPath(configPath)
 	devKey, err := os.ReadFile(keyPath)
@@ -138,4 +155,18 @@ func ralphData(opts RalphOptions) (secret, configMap map[string]string, err erro
 		CLIConfigFileName: string(cliConfig),
 	}
 	return secret, configMap, nil
+}
+
+// ralphPostgres resolves the in-cluster Postgres address remote runs use, with
+// the options taking precedence over the defaults.
+func ralphPostgres(opts RalphOptions) (string, int) {
+	host := opts.PostgresHost
+	if host == "" {
+		host = RalphPostgresHost
+	}
+	port := opts.PostgresPort
+	if port == 0 {
+		port = RalphPostgresPort
+	}
+	return host, port
 }
