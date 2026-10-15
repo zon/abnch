@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -199,4 +201,74 @@ func writeScore(ctx context.Context, client *serviceClient, org, repo string, re
 // scoresPath returns the API path for a repo's scores.
 func scoresPath(org, repo string) string {
 	return repoPath(org, repo) + "/scores"
+}
+
+// scoreMissingMessage is the message the service reports for a score it does
+// not know.
+const scoreMissingMessage = "score not found"
+
+// scorePath returns the API path for one score in a repo's scores.
+func scorePath(org, repo, ref string) string {
+	return scoresPath(org, repo) + "/" + url.PathEscape(ref)
+}
+
+// readScoreRefs returns the refs of the scores in the repo the client
+// identifies. A missing repo is an error.
+func readScoreRefs(ctx context.Context, client *serviceClient, org, repo string) ([]string, error) {
+	resp, err := client.do(ctx, http.MethodGet, scoresPath(org, repo), nil)
+	if err != nil {
+		return nil, err
+	}
+	switch resp.StatusCode {
+	case http.StatusOK:
+		defer resp.Body.Close()
+		var refs []string
+		if err := json.NewDecoder(resp.Body).Decode(&refs); err != nil {
+			return nil, fmt.Errorf("failed to read the scores: %w", err)
+		}
+		return refs, nil
+	case http.StatusNotFound:
+		return nil, scoreNotFoundError(resp, org, repo, "")
+	default:
+		return nil, serviceError(resp)
+	}
+}
+
+// readScore returns the JSON of the score the ref names in the repo. A missing
+// repo or score is an error.
+func readScore(ctx context.Context, client *serviceClient, org, repo, ref string) ([]byte, error) {
+	resp, err := client.do(ctx, http.MethodGet, scorePath(org, repo, ref), nil)
+	if err != nil {
+		return nil, err
+	}
+	switch resp.StatusCode {
+	case http.StatusOK:
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read the score: %w", err)
+		}
+		return body, nil
+	case http.StatusNotFound:
+		return nil, scoreNotFoundError(resp, org, repo, ref)
+	default:
+		return nil, serviceError(resp)
+	}
+}
+
+// scoreNotFoundError maps a score request's not-found response to the resource
+// the service does not know. A ref names the score when the response reports
+// one.
+func scoreNotFoundError(resp *http.Response, org, repo, ref string) error {
+	message, ok := serviceMessage(resp)
+	switch {
+	case !ok:
+		return fmt.Errorf("service returned %s", resp.Status)
+	case message == repoMissingMessage:
+		return repoMissing{org: org, repo: repo}
+	case message == scoreMissingMessage && ref != "":
+		return fmt.Errorf("score %s not found", ref)
+	default:
+		return errors.New(message)
+	}
 }

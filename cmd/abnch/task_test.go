@@ -94,6 +94,10 @@ func (f *fakeService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.serveAddResult(w, segments[1], segments[2], body)
 	case r.Method == http.MethodPost && len(segments) == 4 && segments[0] == "repos" && segments[3] == "scores":
 		f.serveAddScore(w, segments[1], segments[2], body)
+	case r.Method == http.MethodGet && len(segments) == 4 && segments[0] == "repos" && segments[3] == "scores":
+		f.serveListScores(w, segments[1], segments[2])
+	case r.Method == http.MethodGet && len(segments) == 5 && segments[0] == "repos" && segments[3] == "scores":
+		f.serveGetScore(w, segments[1], segments[2], segments[4])
 	default:
 		httpx.WriteError(w, http.StatusNotFound, "route not found")
 	}

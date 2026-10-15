@@ -77,6 +77,26 @@ type getCmd struct {
 	Grader  getGraderCmd  `cmd:"" help:"Print a task's grader as YAML."`
 	Results getResultsCmd `cmd:"" help:"List the inferred repo's results as YAML."`
 	Result  getResultCmd  `cmd:"" help:"Print one result as JSON."`
+	Scores  getScoresCmd  `cmd:"" help:"List the inferred repo's scores as YAML."`
+	Score   getScoreCmd   `cmd:"" help:"Print one score as JSON."`
+}
+
+// getScoresCmd lists the inferred repo's scores.
+type getScoresCmd struct{}
+
+// Run lists the inferred repo's scores as YAML.
+func (c getScoresCmd) Run(deps deps) error {
+	return getScores(deps)
+}
+
+// getScoreCmd prints one score as JSON.
+type getScoreCmd struct {
+	Ref string `arg:"" help:"Score ref."`
+}
+
+// Run prints the score as JSON.
+func (c getScoreCmd) Run(deps deps) error {
+	return getScore(deps, c.Ref)
 }
 
 // getResultsCmd lists the inferred repo's results.
