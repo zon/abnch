@@ -94,19 +94,26 @@ func setTask(d deps, c setTaskCmd) error {
 // readTaskBody parses the YAML or JSON task body from in. Empty input is an
 // empty body, and a terminal carries no body.
 func readTaskBody(in io.Reader) (taskBody, error) {
+	return readBody[taskBody](in, "task")
+}
+
+// readBody parses the YAML or JSON body from in into T, naming what the body
+// describes in its errors. Empty input is an empty body, and a terminal carries
+// no body.
+func readBody[T any](in io.Reader, what string) (T, error) {
+	var body T
 	if !pipedInput(in) {
-		return taskBody{}, nil
+		return body, nil
 	}
 	data, err := io.ReadAll(in)
 	if err != nil {
-		return taskBody{}, fmt.Errorf("failed to read the task body: %w", err)
+		return body, fmt.Errorf("failed to read the %s body: %w", what, err)
 	}
 	if len(bytes.TrimSpace(data)) == 0 {
-		return taskBody{}, nil
+		return body, nil
 	}
-	var body taskBody
 	if err := yaml.Unmarshal(data, &body); err != nil {
-		return taskBody{}, fmt.Errorf("invalid task body: %w", err)
+		return body, fmt.Errorf("invalid %s body: %w", what, err)
 	}
 	return body, nil
 }

@@ -46,6 +46,20 @@ func (c getTaskCmd) Run(deps deps) error {
 // setCmd groups the commands that create or update resources.
 type setCmd struct {
 	Task setTaskCmd `cmd:"" help:"Create or update a task in the inferred repo."`
+	Test setTestCmd `cmd:"" help:"Create or update a test in the inferred repo."`
+}
+
+// setTestCmd creates or updates a test under a task in the inferred repo.
+type setTestCmd struct {
+	Path        string `arg:"" help:"Task and test stub as <task>/<stub>."`
+	Name        string `help:"Test name." optional:""`
+	Description string `help:"Test description." optional:""`
+	Version     string `help:"Test version." optional:""`
+}
+
+// Run creates or updates the test in the inferred repo.
+func (c setTestCmd) Run(deps deps) error {
+	return setTest(deps, c)
 }
 
 // setTaskCmd creates, updates, or renames a task in the inferred repo.
