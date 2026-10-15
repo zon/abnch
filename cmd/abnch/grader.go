@@ -26,6 +26,20 @@ func setGrader(d deps, c setGraderCmd) error {
 	return nil
 }
 
+// getGrader writes the grader recorded for the task as YAML. It fails when the
+// task has no grader.
+func getGrader(d deps, stub string) error {
+	tasks, err := loadConfigTasks(d.workDir)
+	if err != nil {
+		return err
+	}
+	task, ok := tasks[stub]
+	if !ok || task.Grader == nil {
+		return fmt.Errorf("task %s has no grader", stub)
+	}
+	return writeYAML(d.out, *task.Grader)
+}
+
 // graderOf reads the grader commands from a YAML mapping node.
 func graderOf(entry *yaml.Node) configGrader {
 	return configGrader{
