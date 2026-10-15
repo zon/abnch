@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Store and read the results an agent produces for a test's data. A result belongs to a datum. Error shapes and authorization follow the [Repo Service API](repo.md). Scoring a result is out of scope.
+Store and read the results an agent produces for a test's data. A result belongs to a datum. Error shapes and authorization follow the [Repo Service API](repo.md). Scoring a result is defined in the [Score Service API](score.md).
 
 ## Requirements
 

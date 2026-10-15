@@ -1,12 +1,5 @@
 # Milestones
 
-## Models and Agents
-
-* The config records models
-* An agent runs against a task's data and produces a result
-* A result records the JSON, logs, tokens, cost, and run duration
-* `abnch run` runs a test, and `abnch` reads results
-
 ## Graders and Scores
 
 * A grader scores a result
