@@ -32,6 +32,7 @@ type fakeService struct {
 	repos    map[string]string
 	tasks    map[string]task
 	tests    map[string]test
+	data     map[string]string
 	requests []serviceRequest
 	url      string
 }
@@ -39,7 +40,7 @@ type fakeService struct {
 // newFakeService starts a fake service and returns it.
 func newFakeService(t *testing.T) *fakeService {
 	t.Helper()
-	f := &fakeService{repos: map[string]string{}, tasks: map[string]task{}, tests: map[string]test{}}
+	f := &fakeService{repos: map[string]string{}, tasks: map[string]task{}, tests: map[string]test{}, data: map[string]string{}}
 	srv := httptest.NewServer(f)
 	t.Cleanup(srv.Close)
 	f.url = srv.URL
@@ -76,6 +77,8 @@ func (f *fakeService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.servePutTest(w, segments[1], segments[2], segments[4], segments[6], body)
 	case r.Method == http.MethodPost && len(segments) == 8 && segments[0] == "repos" && segments[3] == "tasks" && segments[5] == "tests" && segments[7] == "move":
 		f.serveMoveTest(w, segments[1], segments[2], segments[4], segments[6], body)
+	case r.Method == http.MethodPost && len(segments) == 8 && segments[0] == "repos" && segments[3] == "tasks" && segments[5] == "tests" && segments[7] == "data":
+		f.serveAddData(w, segments[1], segments[2], segments[4], segments[6], body)
 	default:
 		httpx.WriteError(w, http.StatusNotFound, "route not found")
 	}

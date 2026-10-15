@@ -17,6 +17,23 @@ type cli struct {
 	Logout logoutCmd `cmd:"" help:"Remove the stored session."`
 	Get    getCmd    `cmd:"" help:"Read resources from the inferred repo."`
 	Set    setCmd    `cmd:"" help:"Create or update resources in the inferred repo."`
+	Add    addCmd    `cmd:"" help:"Add resources to the inferred repo."`
+}
+
+// addCmd groups the commands that add resources.
+type addCmd struct {
+	Data addDataCmd `cmd:"" help:"Add a datum to a test in the inferred repo."`
+}
+
+// addDataCmd adds a datum to a test under a task in the inferred repo.
+type addDataCmd struct {
+	Path string `arg:"" help:"Task and test stub as <task>/<stub>."`
+	File string `help:"Path to a JSON file holding the datum." optional:""`
+}
+
+// Run adds the datum to the test in the inferred repo.
+func (c addDataCmd) Run(deps deps) error {
+	return addData(deps, c)
 }
 
 // getCmd groups the commands that read resources.
