@@ -118,6 +118,20 @@ type setCmd struct {
 	Task  setTaskCmd  `cmd:"" help:"Create or update a task in the inferred repo."`
 	Test  setTestCmd  `cmd:"" help:"Create or update a test in the inferred repo."`
 	Model setModelCmd `cmd:"" help:"Create or update a model in the CLI config."`
+	Agent setAgentCmd `cmd:"" help:"Create or update a task's agent in the CLI config."`
+}
+
+// setAgentCmd creates or updates a task's agent in the CLI config.
+type setAgentCmd struct {
+	Stub       string `arg:"" help:"Task stub."`
+	VersionCmd string `help:"Agent version command." optional:""`
+	BuildCmd   string `help:"Agent build command." optional:""`
+	RunCmd     string `help:"Agent run command." optional:""`
+}
+
+// Run creates or updates the task's agent in the CLI config.
+func (c setAgentCmd) Run(deps deps) error {
+	return setAgent(deps, c)
 }
 
 // setModelCmd creates or updates a model in the CLI config.

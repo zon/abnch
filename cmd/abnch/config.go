@@ -56,6 +56,15 @@ func setConfigModel(workDir, stub string, model configModel) error {
 	})
 }
 
+// setTaskAgent records the task's agent in the CLI config under workDir. It
+// edits the existing YAML document, so every other key survives. A missing
+// config is created. It fails when the merged agent has no run command.
+func setTaskAgent(workDir, stub string, agent configAgent) error {
+	return editConfig(workDir, func(data []byte) ([]byte, error) {
+		return updateTaskAgent(data, stub, agent)
+	})
+}
+
 // editConfig reads the CLI config under workDir, applies edit to its bytes, and
 // writes the result. A missing config is created.
 func editConfig(workDir string, edit func([]byte) ([]byte, error)) error {
@@ -133,6 +142,50 @@ func updateConfigModel(data []byte, stub string, model configModel) ([]byte, err
 	return marshalNode(&doc)
 }
 
+// updateTaskAgent returns the config document with tasks.<stub>.agent merged
+// with agent, preserving every other key and comment. Only the commands the
+// update carries are set. It fails when the merged agent has no run command, so
+// no agent is written.
+func updateTaskAgent(data []byte, stub string, agent configAgent) ([]byte, error) {
+	var doc yaml.Node
+	if len(data) > 0 {
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			return nil, err
+		}
+	}
+
+	root, err := rootMapping(&doc)
+	if err != nil {
+		return nil, err
+	}
+	tasks, err := childMapping(root, "tasks")
+	if err != nil {
+		return nil, err
+	}
+	task, err := childMapping(tasks, stub)
+	if err != nil {
+		return nil, err
+	}
+	entry, err := childMapping(task, "agent")
+	if err != nil {
+		return nil, err
+	}
+
+	if mergeAgent(agentOf(entry), agent).RunCmd == "" {
+		return nil, fmt.Errorf("agent for task %s has no run command", stub)
+	}
+	if agent.VersionCmd != "" {
+		setMappingValue(entry, "versionCmd", scalarNode(agent.VersionCmd))
+	}
+	if agent.BuildCmd != "" {
+		setMappingValue(entry, "buildCmd", scalarNode(agent.BuildCmd))
+	}
+	if agent.RunCmd != "" {
+		setMappingValue(entry, "runCmd", scalarNode(agent.RunCmd))
+	}
+	return marshalNode(&doc)
+}
+
 // rootMapping returns the document's root mapping, creating it when the
 // document is empty or null.
 func rootMapping(doc *yaml.Node) (*yaml.Node, error) {
@@ -180,6 +233,16 @@ func mappingValue(mapping *yaml.Node, key string) *yaml.Node {
 		}
 	}
 	return nil
+}
+
+// mappingString returns the string value for key in a mapping, or "" when the
+// key is missing or not a scalar.
+func mappingString(mapping *yaml.Node, key string) string {
+	value := mappingValue(mapping, key)
+	if value == nil || value.Kind != yaml.ScalarNode {
+		return ""
+	}
+	return value.Value
 }
 
 // setMappingValue sets key to value, replacing an existing entry in place so the
