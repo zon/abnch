@@ -996,6 +996,88 @@ func TestSaveAndGetResult(t *testing.T) {
 	}
 }
 
+// TestSaveResultDefaultsMetricsToZero checks a result that omits its run metrics
+// records zero for each of them.
+func TestSaveResultDefaultsMetricsToZero(t *testing.T) {
+	s := newTestStore(t)
+	r := Result{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Data: "56ac1b0e4f0d", JSON: `{"answer":"hi"}`,
+	}
+
+	ref, err := s.SaveResult(r)
+	if err != nil {
+		t.Fatalf("SaveResult: %v", err)
+	}
+
+	got, err := s.GetResult("acme", "widgets", ref)
+	if err != nil {
+		t.Fatalf("GetResult: %v", err)
+	}
+	if got.InputTokens != 0 || got.OutputTokens != 0 || got.TokenCost != 0 || got.Duration != 0 {
+		t.Errorf("metrics = %d input, %d output, %v cost, %v duration, want zero", got.InputTokens, got.OutputTokens, got.TokenCost, got.Duration)
+	}
+	if got.Logs != "" || got.Local != "" {
+		t.Errorf("logs = %q, local = %q, want them empty", got.Logs, got.Local)
+	}
+}
+
+// TestSaveResultRejectsNegativeMetrics checks a result with a negative token
+// count, cost, or duration is refused and stored nowhere.
+func TestSaveResultRejectsNegativeMetrics(t *testing.T) {
+	valid := Result{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Data: "56ac1b0e4f0d", JSON: `{"answer":"hi"}`,
+	}
+	for _, tc := range []struct {
+		name   string
+		change func(Result) Result
+	}{
+		{"negative input tokens", func(r Result) Result { r.InputTokens = -1; return r }},
+		{"negative output tokens", func(r Result) Result { r.OutputTokens = -1; return r }},
+		{"negative token cost", func(r Result) Result { r.TokenCost = -0.01; return r }},
+		{"negative duration", func(r Result) Result { r.Duration = -0.5; return r }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTestStore(t)
+
+			if _, err := s.SaveResult(tc.change(valid)); !errors.Is(err, ErrInvalidResult) {
+				t.Errorf("SaveResult error = %v, want ErrInvalidResult", err)
+			}
+			results, err := s.ListResults("acme", "widgets")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(results) != 0 {
+				t.Errorf("ListResults returned %d results, want none", len(results))
+			}
+		})
+	}
+}
+
+// TestResultValidate checks a result may carry zero or positive run metrics and
+// is refused when one is negative.
+func TestResultValidate(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		result Result
+		want   error
+	}{
+		{"zero metrics", Result{}, nil},
+		{"positive metrics", Result{InputTokens: 12, OutputTokens: 3, TokenCost: 0.01, Duration: 1.5}, nil},
+		{"negative input tokens", Result{InputTokens: -1}, ErrInvalidResult},
+		{"negative output tokens", Result{OutputTokens: -1}, ErrInvalidResult},
+		{"negative token cost", Result{TokenCost: -0.01}, ErrInvalidResult},
+		{"negative duration", Result{Duration: -0.5}, ErrInvalidResult},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.result.Validate(); !errors.Is(err, tc.want) {
+				t.Errorf("Validate error = %v, want %v", err, tc.want)
+			}
+		})
+	}
+}
+
 // TestSaveResultSameIdentitySameRef checks saving the same JSON for the same
 // datum again returns the same ref and leaves one result.
 func TestSaveResultSameIdentitySameRef(t *testing.T) {

@@ -95,3 +95,13 @@ type Result struct {
 	Duration     float64
 	Local        string
 }
+
+// Validate reports whether the result's run metrics are zero or greater. A
+// result that omits a metric records zero. Its JSON, logs, and local branch may
+// be empty.
+func (r Result) Validate() error {
+	if r.InputTokens < 0 || r.OutputTokens < 0 || r.TokenCost < 0 || r.Duration < 0 {
+		return ErrInvalidResult
+	}
+	return nil
+}

@@ -24,6 +24,9 @@ var ErrInvalidTest = errors.New("invalid test")
 // as two keys sharing a stub.
 var ErrInvalidSchema = errors.New("invalid schema")
 
+// ErrInvalidResult reports that a result carries a negative run metric.
+var ErrInvalidResult = errors.New("invalid result")
+
 // Store reads and writes the service's domain data in Postgres.
 type Store struct {
 	db *gorm.DB
@@ -174,8 +177,11 @@ func (s *Store) ListData(org, repo, task, test string) ([]Datum, error) {
 // SaveResult stores the JSON an agent produced for a datum and returns the
 // result's ref. The ref is derived from the JSON within its datum, so saving
 // the same JSON for the same datum again returns the same ref and leaves one
-// result.
+// result. It returns ErrInvalidResult when a run metric is negative.
 func (s *Store) SaveResult(r Result) (string, error) {
+	if err := r.Validate(); err != nil {
+		return "", err
+	}
 	r.Ref = ResultRef(r)
 	if err := s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&r).Error; err != nil {
 		return "", err
