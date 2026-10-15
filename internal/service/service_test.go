@@ -321,24 +321,27 @@ func unusedOpener(t *testing.T) Opener {
 
 // fakeDB is a store a test controls without a database.
 type fakeDB struct {
-	closed       bool
-	repos        []store.Repo
-	tasks        []store.Task
-	tests        []store.Test
-	data         []store.Datum
-	listErr      error
-	getErr       error
-	saveErr      error
-	getTaskErr   error
-	getTestErr   error
-	listTasksErr error
-	listTestsErr error
-	listDataErr  error
-	getDataErr   error
-	saveDatumErr error
-	moveTaskErr  error
-	saveTaskErr  error
-	moveTestErr  error
+	closed        bool
+	repos         []store.Repo
+	tasks         []store.Task
+	tests         []store.Test
+	data          []store.Datum
+	results       []store.Result
+	listErr       error
+	getErr        error
+	saveErr       error
+	getTaskErr    error
+	getTestErr    error
+	listTasksErr  error
+	listTestsErr  error
+	listDataErr   error
+	getDataErr    error
+	saveDatumErr  error
+	moveTaskErr   error
+	saveTaskErr   error
+	moveTestErr   error
+	getResultErr  error
+	saveResultErr error
 }
 
 func (f *fakeDB) GetRepo(org, stub string) (store.Repo, error) {
@@ -541,6 +544,36 @@ func (f *fakeDB) SaveTest(t store.Test) error {
 	}
 	f.tests = append(f.tests, t)
 	return nil
+}
+
+func (f *fakeDB) GetResult(org, repo, ref string) (store.Result, error) {
+	if f.getResultErr != nil {
+		return store.Result{}, f.getResultErr
+	}
+	for _, r := range f.results {
+		if r.Org == org && r.Repo == repo && r.Ref == ref {
+			return r, nil
+		}
+	}
+	return store.Result{}, store.ErrNotFound
+}
+
+func (f *fakeDB) SaveResult(r store.Result) (string, error) {
+	if f.saveResultErr != nil {
+		return "", f.saveResultErr
+	}
+	if err := r.Validate(); err != nil {
+		return "", err
+	}
+	r.Ref = store.ResultRef(r)
+	for i, existing := range f.results {
+		if existing.Org == r.Org && existing.Repo == r.Repo && existing.Ref == r.Ref {
+			f.results[i] = r
+			return r.Ref, nil
+		}
+	}
+	f.results = append(f.results, r)
+	return r.Ref, nil
 }
 
 func (f *fakeDB) Close() error {
