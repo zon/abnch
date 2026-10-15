@@ -30,6 +30,20 @@ type scoreRequest struct {
 	Duration     float64        `json:"duration"`
 }
 
+// score is a score as the service API returns it.
+type score struct {
+	Ref          string             `json:"ref"`
+	Task         string             `json:"task"`
+	Test         string             `json:"test"`
+	Result       string             `json:"result"`
+	Dictionary   map[string]float64 `json:"dictionary"`
+	Logs         string             `json:"logs"`
+	InputTokens  int                `json:"inputTokens"`
+	OutputTokens int                `json:"outputTokens"`
+	TokenCost    float64            `json:"tokenCost"`
+	Duration     float64            `json:"duration"`
+}
+
 // addScore stores the score the request body carries for its result and writes
 // its ref. It answers 201 for a new ref and 200 when the ref already exists,
 // without creating a second score. A score the store rejects is a client error,
@@ -121,6 +135,49 @@ func scoreRefs(scores []store.Score) []string {
 		refs = append(refs, sc.Ref)
 	}
 	return refs
+}
+
+// getScore writes one score as JSON, or the service error response when the
+// repo or score does not exist.
+func getScore(st Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		org, repo := r.PathValue("org"), r.PathValue("repo")
+		if _, ok := requireRepo(w, st, org, repo); !ok {
+			return
+		}
+
+		sc, ok := requireScore(w, st, org, repo, r.PathValue("ref"))
+		if !ok {
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, scoreJSON(sc))
+	}
+}
+
+// requireScore returns the score the route identifies under the repo, writing
+// the service error response and reporting false when it does not exist.
+func requireScore(w http.ResponseWriter, st Store, org, repo, ref string) (store.Score, bool) {
+	sc, err := st.GetScore(org, repo, ref)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			httpx.WriteError(w, http.StatusNotFound, "score not found")
+		} else {
+			httpx.WriteError(w, http.StatusInternalServerError, "failed to get score")
+		}
+		return store.Score{}, false
+	}
+	return sc, true
+}
+
+// scoreJSON returns one score as the API represents it. An empty dictionary
+// comes back as null.
+func scoreJSON(sc store.Score) score {
+	return score{
+		Ref: sc.Ref, Task: sc.Task, Test: sc.Test, Result: sc.Result,
+		Dictionary: sc.Dictionary, Logs: sc.Logs,
+		InputTokens: sc.InputTokens, OutputTokens: sc.OutputTokens,
+		TokenCost: sc.TokenCost, Duration: sc.Duration,
+	}
 }
 
 // numberDictionary returns the request's dictionary as numbers, reporting false

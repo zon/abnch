@@ -204,6 +204,7 @@ func api(st Store) http.Handler {
 	mux.Handle("GET /repos/{org}/{repo}/results/{ref}", read(getResult(st)))
 	mux.Handle("POST /repos/{org}/{repo}/results", writeResult(addResult(st)))
 	mux.Handle("GET /repos/{org}/{repo}/scores", read(listScores(st)))
+	mux.Handle("GET /repos/{org}/{repo}/scores/{ref}", read(getScore(st)))
 	mux.Handle("POST /repos/{org}/{repo}/scores", write(addScore(st)))
 	mux.Handle("/", auth.AuthorizeMethod(http.HandlerFunc(notFound)))
 	return mux

@@ -408,6 +408,147 @@ func TestGetScoresDeniedForUnpermittedRole(t *testing.T) {
 	}
 }
 
+// TestGetScoreReturnsFields checks GET /repos/{org}/{repo}/scores/{ref}
+// returns one score with its ref, task, test, result ref, dictionary, logs,
+// tokens, cost, and duration.
+func TestGetScoreReturnsFields(t *testing.T) {
+	st := scoreStore()
+	st.scores = []store.Score{{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Result: "aaa111", Ref: "bbb222",
+		Dictionary:  map[string]float64{"correctness": 1},
+		Logs:        "graded",
+		InputTokens: 12, OutputTokens: 3, TokenCost: 0.01, Duration: 1.5,
+	}}
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets/scores/bbb222")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+
+	var got struct {
+		Ref          string             `json:"ref"`
+		Task         string             `json:"task"`
+		Test         string             `json:"test"`
+		Result       string             `json:"result"`
+		Dictionary   map[string]float64 `json:"dictionary"`
+		Logs         string             `json:"logs"`
+		InputTokens  int                `json:"inputTokens"`
+		OutputTokens int                `json:"outputTokens"`
+		TokenCost    float64            `json:"tokenCost"`
+		Duration     float64            `json:"duration"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if got.Ref != "bbb222" || got.Task != "fix-bug" || got.Test != "basic" || got.Result != "aaa111" {
+		t.Errorf("score identity = %#v, want the stored ref, task, test, and result ref", got)
+	}
+	if got.Dictionary["correctness"] != 1 {
+		t.Errorf("score dictionary = %#v, want the stored dictionary", got.Dictionary)
+	}
+	if got.Logs != "graded" || got.InputTokens != 12 || got.OutputTokens != 3 || got.TokenCost != 0.01 || got.Duration != 1.5 {
+		t.Errorf("score = %#v, want the stored logs and metrics", got)
+	}
+}
+
+// TestGetScoreMissing checks a request for a ref that does not exist returns
+// the service error response.
+func TestGetScoreMissing(t *testing.T) {
+	st := scoreStore()
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets/scores/missing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusNotFound)
+}
+
+// TestGetScoreMissingRepo checks a request for a score in a repo that does not
+// exist returns the service error response.
+func TestGetScoreMissingRepo(t *testing.T) {
+	st := &fakeDB{}
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets/scores/bbb222")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusNotFound)
+}
+
+// TestGetScoreReportsStoreFailure checks a store failure returns the service
+// error response instead of a partial score.
+func TestGetScoreReportsStoreFailure(t *testing.T) {
+	st := scoreStore()
+	st.getScoreErr = errors.New("boom")
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets/scores/bbb222")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusInternalServerError)
+}
+
+// TestGetScoreDeniedForUnpermittedRole checks a role without read access
+// reaches no score.
+func TestGetScoreDeniedForUnpermittedRole(t *testing.T) {
+	st := scoreStore()
+	base := startServiceWithStore(t, st, auth.RoleAgent)
+
+	resp, err := http.Get(base + "repos/acme/widgets/scores/bbb222")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusForbidden)
+	}
+}
+
+// TestGetScoreReadAllowedForRoles checks reading one score is allowed for the
+// Reader, Service, and Admin roles.
+func TestGetScoreReadAllowedForRoles(t *testing.T) {
+	for _, role := range []string{auth.RoleReader, auth.RoleService, auth.RoleAdmin} {
+		t.Run(role, func(t *testing.T) {
+			st := scoreStore()
+			st.scores = []store.Score{{
+				Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+				Result: "aaa111", Ref: "bbb222",
+				Dictionary: map[string]float64{"correctness": 1},
+			}}
+			base := startServiceWithStore(t, st, role)
+
+			resp, err := http.Get(base + "repos/acme/widgets/scores/bbb222")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+			}
+		})
+	}
+}
+
 // sendScorePost sends a score write to the service and returns the response.
 func sendScorePost(t *testing.T, base, path, body string) *http.Response {
 	t.Helper()
