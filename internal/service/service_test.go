@@ -335,6 +335,7 @@ type fakeDB struct {
 	listTestsErr error
 	listDataErr  error
 	getDataErr   error
+	saveDatumErr error
 	moveTaskErr  error
 	saveTaskErr  error
 	moveTestErr  error
@@ -487,6 +488,21 @@ func (f *fakeDB) GetDatum(org, repo, task, test, ref string) (store.Datum, error
 		}
 	}
 	return store.Datum{}, store.ErrNotFound
+}
+
+func (f *fakeDB) SaveDatum(org, repo, task, test string, body []byte) (string, error) {
+	if f.saveDatumErr != nil {
+		return "", f.saveDatumErr
+	}
+	d := store.Datum{Org: org, Repo: repo, Task: task, Test: test, Ref: store.DatumRef(body), JSON: string(body)}
+	for i, existing := range f.data {
+		if existing.Org == org && existing.Repo == repo && existing.Task == task && existing.Test == test && existing.Ref == d.Ref {
+			f.data[i] = d
+			return d.Ref, nil
+		}
+	}
+	f.data = append(f.data, d)
+	return d.Ref, nil
 }
 
 func (f *fakeDB) MoveTest(org, repo, task, stub, newStub string) (store.Test, error) {

@@ -47,6 +47,10 @@ type Store interface {
 	// GetDatum returns the datum with the given ref in a test, or
 	// store.ErrNotFound.
 	GetDatum(org, repo, task, test, ref string) (store.Datum, error)
+	// SaveDatum stores the JSON a test passes to an agent and returns the
+	// datum's ref. The ref is derived from the JSON, so saving the same JSON
+	// again returns the same ref and leaves one datum.
+	SaveDatum(org, repo, task, test string, body []byte) (string, error)
 	// SaveRepo creates or replaces the repo with the given stubs.
 	SaveRepo(r store.Repo) error
 	// SaveTask creates or replaces the task with the given repo and stub.
@@ -167,6 +171,7 @@ func api(st Store) http.Handler {
 	mux.HandleFunc("PUT /repos/{org}/{repo}/tasks/{task}/tests/{stub}", putTest(st))
 	mux.HandleFunc("POST /repos/{org}/{repo}/tasks/{task}/tests/{stub}/move", moveTest(st))
 	mux.HandleFunc("GET /repos/{org}/{repo}/tasks/{task}/tests/{test}/data", listData(st))
+	mux.HandleFunc("POST /repos/{org}/{repo}/tasks/{task}/tests/{test}/data", addData(st))
 	mux.HandleFunc("GET /repos/{org}/{repo}/tasks/{task}/tests/{test}/data/{ref}", getData(st))
 	mux.HandleFunc("/", notFound)
 	return mux
