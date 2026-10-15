@@ -473,6 +473,53 @@ func TestGetResultReadAllowedForRoles(t *testing.T) {
 	}
 }
 
+// TestAddResultWriteAllowedForRoles checks adding a result is allowed for the
+// Service and Admin roles.
+func TestAddResultWriteAllowedForRoles(t *testing.T) {
+	for _, role := range []string{auth.RoleService, auth.RoleAdmin} {
+		t.Run(role, func(t *testing.T) {
+			st := resultStore()
+			base := startServiceWithStore(t, st, role)
+			body := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `","json":{"answer":"hi"}}`
+
+			resp := sendResultPost(t, base, "repos/acme/widgets/results", body)
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusCreated {
+				t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusCreated)
+			}
+			if len(st.results) != 1 {
+				t.Errorf("store holds %d results, want 1", len(st.results))
+			}
+		})
+	}
+}
+
+// TestAddResultDeniedForUnpermittedRole checks a role without write access is
+// refused with 403 and reaches no part of the operation, so no result is
+// created.
+func TestAddResultDeniedForUnpermittedRole(t *testing.T) {
+	for _, role := range []string{auth.RoleReader, auth.RoleAgent, auth.RoleGrader} {
+		t.Run(role, func(t *testing.T) {
+			st := resultStore()
+			st.getResultErr = errors.New("write denied")
+			st.saveResultErr = errors.New("write denied")
+			base := startServiceWithStore(t, st, role)
+
+			resp := sendResultPost(t, base, "repos/acme/widgets/results",
+				`{"task":"fix-bug","test":"basic","data":"`+st.data[0].Ref+`","json":{"answer":"hi"}}`)
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusForbidden {
+				t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusForbidden)
+			}
+			if len(st.results) != 0 {
+				t.Errorf("store holds %d results, want none", len(st.results))
+			}
+		})
+	}
+}
+
 // sendResultPost sends a result write to the service and returns the response.
 func sendResultPost(t *testing.T, base, path, body string) *http.Response {
 	t.Helper()
