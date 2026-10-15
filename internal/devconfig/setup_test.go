@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"go.yaml.in/yaml/v3"
 )
 
 func TestSetLocalAuthWritesLocalAuthConfig(t *testing.T) {
@@ -168,6 +170,57 @@ func TestLocalServiceURL(t *testing.T) {
 			t.Errorf("LocalServiceURL(%d) = %q, want %q", port, got, want)
 		}
 	}
+}
+
+func TestSetLocalAuthWritesCLIConfigURL(t *testing.T) {
+	repo := t.TempDir()
+
+	if _, err := SetLocalAuth(Options{Port: 9090, RepoRoot: repo, HomeDir: t.TempDir()}); err != nil {
+		t.Fatal(err)
+	}
+
+	doc := readYAMLDoc(t, CLIConfigPath(repo))
+	if doc["url"] != "http://localhost:9090" {
+		t.Errorf("CLI config url = %#v, want http://localhost:9090", doc["url"])
+	}
+}
+
+// TestSetLocalAuthPreservesCLIConfigKeys keeps the models and tasks a repo
+// writes into its CLI config when the command updates the service URL.
+func TestSetLocalAuthPreservesCLIConfigKeys(t *testing.T) {
+	repo := t.TempDir()
+	path := CLIConfigPath(repo)
+	seed := "url: http://localhost:1111\nmodels:\n  stub:\n    name: gpt\n"
+	if err := writeConfigFile(path, seed); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := SetLocalAuth(Options{Port: 9090, RepoRoot: repo, HomeDir: t.TempDir()}); err != nil {
+		t.Fatal(err)
+	}
+
+	doc := readYAMLDoc(t, path)
+	if doc["url"] != "http://localhost:9090" {
+		t.Errorf("url = %#v, want the command's url", doc["url"])
+	}
+	models, ok := doc["models"].(map[string]any)
+	if !ok {
+		t.Fatalf("models = %#v, want the seeded mapping", doc["models"])
+	}
+	if _, ok := models["stub"]; !ok {
+		t.Errorf("models = %#v, want the seeded stub", models)
+	}
+}
+
+// readYAMLDoc parses a YAML file into a map, so a test reads keys the typed
+// config does not model.
+func readYAMLDoc(t *testing.T, path string) map[string]any {
+	t.Helper()
+	doc := map[string]any{}
+	if err := yaml.Unmarshal([]byte(readFile(t, path)), &doc); err != nil {
+		t.Fatal(err)
+	}
+	return doc
 }
 
 func readConfigFile(t *testing.T, path string) Config {

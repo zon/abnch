@@ -14,10 +14,14 @@ const (
 	ConfigFileName = "config.yaml"
 	// KeyFileName is the dev signing key, written beside the local service
 	// config.
-	KeyFileName     = "dev-issuer.key"
-	gitignoreName   = ".gitignore"
-	credentialsDir  = ".abnch"
-	credentialsName = "credentials.yaml"
+	KeyFileName = "dev-issuer.key"
+	// CLIConfigDir is the directory in the repo root that holds the CLI config.
+	CLIConfigDir = ".abnch"
+	// CLIConfigFileName is the CLI config file name.
+	CLIConfigFileName = "config.yaml"
+	gitignoreName     = ".gitignore"
+	credentialsDir    = ".abnch"
+	credentialsName   = "credentials.yaml"
 )
 
 // ConfigGitignore is the .gitignore entry for the config directory, which holds
@@ -34,10 +38,10 @@ type Options struct {
 	ConfigPath string
 }
 
-// SetLocalAuth writes the local auth config, the dev key, and the local CLI
-// credential. It edits the existing local service config in place, so the
-// Postgres block and any other keys it holds survive. It returns the config
-// file path.
+// SetLocalAuth writes the local auth config, the dev key, the CLI config url,
+// and the local CLI credential. It edits the existing local service config in
+// place, so the Postgres block and any other keys it holds survive. It returns
+// the config file path.
 func SetLocalAuth(opts Options) (string, error) {
 	url := LocalServiceURL(opts.Port)
 	configPath := opts.ConfigPath
@@ -66,6 +70,10 @@ func SetLocalAuth(opts Options) (string, error) {
 
 	if err := os.WriteFile(configPath, updated, 0o600); err != nil {
 		return "", fmt.Errorf("failed to write %s: %w", configPath, err)
+	}
+
+	if err := SetCLIConfigURL(opts.RepoRoot, url); err != nil {
+		return "", fmt.Errorf("failed to write CLI config: %w", err)
 	}
 
 	if err := writeCredential(opts.HomeDir, url, keyPath); err != nil {

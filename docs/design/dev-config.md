@@ -14,6 +14,8 @@ The recipe takes an optional port for the local service and defaults to `8080`. 
 
 `just config` writes the local service URL and the [local service runtime auth](#local-service-runtime-auth), then reports the config path.
 
+It also writes the local service URL to the [CLI config](app/abnch-config.md) at `.abnch/config.yaml` under the repo root, so the `abnch` CLI reaches the local service without `--url`.
+
 ## Local Service Runtime Auth
 
 `just config` generates a dev signing key, a dev issuer, and local CLI credentials, so a client can authenticate to a local service runtime.

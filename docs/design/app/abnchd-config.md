@@ -72,5 +72,5 @@ A dev issuer token is minted by the CLI and signed with a dev key. A local servi
 A local run reads a config that `just config` writes. Use the [dev tooling](abnchctl.md) to set it up:
 
 * Write the Postgres connection details into `.abnchd/config.yaml` by hand or with an agent.
-* Run `abnchctl set local-auth` to configure local auth. It writes the dev issuer and the local credential.
+* Run `abnchctl set local-auth` to configure local auth. It writes the dev issuer, the local credential, and the CLI config url.
 * Run `abnchctl check config` to confirm the config files. It expects the auth and Postgres config to already be present.

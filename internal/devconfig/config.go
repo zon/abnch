@@ -132,6 +132,26 @@ func UpdateAuth(data []byte, url string) ([]byte, error) {
 	return marshalYAML(&doc)
 }
 
+// UpdateCLIConfigURL returns the CLI config with its url set. It edits the
+// existing YAML document, so every other key survives, including keys the CLI
+// config does not model and comments on the kept lines.
+func UpdateCLIConfigURL(data []byte, url string) ([]byte, error) {
+	var doc yaml.Node
+	if len(data) > 0 {
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			return nil, err
+		}
+	}
+
+	root, err := configMapping(&doc)
+	if err != nil {
+		return nil, err
+	}
+
+	setMappingValue(root, "url", scalarNode(url))
+	return marshalYAML(&doc)
+}
+
 // configMapping returns the document's root mapping, creating it when the
 // document is empty or null.
 func configMapping(doc *yaml.Node) (*yaml.Node, error) {

@@ -19,7 +19,7 @@ type cli struct {
 
 // setCmd holds the commands that write local development resources.
 type setCmd struct {
-	LocalAuth localAuthCmd `cmd:"" name:"local-auth" help:"Generate the local service config, dev key, and CLI credential."`
+	LocalAuth localAuthCmd `cmd:"" name:"local-auth" help:"Generate the local service config, dev key, CLI config, and CLI credential."`
 }
 
 // checkCmd holds the commands that report on local development resources.

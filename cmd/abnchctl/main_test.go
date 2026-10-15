@@ -130,6 +130,21 @@ func TestSetLocalAuthWritesTopLevelURL(t *testing.T) {
 	}
 }
 
+// TestSetLocalAuthWritesCLIConfigURL confirms the command points the `abnch`
+// CLI config at the local service URL.
+func TestSetLocalAuthWritesCLIConfigURL(t *testing.T) {
+	repo := t.TempDir()
+
+	if err := runIn([]string{"set", "local-auth", "--port", "9090"}, repo, t.TempDir(), &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+
+	doc := readYAMLDoc(t, devconfig.CLIConfigPath(repo))
+	if doc["url"] != "http://localhost:9090" {
+		t.Errorf("CLI config url = %#v, want http://localhost:9090", doc["url"])
+	}
+}
+
 func TestSetLocalAuthWritesDevIssuer(t *testing.T) {
 	repo := t.TempDir()
 
