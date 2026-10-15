@@ -19,7 +19,18 @@ const (
 // cliConfig is the CLI config in `.abnch/config.yaml` under the working
 // directory.
 type cliConfig struct {
-	URL string `yaml:"url"`
+	URL    string                 `yaml:"url"`
+	Models map[string]configModel `yaml:"models"`
+}
+
+// loadConfigModels reads the models in the CLI config under workDir. A missing
+// config holds no models.
+func loadConfigModels(workDir string) (map[string]configModel, error) {
+	cfg, err := loadConfig(workDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read %s: %w", configPath(workDir), err)
+	}
+	return cfg.Models, nil
 }
 
 // configPath returns the CLI config path under workDir.

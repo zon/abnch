@@ -38,11 +38,31 @@ func (c addDataCmd) Run(deps deps) error {
 
 // getCmd groups the commands that read resources.
 type getCmd struct {
-	Tasks getTasksCmd `cmd:"" help:"List the tasks in the inferred repo."`
-	Task  getTaskCmd  `cmd:"" help:"Print one task as YAML."`
-	Tests getTestsCmd `cmd:"" help:"List a task's tests as YAML."`
-	Test  getTestCmd  `cmd:"" help:"Print one test as YAML."`
-	Data  getDataCmd  `cmd:"" help:"List a test's data refs or print one datum as JSON."`
+	Tasks  getTasksCmd  `cmd:"" help:"List the tasks in the inferred repo."`
+	Task   getTaskCmd   `cmd:"" help:"Print one task as YAML."`
+	Tests  getTestsCmd  `cmd:"" help:"List a task's tests as YAML."`
+	Test   getTestCmd   `cmd:"" help:"Print one test as YAML."`
+	Data   getDataCmd   `cmd:"" help:"List a test's data refs or print one datum as JSON."`
+	Models getModelsCmd `cmd:"" help:"List the models in the CLI config as YAML."`
+	Model  getModelCmd  `cmd:"" help:"Print one model as YAML."`
+}
+
+// getModelsCmd lists the models in the CLI config.
+type getModelsCmd struct{}
+
+// Run lists the models in the CLI config.
+func (c getModelsCmd) Run(deps deps) error {
+	return getModels(deps)
+}
+
+// getModelCmd prints one model as YAML.
+type getModelCmd struct {
+	Stub string `arg:"" help:"Model stub."`
+}
+
+// Run prints the model as YAML.
+func (c getModelCmd) Run(deps deps) error {
+	return getModel(deps, c.Stub)
 }
 
 // getTasksCmd lists the tasks in the inferred repo.
