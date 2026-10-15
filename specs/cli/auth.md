@@ -136,6 +136,14 @@ A command that reaches a local service with a local credential SHALL NOT require
 - THEN the CLI presents the local credential
 - AND the command does not require a sign-in
 
+#### Scenario: Configured by `just config`
+
+- GIVEN `just config` wrote `.abnch/config.yaml` and the local credential for the local service
+- WHEN the user runs a command that reaches the service
+- THEN the CLI reads the service URL from `.abnch/config.yaml`
+- AND it presents the local credential
+- AND the command does not require a sign-in
+
 ### Requirement: Local Runtime Token
 
 When the CLI starts a local runtime, it SHALL pass the runtime a workload token for the local service. The CLI SHALL pass the token in the runtime's environment.
