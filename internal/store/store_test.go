@@ -841,6 +841,40 @@ func TestSaveDatumIdentityIncludesTest(t *testing.T) {
 	}
 }
 
+// TestSaveDatumIdentityIncludesRepoAndTask checks the same JSON under different
+// repos and tasks is a different datum under the same ref, because a datum's
+// identity includes its repo and task stub, and that SaveDatum returns the ref
+// derived from the JSON.
+func TestSaveDatumIdentityIncludesRepoAndTask(t *testing.T) {
+	s := newTestStore(t)
+	body := []byte(`{"prompt":"hi"}`)
+	coords := []struct{ repo, task string }{
+		{"widgets", "fix-bug"},
+		{"gadgets", "fix-bug"},
+		{"widgets", "ship-it"},
+	}
+
+	for _, c := range coords {
+		ref, err := s.SaveDatum("acme", c.repo, c.task, "basic", body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ref != DatumRef(body) {
+			t.Errorf("SaveDatum(%s/%s) ref = %q, want %q", c.repo, c.task, ref, DatumRef(body))
+		}
+	}
+
+	for _, c := range coords {
+		data, err := s.ListData("acme", c.repo, c.task, "basic")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(data) != 1 {
+			t.Fatalf("ListData(%s/%s) returned %d data, want 1", c.repo, c.task, len(data))
+		}
+	}
+}
+
 // TestListData checks ListData returns only a test's data, ordered by ref.
 func TestListData(t *testing.T) {
 	s := newTestStore(t)
