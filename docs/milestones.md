@@ -1,12 +1,5 @@
 # Milestones
 
-## Core Service
-
-* `abnchd` runs from a local service config and connects to Postgres
-* The service authenticates human users and workloads, then grants roles
-* The service manages repos and tasks over its API
-* `abnch` signs in and manages tasks in the repo it infers from the working directory
-
 ## Tests and Data
 
 * A task owns tests, each with a version and a score schema
