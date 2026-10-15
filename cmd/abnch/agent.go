@@ -6,10 +6,11 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// configAgent is an agent entry in the CLI config.
+// configAgent is an agent entry in the CLI config. A command that is not set is
+// omitted when the entry is printed.
 type configAgent struct {
-	VersionCmd string `yaml:"versionCmd"`
-	BuildCmd   string `yaml:"buildCmd"`
+	VersionCmd string `yaml:"versionCmd,omitempty"`
+	BuildCmd   string `yaml:"buildCmd,omitempty"`
 	RunCmd     string `yaml:"runCmd"`
 }
 
@@ -23,6 +24,20 @@ func setAgent(d deps, c setAgentCmd) error {
 	}
 	fmt.Fprintf(d.out, "Set agent for task %s\n", c.Stub)
 	return nil
+}
+
+// getAgent writes the agent recorded for the task as YAML. It fails when the
+// task has no agent.
+func getAgent(d deps, stub string) error {
+	tasks, err := loadConfigTasks(d.workDir)
+	if err != nil {
+		return err
+	}
+	task, ok := tasks[stub]
+	if !ok || task.Agent == nil {
+		return fmt.Errorf("task %s has no agent", stub)
+	}
+	return writeYAML(d.out, *task.Agent)
 }
 
 // agentOf reads the agent commands from a YAML mapping node.

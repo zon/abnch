@@ -21,6 +21,23 @@ const (
 type cliConfig struct {
 	URL    string                 `yaml:"url"`
 	Models map[string]configModel `yaml:"models"`
+	Tasks  map[string]configTask  `yaml:"tasks"`
+}
+
+// configTask is a task entry in the CLI config.
+type configTask struct {
+	Model string       `yaml:"model"`
+	Agent *configAgent `yaml:"agent"`
+}
+
+// loadConfigTasks reads the tasks in the CLI config under workDir. A missing
+// config holds no tasks.
+func loadConfigTasks(workDir string) (map[string]configTask, error) {
+	cfg, err := loadConfig(workDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read %s: %w", configPath(workDir), err)
+	}
+	return cfg.Tasks, nil
 }
 
 // loadConfigModels reads the models in the CLI config under workDir. A missing

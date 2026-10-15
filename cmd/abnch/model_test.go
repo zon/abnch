@@ -222,10 +222,10 @@ func TestSetModelKeepsOtherConfig(t *testing.T) {
 	}
 }
 
-// getModelDeps returns deps for a get model command with a capturing stdout. It
-// stores no session and sets no service URL, so a command that reaches the
-// service fails.
-func getModelDeps(t *testing.T, workDir string) (deps, *bytes.Buffer) {
+// getConfigDeps returns deps for a get command that reads the CLI config with
+// a capturing stdout. It stores no session and sets no service URL, so a
+// command that reaches the service fails.
+func getConfigDeps(t *testing.T, workDir string) (deps, *bytes.Buffer) {
 	t.Helper()
 	out := new(bytes.Buffer)
 	return deps{
@@ -252,7 +252,7 @@ func TestGetModelsListsModelsAsYAML(t *testing.T) {
 	writeCLIConfig(t, workDir,
 		"models:\n  sonnet:\n    provider: anthropic\n    name: claude-sonnet\n    variant: high\n"+
 			"  haiku:\n    provider: anthropic\n    name: claude-haiku\n")
-	d, out := getModelDeps(t, workDir)
+	d, out := getConfigDeps(t, workDir)
 
 	if err := runGet([]string{"models"}, d); err != nil {
 		t.Fatalf("get models = %v, want no error", err)
@@ -276,7 +276,7 @@ func TestGetModelsListsModelsAsYAML(t *testing.T) {
 
 func TestGetModelsWithoutConfigIsEmpty(t *testing.T) {
 	workDir := t.TempDir()
-	d, out := getModelDeps(t, workDir)
+	d, out := getConfigDeps(t, workDir)
 
 	if err := runGet([]string{"models"}, d); err != nil {
 		t.Fatalf("get models = %v, want no error without a config", err)
@@ -291,7 +291,7 @@ func TestGetModelsWithoutConfigIsEmpty(t *testing.T) {
 
 func TestGetModelsNeedsNoRepoOrService(t *testing.T) {
 	workDir := t.TempDir()
-	d, _ := getModelDeps(t, workDir)
+	d, _ := getConfigDeps(t, workDir)
 
 	if err := runGet([]string{"models"}, d); err != nil {
 		t.Fatalf("get models = %v, want no error without a repo or service", err)
@@ -303,7 +303,7 @@ func TestGetModelPrintsModelAsYAML(t *testing.T) {
 	writeCLIConfig(t, workDir,
 		"url: https://bench.example.com\n"+
 			"models:\n  sonnet:\n    provider: anthropic\n    name: claude-sonnet\n    variant: high\n")
-	d, out := getModelDeps(t, workDir)
+	d, out := getConfigDeps(t, workDir)
 
 	if err := runGet([]string{"model", "sonnet"}, d); err != nil {
 		t.Fatalf("get model = %v, want no error", err)
@@ -322,7 +322,7 @@ func TestGetModelOmitsVariantWhenAbsent(t *testing.T) {
 	workDir := t.TempDir()
 	writeCLIConfig(t, workDir,
 		"models:\n  sonnet:\n    provider: anthropic\n    name: claude-sonnet\n")
-	d, out := getModelDeps(t, workDir)
+	d, out := getConfigDeps(t, workDir)
 
 	if err := runGet([]string{"model", "sonnet"}, d); err != nil {
 		t.Fatalf("get model = %v, want no error", err)
@@ -335,7 +335,7 @@ func TestGetModelOmitsVariantWhenAbsent(t *testing.T) {
 func TestGetModelFailsWhenModelMissing(t *testing.T) {
 	workDir := t.TempDir()
 	writeCLIConfig(t, workDir, "models:\n  haiku:\n    provider: anthropic\n    name: claude-haiku\n")
-	d, out := getModelDeps(t, workDir)
+	d, out := getConfigDeps(t, workDir)
 
 	err := runGet([]string{"model", "sonnet"}, d)
 	if err == nil {
@@ -351,7 +351,7 @@ func TestGetModelFailsWhenModelMissing(t *testing.T) {
 
 func TestGetModelReportsMissingModelOnStderr(t *testing.T) {
 	workDir := t.TempDir()
-	d, _ := getModelDeps(t, workDir)
+	d, _ := getConfigDeps(t, workDir)
 
 	code, out, errOut := exitCode(t, []string{"get", "model", "sonnet"}, d)
 	if code == 0 {
@@ -367,7 +367,7 @@ func TestGetModelReportsMissingModelOnStderr(t *testing.T) {
 
 func TestGetModelFailsWithoutConfig(t *testing.T) {
 	workDir := t.TempDir()
-	d, _ := getModelDeps(t, workDir)
+	d, _ := getConfigDeps(t, workDir)
 
 	if err := runGet([]string{"model", "sonnet"}, d); err == nil {
 		t.Fatal("get model = nil, want an error without a config")

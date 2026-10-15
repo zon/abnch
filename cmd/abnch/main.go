@@ -45,6 +45,17 @@ type getCmd struct {
 	Data   getDataCmd   `cmd:"" help:"List a test's data refs or print one datum as JSON."`
 	Models getModelsCmd `cmd:"" help:"List the models in the CLI config as YAML."`
 	Model  getModelCmd  `cmd:"" help:"Print one model as YAML."`
+	Agent  getAgentCmd  `cmd:"" help:"Print a task's agent as YAML."`
+}
+
+// getAgentCmd prints one task's agent as YAML.
+type getAgentCmd struct {
+	Stub string `arg:"" help:"Task stub."`
+}
+
+// Run prints the task's agent as YAML.
+func (c getAgentCmd) Run(deps deps) error {
+	return getAgent(deps, c.Stub)
 }
 
 // getModelsCmd lists the models in the CLI config.
