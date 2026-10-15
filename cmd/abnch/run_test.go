@@ -256,6 +256,94 @@ func TestRunPassesModelAndDatumOnStdin(t *testing.T) {
 	}
 }
 
+func TestRunRunsAgentAgainstOneDatum(t *testing.T) {
+	workDir := t.TempDir()
+	addRemote(t, workDir, "git@github.com:acme/widgets.git")
+	fake := newFakeService(t)
+	seedDataTest(fake)
+	fake.seedDatum("acme", "widgets", "fix-bug", "basic", `{"prompt":"hi"}`)
+	ref := fake.seedDatum("acme", "widgets", "fix-bug", "basic", `{"prompt":"bye"}`)
+	writeRunScripts(t, workDir)
+	d, out := runDeps(t, workDir, fake.url, runConfig(fake.url))
+
+	if err := runRun([]string{"fix-bug/basic/" + ref}, d); err != nil {
+		t.Fatalf("run = %v, want no error", err)
+	}
+
+	if got := countLines(t, filepath.Join(workDir, "build.log")); got != 1 {
+		t.Errorf("build ran %d times, want once", got)
+	}
+	if got := countLines(t, filepath.Join(workDir, "runs.log")); got != 1 {
+		t.Errorf("agent ran %d times, want once for one datum", got)
+	}
+
+	recorded := fake.resultRefs("acme", "widgets")
+	if len(recorded) != 1 {
+		t.Fatalf("recorded %d results, want 1", len(recorded))
+	}
+	if printed := strings.TrimSpace(out.String()); printed != recorded[0] {
+		t.Errorf("printed %q, want the recorded ref %q", printed, recorded[0])
+	}
+	got, ok := fake.result("acme", "widgets", recorded[0])
+	if !ok {
+		t.Fatal("the result was not recorded")
+	}
+	if got.Data != ref {
+		t.Errorf("result datum = %q, want the named datum %q", got.Data, ref)
+	}
+}
+
+func TestRunFailsWhenDatumIsMissing(t *testing.T) {
+	workDir := t.TempDir()
+	addRemote(t, workDir, "git@github.com:acme/widgets.git")
+	fake := newFakeService(t)
+	seedDataTest(fake)
+	fake.seedDatum("acme", "widgets", "fix-bug", "basic", `{"prompt":"hi"}`)
+	writeRunScripts(t, workDir)
+	d, out := runDeps(t, workDir, fake.url, runConfig(fake.url))
+
+	err := runRun([]string{"fix-bug/basic/ghost"}, d)
+	if err == nil {
+		t.Fatal("run = nil, want an error for a missing datum")
+	}
+	if !strings.Contains(err.Error(), "ghost") {
+		t.Errorf("error = %q, want it to name the missing datum", err)
+	}
+	if out.Len() != 0 {
+		t.Errorf("output = %q, want nothing for a missing datum", out.String())
+	}
+	if got := countLines(t, filepath.Join(workDir, "build.log")); got != 0 {
+		t.Errorf("build ran %d times, want none for a missing datum", got)
+	}
+	if got := countLines(t, filepath.Join(workDir, "runs.log")); got != 0 {
+		t.Errorf("agent ran %d times, want none for a missing datum", got)
+	}
+	if got := fake.resultRefs("acme", "widgets"); len(got) != 0 {
+		t.Errorf("recorded %v results, want none for a missing datum", got)
+	}
+}
+
+func TestRunReportsMissingDatumOnStderr(t *testing.T) {
+	workDir := t.TempDir()
+	addRemote(t, workDir, "git@github.com:acme/widgets.git")
+	fake := newFakeService(t)
+	seedDataTest(fake)
+	fake.seedDatum("acme", "widgets", "fix-bug", "basic", `{"prompt":"hi"}`)
+	writeRunScripts(t, workDir)
+	d, _ := runDeps(t, workDir, fake.url, runConfig(fake.url))
+
+	code, out, errOut := exitCode(t, []string{"run", "fix-bug/basic/ghost"}, d)
+	if code == 0 {
+		t.Error("exit = 0, want a non-zero exit for a missing datum")
+	}
+	if out != "" {
+		t.Errorf("stdout = %q, want nothing for a missing datum", out)
+	}
+	if !strings.Contains(errOut, "ghost") {
+		t.Errorf("stderr = %q, want the missing datum named", errOut)
+	}
+}
+
 func TestRunFailsWhenTaskHasNoAgent(t *testing.T) {
 	workDir := t.TempDir()
 	writeCLIConfig(t, workDir,

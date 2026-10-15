@@ -58,12 +58,19 @@ type agentRun struct {
 	duration float64
 }
 
-// runTask runs the task's agent against each datum in the test and records a
-// result for each, printing the result refs. It resolves the task's agent and
-// model before it reads the test or runs anything, so it fails without running a
-// datum when the task has no agent, no model is set, or the model is missing.
+// runDatum is one datum a run executes: its ref and JSON.
+type runDatum struct {
+	ref  string
+	body []byte
+}
+
+// runTask runs the task's agent against the test's data and records a result for
+// each, printing the result refs. A path carrying a ref runs against that one
+// datum. It resolves the task's agent and model before it reads the data or runs
+// anything, so it fails without running the agent when the task has no agent, no
+// model is set, the model is missing, or the test or datum is missing.
 func runTask(d deps, c runCmd) error {
-	taskStub, testStub, err := splitTestPath(c.Path)
+	taskStub, testStub, ref, err := splitDataPath(c.Path)
 	if err != nil {
 		return err
 	}
@@ -89,7 +96,7 @@ func runTask(d deps, c runCmd) error {
 		return err
 	}
 
-	refs, err := readDataRefs(d.ctx, target.client, target.org, target.stub, taskStub, testStub)
+	data, err := readRunData(d.ctx, target, taskStub, testStub, ref)
 	if err != nil {
 		return err
 	}
@@ -101,22 +108,45 @@ func runTask(d deps, c runCmd) error {
 	}
 
 	local := gitBranch(d.workDir)
-	for _, ref := range refs {
-		datum, err := readDatum(d.ctx, target.client, target.org, target.stub, taskStub, testStub, ref)
+	for _, datum := range data {
+		run, err := runAgent(d.ctx, d.workDir, task.Agent.RunCmd, model, datum.body)
 		if err != nil {
 			return err
 		}
-		run, err := runAgent(d.ctx, d.workDir, task.Agent.RunCmd, model, datum)
-		if err != nil {
-			return err
-		}
-		result, err := writeResult(d.ctx, target.client, target.org, target.stub, taskStub, testStub, ref, run, local)
+		result, err := writeResult(d.ctx, target.client, target.org, target.stub, taskStub, testStub, datum.ref, run, local)
 		if err != nil {
 			return err
 		}
 		fmt.Fprintln(d.out, result)
 	}
 	return nil
+}
+
+// readRunData returns the data a run executes: the datum the ref names when it
+// carries one, and every datum in the test otherwise. A missing repo, task,
+// test, or datum is an error.
+func readRunData(ctx context.Context, target repoTarget, taskStub, testStub, ref string) ([]runDatum, error) {
+	if ref != "" {
+		body, err := readDatum(ctx, target.client, target.org, target.stub, taskStub, testStub, ref)
+		if err != nil {
+			return nil, err
+		}
+		return []runDatum{{ref: ref, body: body}}, nil
+	}
+
+	refs, err := readDataRefs(ctx, target.client, target.org, target.stub, taskStub, testStub)
+	if err != nil {
+		return nil, err
+	}
+	data := make([]runDatum, 0, len(refs))
+	for _, ref := range refs {
+		body, err := readDatum(ctx, target.client, target.org, target.stub, taskStub, testStub, ref)
+		if err != nil {
+			return nil, err
+		}
+		data = append(data, runDatum{ref: ref, body: body})
+	}
+	return data, nil
 }
 
 // runAgent runs the agent's run command against one datum, writing the run input

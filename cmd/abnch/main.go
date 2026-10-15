@@ -23,7 +23,7 @@ type cli struct {
 
 // runCmd runs a task's agent against the data in a test.
 type runCmd struct {
-	Path string `arg:"" help:"Task and test stub as <task>/<test>."`
+	Path string `arg:"" help:"Task, test, and optional datum ref as <task>/<test>[/<ref>]."`
 }
 
 // Run runs the agent against the test's data and records a result for each.
