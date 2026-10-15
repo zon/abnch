@@ -274,9 +274,9 @@ func TestPutTestCreateThenUpdate(t *testing.T) {
 	}
 }
 
-// TestPutTestMissingTask checks a write to a task that does not exist returns
-// the service error response and creates no test.
-func TestPutTestMissingTask(t *testing.T) {
+// TestPutTestMissingTaskCreatesNoTaskOrTest checks a write to a task that does
+// not exist returns 404 and creates neither the task nor the test.
+func TestPutTestMissingTaskCreatesNoTaskOrTest(t *testing.T) {
 	st := &fakeDB{
 		repos: []store.Repo{{Org: "acme", Stub: "widgets", URL: "https://github.com/acme/widgets"}},
 	}
