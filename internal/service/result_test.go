@@ -123,6 +123,83 @@ func TestAddResultRejectsNegativeMetricsOverExistingResult(t *testing.T) {
 	}
 }
 
+// TestAddResultSameJSONReturnsExistingRef checks adding the same JSON for the
+// same datum twice returns the existing ref with 200 and leaves one result.
+func TestAddResultSameJSONReturnsExistingRef(t *testing.T) {
+	st := resultStore()
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+	path := "repos/acme/widgets/results"
+	body := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `","json":{"answer":"hi"}}`
+
+	first := sendResultPost(t, base, path, body)
+	defer first.Body.Close()
+	if first.StatusCode != http.StatusCreated {
+		t.Fatalf("first status = %d, want %d", first.StatusCode, http.StatusCreated)
+	}
+	var firstRef resultRefBody
+	if err := json.NewDecoder(first.Body).Decode(&firstRef); err != nil {
+		t.Fatalf("decode first body: %v", err)
+	}
+
+	second := sendResultPost(t, base, path, body)
+	defer second.Body.Close()
+	if second.StatusCode != http.StatusOK {
+		t.Fatalf("second status = %d, want %d", second.StatusCode, http.StatusOK)
+	}
+	var secondRef resultRefBody
+	if err := json.NewDecoder(second.Body).Decode(&secondRef); err != nil {
+		t.Fatalf("decode second body: %v", err)
+	}
+	if secondRef.Ref != firstRef.Ref {
+		t.Errorf("second ref = %q, want the existing ref %q", secondRef.Ref, firstRef.Ref)
+	}
+	if len(st.results) != 1 {
+		t.Errorf("store holds %d results, want 1", len(st.results))
+	}
+}
+
+// TestAddResultRejectsMalformedBody checks a body that carries no JSON, or is
+// not valid JSON, returns 422 and creates no result.
+func TestAddResultRejectsMalformedBody(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		tail string
+	}{
+		{name: "no json", tail: `}`},
+		{name: "invalid json", tail: `,"json":}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := resultStore()
+			base := startServiceWithStore(t, st, auth.RoleAdmin)
+			body := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `"` + tc.tail
+
+			resp := sendResultPost(t, base, "repos/acme/widgets/results", body)
+			defer resp.Body.Close()
+
+			assertServiceError(t, resp, http.StatusUnprocessableEntity)
+			if len(st.results) != 0 {
+				t.Errorf("store holds %d results, want none", len(st.results))
+			}
+		})
+	}
+}
+
+// TestAddResultMissingDatum checks adding a result for a datum that does not
+// exist returns 404 and creates no result.
+func TestAddResultMissingDatum(t *testing.T) {
+	st := resultStore()
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+
+	resp := sendResultPost(t, base, "repos/acme/widgets/results",
+		`{"task":"fix-bug","test":"basic","data":"missing","json":{"answer":"hi"}}`)
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusNotFound)
+	if len(st.results) != 0 {
+		t.Errorf("store holds %d results, want none", len(st.results))
+	}
+}
+
 // sendResultPost sends a result write to the service and returns the response.
 func sendResultPost(t *testing.T, base, path, body string) *http.Response {
 	t.Helper()
