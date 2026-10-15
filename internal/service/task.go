@@ -158,6 +158,21 @@ func requireRepo(w http.ResponseWriter, st Store, org, repo string) (store.Repo,
 	return rp, true
 }
 
+// requireTask returns the task the route identifies under the repo, writing the
+// service error response and reporting false when it does not exist.
+func requireTask(w http.ResponseWriter, st Store, org, repo, stub string) (store.Task, bool) {
+	t, err := st.GetTask(org, repo, stub)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			httpx.WriteError(w, http.StatusNotFound, "task not found")
+		} else {
+			httpx.WriteError(w, http.StatusInternalServerError, "failed to get task")
+		}
+		return store.Task{}, false
+	}
+	return t, true
+}
+
 // writeSavedTask saves a task and writes it with the given status. A store
 // failure writes the service error response instead. A stub the store rejects
 // is a client error.
