@@ -2,6 +2,8 @@ package service
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -275,6 +277,134 @@ func TestAddScoreRejectsNegativeMetricsOverExistingScore(t *testing.T) {
 	}
 	if st.scores[0].InputTokens != 12 {
 		t.Errorf("stored score = %#v, want the stored score unchanged", st.scores[0])
+	}
+}
+
+// TestGetScoresListsRefs checks GET /repos/{org}/{repo}/scores returns the
+// repo's score refs as a JSON array, and only that repo's scores.
+func TestGetScoresListsRefs(t *testing.T) {
+	st := scoreStore()
+	st.scores = []store.Score{
+		{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Result: "aaa111", Ref: "aaa111", Dictionary: map[string]float64{"correctness": 1}},
+		{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Result: "aaa111", Ref: "bbb222", Dictionary: map[string]float64{"style": 1}},
+		{Org: "acme", Repo: "other", Task: "fix-bug", Test: "basic", Result: "aaa111", Ref: "ccc333", Dictionary: map[string]float64{"correctness": 1}},
+	}
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets/scores")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+
+	var got []string
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	want := []string{"aaa111", "bbb222"}
+	if len(got) != len(want) {
+		t.Fatalf("body listed %d refs, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("ref %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+// TestGetScoresEmptyList checks a repo with no scores returns an empty JSON
+// array rather than a null body.
+func TestGetScoresEmptyList(t *testing.T) {
+	st := scoreStore()
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets/scores")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(body)); got != "[]" {
+		t.Errorf("body = %q, want %q", got, "[]")
+	}
+}
+
+// TestGetScoresMissingRepo checks a request for a repo that does not exist
+// returns the service error response.
+func TestGetScoresMissingRepo(t *testing.T) {
+	st := &fakeDB{}
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets/scores")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusNotFound)
+}
+
+// TestGetScoresReportsStoreFailure checks a store failure returns the service
+// error response instead of a partial list.
+func TestGetScoresReportsStoreFailure(t *testing.T) {
+	st := scoreStore()
+	st.listScoresErr = errors.New("boom")
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets/scores")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusInternalServerError)
+}
+
+// TestGetScoresReadAllowedForRoles checks the score list is allowed for the
+// Reader, Service, and Admin roles.
+func TestGetScoresReadAllowedForRoles(t *testing.T) {
+	for _, role := range []string{auth.RoleReader, auth.RoleService, auth.RoleAdmin} {
+		t.Run(role, func(t *testing.T) {
+			st := scoreStore()
+			base := startServiceWithStore(t, st, role)
+
+			resp, err := http.Get(base + "repos/acme/widgets/scores")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+			}
+		})
+	}
+}
+
+// TestGetScoresDeniedForUnpermittedRole checks a role without read access
+// reaches no score list.
+func TestGetScoresDeniedForUnpermittedRole(t *testing.T) {
+	st := scoreStore()
+	base := startServiceWithStore(t, st, auth.RoleAgent)
+
+	resp, err := http.Get(base + "repos/acme/widgets/scores")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusForbidden)
 	}
 }
 

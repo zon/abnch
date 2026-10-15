@@ -95,6 +95,34 @@ func addScore(st Store) http.HandlerFunc {
 	}
 }
 
+// listScores writes the refs of the scores in the repo the route identifies as
+// a JSON array, or the service error response when the repo does not exist.
+func listScores(st Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		org, repo := r.PathValue("org"), r.PathValue("repo")
+		if _, ok := requireRepo(w, st, org, repo); !ok {
+			return
+		}
+
+		scores, err := st.ListScores(org, repo)
+		if err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "failed to list scores")
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, scoreRefs(scores))
+	}
+}
+
+// scoreRefs returns the score refs as the API represents them. An empty list is
+// an empty JSON array rather than null.
+func scoreRefs(scores []store.Score) []string {
+	refs := make([]string, 0, len(scores))
+	for _, sc := range scores {
+		refs = append(refs, sc.Ref)
+	}
+	return refs
+}
+
 // numberDictionary returns the request's dictionary as numbers, reporting false
 // when the body carries none or one of its values is not a JSON number.
 func numberDictionary(raw map[string]any) (map[string]float64, bool) {

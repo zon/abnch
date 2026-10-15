@@ -345,6 +345,7 @@ type fakeDB struct {
 	listResultsErr error
 	saveResultErr  error
 	getScoreErr    error
+	listScoresErr  error
 	saveScoreErr   error
 }
 
@@ -603,6 +604,19 @@ func (f *fakeDB) GetScore(org, repo, ref string) (store.Score, error) {
 		}
 	}
 	return store.Score{}, store.ErrNotFound
+}
+
+func (f *fakeDB) ListScores(org, repo string) ([]store.Score, error) {
+	if f.listScoresErr != nil {
+		return nil, f.listScoresErr
+	}
+	var scores []store.Score
+	for _, sc := range f.scores {
+		if sc.Org == org && sc.Repo == repo {
+			scores = append(scores, sc)
+		}
+	}
+	return scores, nil
 }
 
 func (f *fakeDB) SaveScore(sc store.Score) (string, error) {
