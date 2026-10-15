@@ -590,6 +590,50 @@ func TestRunFailsWhenRunOutputHasNoResult(t *testing.T) {
 	}
 }
 
+func TestRunReportsMissingMarkerOnStderr(t *testing.T) {
+	workDir := t.TempDir()
+	addRemote(t, workDir, "git@github.com:acme/widgets.git")
+	fake := newFakeService(t)
+	seedDataTest(fake)
+	fake.seedDatum("acme", "widgets", "fix-bug", "basic", `{"prompt":"hi"}`)
+	writeScript(t, workDir, "build.sh", "echo build >> build.log\n")
+	writeScript(t, workDir, "run.sh", "echo no marker here\n")
+	d, _ := runDeps(t, workDir, fake.url, runConfig(fake.url))
+
+	code, out, errOut := exitCode(t, []string{"run", "fix-bug/basic"}, d)
+	if code == 0 {
+		t.Error("exit = 0, want a non-zero exit when the output carries no marker")
+	}
+	if out != "" {
+		t.Errorf("stdout = %q, want nothing when the output carries no marker", out)
+	}
+	if !strings.Contains(errOut, "marker") {
+		t.Errorf("stderr = %q, want the missing marker reported", errOut)
+	}
+}
+
+func TestRunReportsMissingResultOnStderr(t *testing.T) {
+	workDir := t.TempDir()
+	addRemote(t, workDir, "git@github.com:acme/widgets.git")
+	fake := newFakeService(t)
+	seedDataTest(fake)
+	fake.seedDatum("acme", "widgets", "fix-bug", "basic", `{"prompt":"hi"}`)
+	writeScript(t, workDir, "build.sh", "echo build >> build.log\n")
+	writeScript(t, workDir, "run.sh", "printf '__abnch__\\n{\"inputTokens\":1}\\n'\n")
+	d, _ := runDeps(t, workDir, fake.url, runConfig(fake.url))
+
+	code, out, errOut := exitCode(t, []string{"run", "fix-bug/basic"}, d)
+	if code == 0 {
+		t.Error("exit = 0, want a non-zero exit when the run output carries no result JSON")
+	}
+	if out != "" {
+		t.Errorf("stdout = %q, want nothing when the run output carries no result JSON", out)
+	}
+	if !strings.Contains(errOut, "result") {
+		t.Errorf("stderr = %q, want the missing result JSON reported", errOut)
+	}
+}
+
 // commitWorkDir commits an empty change so the Git repo under dir is on a
 // branch. It skips the test when git is not installed.
 func commitWorkDir(t *testing.T, dir string) {
