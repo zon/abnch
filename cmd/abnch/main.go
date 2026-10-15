@@ -95,8 +95,21 @@ func (c getDataCmd) Run(deps deps) error {
 
 // setCmd groups the commands that create or update resources.
 type setCmd struct {
-	Task setTaskCmd `cmd:"" help:"Create or update a task in the inferred repo."`
-	Test setTestCmd `cmd:"" help:"Create or update a test in the inferred repo."`
+	Task  setTaskCmd  `cmd:"" help:"Create or update a task in the inferred repo."`
+	Test  setTestCmd  `cmd:"" help:"Create or update a test in the inferred repo."`
+	Model setModelCmd `cmd:"" help:"Create or update a model in the CLI config."`
+}
+
+// setModelCmd creates or updates a model in the CLI config.
+type setModelCmd struct {
+	Path    string `arg:"" help:"Model provider and name as <provider>/<name>."`
+	Stub    string `help:"Override the auto generated stub." optional:""`
+	Variant string `help:"Model variant." optional:""`
+}
+
+// Run creates or updates the model in the CLI config.
+func (c setModelCmd) Run(deps deps) error {
+	return setModel(deps, c)
 }
 
 // setTestCmd creates, updates, or renames a test under a task in the inferred

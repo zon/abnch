@@ -31,20 +31,38 @@ func configPath(workDir string) string {
 // It edits the existing YAML document, so every other key survives. A missing
 // config is created.
 func setTaskModel(workDir, stub, model string) error {
-	data, err := os.ReadFile(configPath(workDir))
+	return editConfig(workDir, func(data []byte) ([]byte, error) {
+		return updateTaskModel(data, stub, model)
+	})
+}
+
+// setConfigModel records a model under stub in the CLI config under workDir. It
+// edits the existing YAML document, so every other key survives. A missing
+// config is created.
+func setConfigModel(workDir, stub string, model configModel) error {
+	return editConfig(workDir, func(data []byte) ([]byte, error) {
+		return updateConfigModel(data, stub, model)
+	})
+}
+
+// editConfig reads the CLI config under workDir, applies edit to its bytes, and
+// writes the result. A missing config is created.
+func editConfig(workDir string, edit func([]byte) ([]byte, error)) error {
+	path := configPath(workDir)
+	data, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to read %s: %w", configPath(workDir), err)
+		return fmt.Errorf("failed to read %s: %w", path, err)
 	}
 
-	updated, err := updateTaskModel(data, stub, model)
+	updated, err := edit(data)
 	if err != nil {
-		return fmt.Errorf("failed to update %s: %w", configPath(workDir), err)
+		return fmt.Errorf("failed to update %s: %w", path, err)
 	}
 
 	if err := os.MkdirAll(filepath.Join(workDir, configDir), 0o700); err != nil {
 		return fmt.Errorf("failed to create %s: %w", filepath.Join(workDir, configDir), err)
 	}
-	return os.WriteFile(configPath(workDir), updated, 0o600)
+	return os.WriteFile(path, updated, 0o600)
 }
 
 // updateTaskModel returns the config document with tasks.<stub>.model set to
@@ -70,6 +88,37 @@ func updateTaskModel(data []byte, stub, model string) ([]byte, error) {
 		return nil, err
 	}
 	setMappingValue(task, "model", scalarNode(model))
+	return marshalNode(&doc)
+}
+
+// updateConfigModel returns the config document with models.<stub> merged with
+// model, preserving every other key and comment. The provider and name are
+// always set; the variant is set only when given.
+func updateConfigModel(data []byte, stub string, model configModel) ([]byte, error) {
+	var doc yaml.Node
+	if len(data) > 0 {
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			return nil, err
+		}
+	}
+
+	root, err := rootMapping(&doc)
+	if err != nil {
+		return nil, err
+	}
+	models, err := childMapping(root, "models")
+	if err != nil {
+		return nil, err
+	}
+	entry, err := childMapping(models, stub)
+	if err != nil {
+		return nil, err
+	}
+	setMappingValue(entry, "provider", scalarNode(model.Provider))
+	setMappingValue(entry, "name", scalarNode(model.Name))
+	if model.Variant != "" {
+		setMappingValue(entry, "variant", scalarNode(model.Variant))
+	}
 	return marshalNode(&doc)
 }
 
