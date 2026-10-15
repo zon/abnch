@@ -124,6 +124,8 @@ func serviceHandler(cfg devconfig.Config, configPath string, authenticator auth.
 	}
 	if human != nil {
 		human.Register(mux)
+	} else {
+		auth.RegisterUnavailable(mux)
 	}
 	mux.Handle("/", auth.Middleware(authenticator, auth.Authorize(api(st))))
 	return mux, nil

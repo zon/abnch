@@ -75,6 +75,8 @@ The service SHALL accept a workload token only from an issuer and audience confi
 
 The service SHALL sign in human users through an OIDC provider using the authorization code flow, as configured in the [Service Config Design](../../docs/design/app/abnchd-config.md). On success the service SHALL grant a session that identifies the user and carries the user's roles. A failed sign-in SHALL grant no session.
 
+A service whose config names no OIDC provider SHALL report that OIDC login is unavailable when a client starts a sign-in, and SHALL grant no session.
+
 #### Scenario: Successful sign-in
 
 - GIVEN a user with an account at the provider
@@ -87,6 +89,13 @@ The service SHALL sign in human users through an OIDC provider using the authori
 - GIVEN a user who does not complete sign-in
 - WHEN the provider returns an error or a rejection
 - THEN the service grants no session
+
+#### Scenario: Sign-in without a provider
+
+- GIVEN a service whose config names no OIDC provider
+- WHEN a client starts a sign-in
+- THEN the service reports that OIDC login is unavailable
+- AND the service grants no session
 
 ### Requirement: Role Assignment
 

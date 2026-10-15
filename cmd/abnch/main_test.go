@@ -63,6 +63,14 @@ func failingService(t *testing.T, reason string) string {
 	return srv.URL
 }
 
+// noOIDCService serves a service that cannot sign humans in: starting a sign-in
+// reports that OIDC login is unavailable, the way a service whose config names
+// no OIDC provider does.
+func noOIDCService(t *testing.T) string {
+	t.Helper()
+	return failingService(t, "oidc login is not available")
+}
+
 // followSignIn is a browser that opens the service sign-in and follows it to
 // the CLI callback, as a real browser would.
 func followSignIn(t *testing.T) func(string) error {
@@ -211,6 +219,23 @@ func TestLoginFailsWhenSignInFails(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "access_denied") {
 		t.Errorf("error = %q, want it to report the sign-in failure", err)
+	}
+	noSession(t, home)
+}
+
+// TestLoginFailsWhenServiceHasNoOIDC checks `abnch login` reports that OIDC
+// login is unavailable when the service cannot sign humans in, and stores no
+// session.
+func TestLoginFailsWhenServiceHasNoOIDC(t *testing.T) {
+	home := t.TempDir()
+	service := noOIDCService(t)
+
+	err := runIn([]string{"login", "--url", service}, home, t.TempDir(), followSignIn(t), context.Background(), io.Discard)
+	if err == nil {
+		t.Fatal("login = nil, want an error for a service without OIDC")
+	}
+	if !strings.Contains(err.Error(), "oidc login") {
+		t.Errorf("error = %q, want it to report that OIDC login is unavailable", err)
 	}
 	noSession(t, home)
 }

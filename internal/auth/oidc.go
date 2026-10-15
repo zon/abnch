@@ -20,6 +20,13 @@ import (
 // signInTTL bounds how long a started sign-in stays valid.
 const signInTTL = 10 * time.Minute
 
+// signInPath is the route that starts a human sign-in.
+const signInPath = "/login"
+
+// signInUnavailable is the failure a service with no OIDC provider reports when
+// a client starts a sign-in.
+const signInUnavailable = "oidc login is not available"
+
 // Human signs in human users through an OIDC provider using the authorization
 // code flow. On success it grants a session that identifies the user and
 // carries the user's roles. A failed sign-in grants no session.
@@ -58,8 +65,27 @@ func NewHuman(cfg devconfig.OIDC) (*Human, error) {
 // Register mounts the sign-in routes: the route that starts the flow and the
 // route the provider calls back.
 func (h *Human) Register(mux *http.ServeMux) {
-	mux.HandleFunc("/login", h.login)
+	mux.HandleFunc(signInPath, h.login)
 	mux.HandleFunc(h.callbackPath(), h.callback)
+}
+
+// RegisterUnavailable mounts the sign-in route for a service that has no OIDC
+// provider, so a client that starts a sign-in learns that OIDC login is
+// unavailable instead of waiting for a sign-in that cannot complete.
+func RegisterUnavailable(mux *http.ServeMux) {
+	mux.HandleFunc(signInPath, unavailableSignIn)
+}
+
+// unavailableSignIn reports that the service cannot sign humans in. It returns
+// the failure to the client that started the sign-in when it named a callback,
+// and writes an error otherwise.
+func unavailableSignIn(w http.ResponseWriter, r *http.Request) {
+	redirectURI := r.URL.Query().Get("redirect_uri")
+	if redirectURI == "" {
+		httpx.WriteError(w, http.StatusNotFound, signInUnavailable)
+		return
+	}
+	redirectWithError(w, r, redirectURI, signInUnavailable)
 }
 
 // Authenticate returns the caller a request's session token identifies, so a

@@ -27,6 +27,14 @@ On success the command SHALL exit zero. On failure it SHALL exit non-zero, write
 - AND an error is written to stderr
 - AND no session is stored
 
+#### Scenario: Service without OIDC
+
+- GIVEN the service has no OIDC provider
+- WHEN the user runs `abnch login`
+- THEN the command exits non-zero
+- AND an error says OIDC login is unavailable
+- AND no session is stored
+
 ### Requirement: Log Out
 
 `abnch logout` SHALL remove the stored session for the service URL. Removing a session that is not stored SHALL succeed and change nothing.

@@ -207,6 +207,37 @@ func TestRunRejectsLoginWithoutRedirectURI(t *testing.T) {
 	}
 }
 
+// TestRunReportsSignInUnavailableWithoutOIDC checks a service whose config names
+// no OIDC provider tells a client that OIDC login is unavailable, so `abnch
+// login` fails instead of waiting for a sign-in that cannot complete.
+func TestRunReportsSignInUnavailableWithoutOIDC(t *testing.T) {
+	base := startService(t, Options{})
+
+	login := getNoRedirect(t, base+"login?redirect_uri="+url.QueryEscape("http://127.0.0.1:9/callback"))
+	defer login.Body.Close()
+	if login.StatusCode != http.StatusFound {
+		t.Fatalf("login status = %d, want %d", login.StatusCode, http.StatusFound)
+	}
+
+	location, err := url.Parse(login.Header.Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := location.Query().Get("error"); !strings.Contains(got, "oidc login") {
+		t.Errorf("error = %q, want it to report that OIDC login is unavailable", got)
+	}
+}
+
+// TestRunReportsSignInUnavailableWithoutCallback checks a service with no OIDC
+// provider writes an error when a sign-in names no callback.
+func TestRunReportsSignInUnavailableWithoutCallback(t *testing.T) {
+	base := startService(t, Options{})
+
+	resp := getNoRedirect(t, base+"login")
+	defer resp.Body.Close()
+	assertServiceError(t, resp, http.StatusNotFound)
+}
+
 // TestRunRejectsIncompleteOIDC checks the service reports a clear error when
 // the config names a provider it cannot sign in through.
 func TestRunRejectsIncompleteOIDC(t *testing.T) {
