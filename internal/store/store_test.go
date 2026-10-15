@@ -423,6 +423,59 @@ func TestSaveTestUpdatesExistingTest(t *testing.T) {
 	}
 }
 
+// TestSaveTestRejectsInvalidStub checks a test whose stub is empty or not
+// URL-safe is not stored.
+func TestSaveTestRejectsInvalidStub(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		stub string
+	}{
+		{"empty stub", ""},
+		{"separator in stub", "a/b"},
+		{"space in stub", "a b"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTestStore(t)
+
+			test := Test{Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: tc.stub, Name: "Basic", Version: "1"}
+			if err := s.SaveTest(test); !errors.Is(err, ErrInvalidStub) {
+				t.Errorf("SaveTest error = %v, want ErrInvalidStub", err)
+			}
+			tests, err := s.ListTests("acme", "widgets", "fix-bug")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(tests) != 0 {
+				t.Errorf("ListTests returned %d tests, want none", len(tests))
+			}
+		})
+	}
+}
+
+// TestSaveTestIdentityIncludesTask checks the same test stub in two tasks is two
+// tests, not one, because a test's identity includes its task stub.
+func TestSaveTestIdentityIncludesTask(t *testing.T) {
+	s := newTestStore(t)
+	for _, task := range []string{"fix-bug", "other"} {
+		if err := s.SaveTest(Test{Org: "acme", Repo: "widgets", Task: task, Stub: "basic", Name: "Basic", Version: "1"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, task := range []string{"fix-bug", "other"} {
+		tests, err := s.ListTests("acme", "widgets", task)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(tests) != 1 {
+			t.Fatalf("ListTests(%q) returned %d tests, want 1", task, len(tests))
+		}
+		if tests[0].Task != task {
+			t.Errorf("test task = %q, want %q", tests[0].Task, task)
+		}
+	}
+}
+
 func TestListTests(t *testing.T) {
 	s := newTestStore(t)
 	for _, test := range []Test{

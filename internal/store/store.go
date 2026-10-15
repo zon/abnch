@@ -98,8 +98,12 @@ func (s *Store) ListTasks(org, repo string) ([]Task, error) {
 }
 
 // SaveTest writes a test, creating it or replacing the stored test with the
-// same repo, task stub, and test stub.
+// same repo, task stub, and test stub. It returns ErrInvalidStub when the test
+// stub is empty or not URL-safe.
 func (s *Store) SaveTest(t Test) error {
+	if !ValidStub(t.Stub) {
+		return ErrInvalidStub
+	}
 	return s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&t).Error
 }
 
