@@ -51,6 +51,16 @@ type Store interface {
 	// datum's ref. The ref is derived from the JSON, so saving the same JSON
 	// again returns the same ref and leaves one datum.
 	SaveDatum(org, repo, task, test string, body []byte) (string, error)
+	// GetResult returns the result with the given ref in a repo, or
+	// store.ErrNotFound.
+	GetResult(org, repo, ref string) (store.Result, error)
+	// ListResults returns a repo's results, ordered by ref.
+	ListResults(org, repo string) ([]store.Result, error)
+	// SaveResult stores the JSON an agent produced for a datum and returns the
+	// result's ref. The ref is derived from the JSON within its datum, so saving
+	// the same JSON for the same datum again returns the same ref and leaves one
+	// result. It reports store.ErrInvalidResult when a run metric is negative.
+	SaveResult(r store.Result) (string, error)
 	// SaveRepo creates or replaces the repo with the given stubs.
 	SaveRepo(r store.Repo) error
 	// SaveTask creates or replaces the task with the given repo and stub.
@@ -151,29 +161,38 @@ func serviceHandler(cfg devconfig.Config, configPath string, authenticator auth.
 	} else {
 		auth.RegisterUnavailable(mux)
 	}
-	mux.Handle("/", auth.Middleware(authenticator, auth.Authorize(api(st))))
+	mux.Handle("/", auth.Middleware(authenticator, api(st)))
 	return mux, nil
 }
 
-// api serves the service API over the service's store. A route the service
-// serves no operation for receives the service error response.
+// api serves the service API over the service's store. Each route enforces the
+// access its operation needs, so a route a role may not reach runs no part of
+// the operation. A route the service serves no operation for receives the
+// service error response.
 func api(st Store) http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /repos", listRepos(st))
-	mux.HandleFunc("GET /repos/{org}/{stub}", getRepo(st))
-	mux.HandleFunc("PUT /repos/{org}/{stub}", putRepo(st))
-	mux.HandleFunc("GET /repos/{org}/{repo}/tasks", listTasks(st))
-	mux.HandleFunc("GET /repos/{org}/{repo}/tasks/{stub}", getTask(st))
-	mux.HandleFunc("PUT /repos/{org}/{repo}/tasks/{stub}", putTask(st))
-	mux.HandleFunc("POST /repos/{org}/{repo}/tasks/{stub}/move", moveTask(st))
-	mux.HandleFunc("GET /repos/{org}/{repo}/tasks/{task}/tests", listTests(st))
-	mux.HandleFunc("GET /repos/{org}/{repo}/tasks/{task}/tests/{stub}", getTest(st))
-	mux.HandleFunc("PUT /repos/{org}/{repo}/tasks/{task}/tests/{stub}", putTest(st))
-	mux.HandleFunc("POST /repos/{org}/{repo}/tasks/{task}/tests/{stub}/move", moveTest(st))
-	mux.HandleFunc("GET /repos/{org}/{repo}/tasks/{task}/tests/{test}/data", listData(st))
-	mux.HandleFunc("POST /repos/{org}/{repo}/tasks/{task}/tests/{test}/data", addData(st))
-	mux.HandleFunc("GET /repos/{org}/{repo}/tasks/{task}/tests/{test}/data/{ref}", getData(st))
-	mux.HandleFunc("/", notFound)
+	read := func(h http.HandlerFunc) http.Handler { return auth.Authorize(auth.Read, h) }
+	write := func(h http.HandlerFunc) http.Handler { return auth.Authorize(auth.Write, h) }
+	writeResult := func(h http.HandlerFunc) http.Handler { return auth.Authorize(auth.WriteResult, h) }
+
+	mux.Handle("GET /repos", read(listRepos(st)))
+	mux.Handle("GET /repos/{org}/{stub}", read(getRepo(st)))
+	mux.Handle("PUT /repos/{org}/{stub}", write(putRepo(st)))
+	mux.Handle("GET /repos/{org}/{repo}/tasks", read(listTasks(st)))
+	mux.Handle("GET /repos/{org}/{repo}/tasks/{stub}", read(getTask(st)))
+	mux.Handle("PUT /repos/{org}/{repo}/tasks/{stub}", write(putTask(st)))
+	mux.Handle("POST /repos/{org}/{repo}/tasks/{stub}/move", write(moveTask(st)))
+	mux.Handle("GET /repos/{org}/{repo}/tasks/{task}/tests", read(listTests(st)))
+	mux.Handle("GET /repos/{org}/{repo}/tasks/{task}/tests/{stub}", read(getTest(st)))
+	mux.Handle("PUT /repos/{org}/{repo}/tasks/{task}/tests/{stub}", write(putTest(st)))
+	mux.Handle("POST /repos/{org}/{repo}/tasks/{task}/tests/{stub}/move", write(moveTest(st)))
+	mux.Handle("GET /repos/{org}/{repo}/tasks/{task}/tests/{test}/data", read(listData(st)))
+	mux.Handle("POST /repos/{org}/{repo}/tasks/{task}/tests/{test}/data", write(addData(st)))
+	mux.Handle("GET /repos/{org}/{repo}/tasks/{task}/tests/{test}/data/{ref}", read(getData(st)))
+	mux.Handle("GET /repos/{org}/{repo}/results", read(listResults(st)))
+	mux.Handle("GET /repos/{org}/{repo}/results/{ref}", read(getResult(st)))
+	mux.Handle("POST /repos/{org}/{repo}/results", writeResult(addResult(st)))
+	mux.Handle("/", auth.AuthorizeMethod(http.HandlerFunc(notFound)))
 	return mux
 }
 

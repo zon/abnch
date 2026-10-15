@@ -8,8 +8,60 @@ import (
 )
 
 // TestAuthorize checks a request reaches the handler only when the caller's
-// roles permit the access its method needs.
+// roles permit the access the operation needs.
 func TestAuthorize(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		access  Access
+		roles   []string
+		allowed bool
+	}{
+		{name: "reader reads", access: Read, roles: []string{RoleReader}, allowed: true},
+		{name: "service reads", access: Read, roles: []string{RoleService}, allowed: true},
+		{name: "admin reads", access: Read, roles: []string{RoleAdmin}, allowed: true},
+		{name: "admin writes", access: Write, roles: []string{RoleAdmin}, allowed: true},
+		{name: "reader writes", access: Write, roles: []string{RoleReader}},
+		{name: "service writes", access: Write, roles: []string{RoleService}},
+		{name: "service writes a result", access: WriteResult, roles: []string{RoleService}, allowed: true},
+		{name: "admin writes a result", access: WriteResult, roles: []string{RoleAdmin}, allowed: true},
+		{name: "reader writes a result", access: WriteResult, roles: []string{RoleReader}},
+		{name: "agent writes a result", access: WriteResult, roles: []string{RoleAgent}},
+		{name: "grader writes a result", access: WriteResult, roles: []string{RoleGrader}},
+		{name: "agent reads", access: Read, roles: []string{RoleAgent}},
+		{name: "grader reads", access: Read, roles: []string{RoleGrader}},
+		{name: "no roles", access: Read},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			called := false
+			next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				called = true
+				w.WriteHeader(http.StatusNoContent)
+			})
+			authenticate := func(*http.Request) (Caller, error) {
+				return Caller{Subject: "caller", Roles: tc.roles}, nil
+			}
+
+			rec := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, "/repos", nil)
+			Middleware(authenticate, Authorize(tc.access, next)).ServeHTTP(rec, request)
+
+			want := http.StatusForbidden
+			if tc.allowed {
+				want = http.StatusNoContent
+			}
+			if rec.Code != want {
+				t.Errorf("status = %d, want %d", rec.Code, want)
+			}
+			if called != tc.allowed {
+				t.Errorf("handler called = %v, want %v", called, tc.allowed)
+			}
+		})
+	}
+}
+
+// TestAuthorizeMethod checks the access a method needs: GET and HEAD read,
+// every other method writes.
+func TestAuthorizeMethod(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		method  string
@@ -39,7 +91,7 @@ func TestAuthorize(t *testing.T) {
 
 			rec := httptest.NewRecorder()
 			request := httptest.NewRequest(tc.method, "/repos", nil)
-			Middleware(authenticate, Authorize(next)).ServeHTTP(rec, request)
+			Middleware(authenticate, AuthorizeMethod(next)).ServeHTTP(rec, request)
 
 			want := http.StatusForbidden
 			if tc.allowed {
@@ -66,7 +118,7 @@ func TestAuthorizeErrorBody(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	Middleware(authenticate, Authorize(next)).ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "/repos", nil))
+	Middleware(authenticate, Authorize(Write, next)).ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "/repos", nil))
 
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusForbidden)
@@ -96,7 +148,7 @@ func TestAuthorizeWithoutCallerForbids(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	Authorize(next).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/repos", nil))
+	Authorize(Read, next).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/repos", nil))
 
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusForbidden)

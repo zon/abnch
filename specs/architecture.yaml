@@ -23,7 +23,7 @@
   description: Thin wrapper around kubectl for managing Kubernetes resources.
 
 - path: internal/store
-  description: Stores repos, tasks, tests, and data in Postgres and creates its tables.
+  description: Stores repos, tasks, tests, data, and results in Postgres and creates its tables.
 
 - path: internal/service
   description: Runs the service from its configuration.

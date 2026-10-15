@@ -18,6 +18,21 @@ type cli struct {
 	Get    getCmd    `cmd:"" help:"Read resources from the inferred repo."`
 	Set    setCmd    `cmd:"" help:"Create or update resources in the inferred repo."`
 	Add    addCmd    `cmd:"" help:"Add resources to the inferred repo."`
+	Run    runCmd    `cmd:"" help:"Run a task's agent against a test's data."`
+}
+
+// runCmd runs a task's agent against the data in a test.
+type runCmd struct {
+	Path    string `arg:"" help:"Task, test, and optional datum ref as <task>/<test>[/<ref>]."`
+	Model   string `help:"Override the task's default model." optional:""`
+	Limit   int    `help:"Cap the number of data run." default:"-1"`
+	Shuffle bool   `help:"Randomize the data order."`
+	Local   bool   `help:"Select a local run, the only run mode."`
+}
+
+// Run runs the agent against the test's data and records a result for each.
+func (c runCmd) Run(deps deps) error {
+	return runTask(deps, c)
 }
 
 // addCmd groups the commands that add resources.
@@ -38,11 +53,62 @@ func (c addDataCmd) Run(deps deps) error {
 
 // getCmd groups the commands that read resources.
 type getCmd struct {
-	Tasks getTasksCmd `cmd:"" help:"List the tasks in the inferred repo."`
-	Task  getTaskCmd  `cmd:"" help:"Print one task as YAML."`
-	Tests getTestsCmd `cmd:"" help:"List a task's tests as YAML."`
-	Test  getTestCmd  `cmd:"" help:"Print one test as YAML."`
-	Data  getDataCmd  `cmd:"" help:"List a test's data refs or print one datum as JSON."`
+	Tasks   getTasksCmd   `cmd:"" help:"List the tasks in the inferred repo."`
+	Task    getTaskCmd    `cmd:"" help:"Print one task as YAML."`
+	Tests   getTestsCmd   `cmd:"" help:"List a task's tests as YAML."`
+	Test    getTestCmd    `cmd:"" help:"Print one test as YAML."`
+	Data    getDataCmd    `cmd:"" help:"List a test's data refs or print one datum as JSON."`
+	Models  getModelsCmd  `cmd:"" help:"List the models in the CLI config as YAML."`
+	Model   getModelCmd   `cmd:"" help:"Print one model as YAML."`
+	Agent   getAgentCmd   `cmd:"" help:"Print a task's agent as YAML."`
+	Results getResultsCmd `cmd:"" help:"List the inferred repo's results as YAML."`
+	Result  getResultCmd  `cmd:"" help:"Print one result as JSON."`
+}
+
+// getResultsCmd lists the inferred repo's results.
+type getResultsCmd struct{}
+
+// Run lists the inferred repo's results as YAML.
+func (c getResultsCmd) Run(deps deps) error {
+	return getResults(deps)
+}
+
+// getResultCmd prints one result as JSON.
+type getResultCmd struct {
+	Ref string `arg:"" help:"Result ref."`
+}
+
+// Run prints the result as JSON.
+func (c getResultCmd) Run(deps deps) error {
+	return getResult(deps, c.Ref)
+}
+
+// getAgentCmd prints one task's agent as YAML.
+type getAgentCmd struct {
+	Stub string `arg:"" help:"Task stub."`
+}
+
+// Run prints the task's agent as YAML.
+func (c getAgentCmd) Run(deps deps) error {
+	return getAgent(deps, c.Stub)
+}
+
+// getModelsCmd lists the models in the CLI config.
+type getModelsCmd struct{}
+
+// Run lists the models in the CLI config.
+func (c getModelsCmd) Run(deps deps) error {
+	return getModels(deps)
+}
+
+// getModelCmd prints one model as YAML.
+type getModelCmd struct {
+	Stub string `arg:"" help:"Model stub."`
+}
+
+// Run prints the model as YAML.
+func (c getModelCmd) Run(deps deps) error {
+	return getModel(deps, c.Stub)
 }
 
 // getTasksCmd lists the tasks in the inferred repo.
@@ -95,8 +161,35 @@ func (c getDataCmd) Run(deps deps) error {
 
 // setCmd groups the commands that create or update resources.
 type setCmd struct {
-	Task setTaskCmd `cmd:"" help:"Create or update a task in the inferred repo."`
-	Test setTestCmd `cmd:"" help:"Create or update a test in the inferred repo."`
+	Task  setTaskCmd  `cmd:"" help:"Create or update a task in the inferred repo."`
+	Test  setTestCmd  `cmd:"" help:"Create or update a test in the inferred repo."`
+	Model setModelCmd `cmd:"" help:"Create or update a model in the CLI config."`
+	Agent setAgentCmd `cmd:"" help:"Create or update a task's agent in the CLI config."`
+}
+
+// setAgentCmd creates or updates a task's agent in the CLI config.
+type setAgentCmd struct {
+	Stub       string `arg:"" help:"Task stub."`
+	VersionCmd string `help:"Agent version command." optional:""`
+	BuildCmd   string `help:"Agent build command." optional:""`
+	RunCmd     string `help:"Agent run command." optional:""`
+}
+
+// Run creates or updates the task's agent in the CLI config.
+func (c setAgentCmd) Run(deps deps) error {
+	return setAgent(deps, c)
+}
+
+// setModelCmd creates or updates a model in the CLI config.
+type setModelCmd struct {
+	Path    string `arg:"" help:"Model provider and name as <provider>/<name>."`
+	Stub    string `help:"Override the auto generated stub." optional:""`
+	Variant string `help:"Model variant." optional:""`
+}
+
+// Run creates or updates the model in the CLI config.
+func (c setModelCmd) Run(deps deps) error {
+	return setModel(deps, c)
 }
 
 // setTestCmd creates, updates, or renames a test under a task in the inferred
