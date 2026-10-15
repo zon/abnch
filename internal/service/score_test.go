@@ -280,6 +280,53 @@ func TestAddScoreRejectsNegativeMetricsOverExistingScore(t *testing.T) {
 	}
 }
 
+// TestAddScoreWriteAllowedForRoles checks adding a score is allowed for the
+// Service and Admin roles.
+func TestAddScoreWriteAllowedForRoles(t *testing.T) {
+	for _, role := range []string{auth.RoleService, auth.RoleAdmin} {
+		t.Run(role, func(t *testing.T) {
+			st := scoreStore()
+			base := startServiceWithStore(t, st, role)
+			body := `{"task":"fix-bug","test":"basic","result":"aaa111","dictionary":{"correctness":1}}`
+
+			resp := sendScorePost(t, base, "repos/acme/widgets/scores", body)
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusCreated {
+				t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusCreated)
+			}
+			if len(st.scores) != 1 {
+				t.Errorf("store holds %d scores, want 1", len(st.scores))
+			}
+		})
+	}
+}
+
+// TestAddScoreDeniedForUnpermittedRole checks a role without write access is
+// refused with 403 and reaches no part of the operation, so no score is
+// created.
+func TestAddScoreDeniedForUnpermittedRole(t *testing.T) {
+	for _, role := range []string{auth.RoleReader, auth.RoleAgent, auth.RoleGrader} {
+		t.Run(role, func(t *testing.T) {
+			st := scoreStore()
+			st.getScoreErr = errors.New("write denied")
+			st.saveScoreErr = errors.New("write denied")
+			base := startServiceWithStore(t, st, role)
+
+			resp := sendScorePost(t, base, "repos/acme/widgets/scores",
+				`{"task":"fix-bug","test":"basic","result":"aaa111","dictionary":{"correctness":1}}`)
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusForbidden {
+				t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusForbidden)
+			}
+			if len(st.scores) != 0 {
+				t.Errorf("store holds %d scores, want none", len(st.scores))
+			}
+		})
+	}
+}
+
 // TestGetScoresListsRefs checks GET /repos/{org}/{repo}/scores returns the
 // repo's score refs as a JSON array, and only that repo's scores.
 func TestGetScoresListsRefs(t *testing.T) {

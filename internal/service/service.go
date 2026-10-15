@@ -185,6 +185,7 @@ func api(st Store) http.Handler {
 	read := func(h http.HandlerFunc) http.Handler { return auth.Authorize(auth.Read, h) }
 	write := func(h http.HandlerFunc) http.Handler { return auth.Authorize(auth.Write, h) }
 	writeResult := func(h http.HandlerFunc) http.Handler { return auth.Authorize(auth.WriteResult, h) }
+	writeScore := func(h http.HandlerFunc) http.Handler { return auth.Authorize(auth.WriteScore, h) }
 
 	mux.Handle("GET /repos", read(listRepos(st)))
 	mux.Handle("GET /repos/{org}/{stub}", read(getRepo(st)))
@@ -205,7 +206,7 @@ func api(st Store) http.Handler {
 	mux.Handle("POST /repos/{org}/{repo}/results", writeResult(addResult(st)))
 	mux.Handle("GET /repos/{org}/{repo}/scores", read(listScores(st)))
 	mux.Handle("GET /repos/{org}/{repo}/scores/{ref}", read(getScore(st)))
-	mux.Handle("POST /repos/{org}/{repo}/scores", write(addScore(st)))
+	mux.Handle("POST /repos/{org}/{repo}/scores", writeScore(addScore(st)))
 	mux.Handle("/", auth.AuthorizeMethod(http.HandlerFunc(notFound)))
 	return mux
 }
