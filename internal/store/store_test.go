@@ -11,7 +11,7 @@ import (
 func TestMigrateCreatesTables(t *testing.T) {
 	s := newTestStore(t)
 
-	for _, model := range []any{&Repo{}, &Task{}, &Test{}, &Datum{}, &Result{}} {
+	for _, model := range []any{&Repo{}, &Task{}, &Test{}, &Datum{}, &Result{}, &Score{}} {
 		if !s.db.Migrator().HasTable(model) {
 			t.Errorf("Migrate did not create the table for %T", model)
 		}
@@ -550,6 +550,32 @@ func TestTestValidate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if err := tc.test.Validate(); !errors.Is(err, tc.want) {
 				t.Errorf("Validate error = %v, want %v", err, tc.want)
+			}
+		})
+	}
+}
+
+// TestTestAllowsScore checks a test allows a score whose keys are all in its
+// schema, including a partial score, and refuses a key outside it or any key
+// when its schema is empty.
+func TestTestAllowsScore(t *testing.T) {
+	test := Test{Schema: []SchemaKey{{Stub: "correctness", Name: "Correctness"}, {Stub: "style", Name: "Style"}}}
+	for _, tc := range []struct {
+		name       string
+		test       Test
+		dictionary map[string]float64
+		want       bool
+	}{
+		{"every key", test, map[string]float64{"correctness": 1, "style": 0.5}, true},
+		{"partial score", test, map[string]float64{"correctness": 1}, true},
+		{"empty dictionary", test, map[string]float64{}, true},
+		{"unknown key", test, map[string]float64{"speed": 1}, false},
+		{"unknown key beside a known key", test, map[string]float64{"correctness": 1, "speed": 1}, false},
+		{"empty schema", Test{}, map[string]float64{"correctness": 1}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.test.AllowsScore(tc.dictionary); got != tc.want {
+				t.Errorf("AllowsScore = %v, want %v", got, tc.want)
 			}
 		})
 	}
@@ -1304,6 +1330,377 @@ func TestResultRef(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := ResultRef(tc.change(base)); got == ref {
 				t.Errorf("ResultRef = %q, want a different ref", got)
+			}
+		})
+	}
+}
+
+// TestSaveAndGetScore checks a score round trips through the store with its
+// dictionary, logs, token counts, cost, and duration under its ref.
+func TestSaveAndGetScore(t *testing.T) {
+	s := newTestStore(t)
+	want := Score{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Result:      "56ac1b0e4f0d",
+		Dictionary:  map[string]float64{"correctness": 1, "style": 0.5},
+		Logs:        "grading the answer",
+		InputTokens: 12, OutputTokens: 3, TokenCost: 0.01, Duration: 1.5,
+	}
+
+	ref, err := s.SaveScore(want)
+	if err != nil {
+		t.Fatalf("SaveScore: %v", err)
+	}
+	if ref == "" {
+		t.Fatal("SaveScore returned an empty ref")
+	}
+
+	got, err := s.GetScore("acme", "widgets", ref)
+	if err != nil {
+		t.Fatalf("GetScore: %v", err)
+	}
+	want.Ref = ref
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("GetScore = %#v, want %#v", got, want)
+	}
+}
+
+// TestSaveScoreDefaultsMetricsToZero checks a score that omits its run metrics
+// records zero for each of them and stores no logs.
+func TestSaveScoreDefaultsMetricsToZero(t *testing.T) {
+	s := newTestStore(t)
+	sc := Score{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Result: "56ac1b0e4f0d", Dictionary: map[string]float64{"correctness": 1},
+	}
+
+	ref, err := s.SaveScore(sc)
+	if err != nil {
+		t.Fatalf("SaveScore: %v", err)
+	}
+
+	got, err := s.GetScore("acme", "widgets", ref)
+	if err != nil {
+		t.Fatalf("GetScore: %v", err)
+	}
+	if got.InputTokens != 0 || got.OutputTokens != 0 || got.TokenCost != 0 || got.Duration != 0 {
+		t.Errorf("metrics = %d input, %d output, %v cost, %v duration, want zero", got.InputTokens, got.OutputTokens, got.TokenCost, got.Duration)
+	}
+	if got.Logs != "" {
+		t.Errorf("logs = %q, want them empty", got.Logs)
+	}
+}
+
+// TestSaveScoreRejectsNegativeMetrics checks a score with a negative token
+// count, cost, or duration is refused and stored nowhere.
+func TestSaveScoreRejectsNegativeMetrics(t *testing.T) {
+	valid := Score{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Result: "56ac1b0e4f0d", Dictionary: map[string]float64{"correctness": 1},
+	}
+	for _, tc := range []struct {
+		name   string
+		change func(Score) Score
+	}{
+		{"negative input tokens", func(s Score) Score { s.InputTokens = -1; return s }},
+		{"negative output tokens", func(s Score) Score { s.OutputTokens = -1; return s }},
+		{"negative token cost", func(s Score) Score { s.TokenCost = -0.01; return s }},
+		{"negative duration", func(s Score) Score { s.Duration = -0.5; return s }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTestStore(t)
+
+			if _, err := s.SaveScore(tc.change(valid)); !errors.Is(err, ErrInvalidScore) {
+				t.Errorf("SaveScore error = %v, want ErrInvalidScore", err)
+			}
+			scores, err := s.ListScores("acme", "widgets")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(scores) != 0 {
+				t.Errorf("ListScores returned %d scores, want none", len(scores))
+			}
+		})
+	}
+}
+
+// TestScoreValidate checks a score may carry zero or positive run metrics and is
+// refused when one is negative.
+func TestScoreValidate(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		score Score
+		want  error
+	}{
+		{"zero metrics", Score{}, nil},
+		{"positive metrics", Score{InputTokens: 12, OutputTokens: 3, TokenCost: 0.01, Duration: 1.5}, nil},
+		{"negative input tokens", Score{InputTokens: -1}, ErrInvalidScore},
+		{"negative output tokens", Score{OutputTokens: -1}, ErrInvalidScore},
+		{"negative token cost", Score{TokenCost: -0.01}, ErrInvalidScore},
+		{"negative duration", Score{Duration: -0.5}, ErrInvalidScore},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.score.Validate(); !errors.Is(err, tc.want) {
+				t.Errorf("Validate error = %v, want %v", err, tc.want)
+			}
+		})
+	}
+}
+
+// TestSaveScoreSameDictionarySameRef checks saving the same dictionary for the
+// same result again returns the same ref and leaves one score.
+func TestSaveScoreSameDictionarySameRef(t *testing.T) {
+	s := newTestStore(t)
+	sc := Score{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Result: "56ac1b0e4f0d", Dictionary: map[string]float64{"correctness": 1},
+	}
+
+	first, err := s.SaveScore(sc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.SaveScore(sc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second != first {
+		t.Errorf("second ref = %q, want the first ref %q", second, first)
+	}
+
+	scores, err := s.ListScores("acme", "widgets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scores) != 1 {
+		t.Errorf("ListScores returned %d scores, want 1", len(scores))
+	}
+}
+
+// TestSaveScoreIdentityIgnoresLogsAndMetrics checks the ref comes from the
+// dictionary within its result alone, so the same dictionary for the same
+// result stays one score under one ref whatever logs or run metrics accompany
+// it.
+func TestSaveScoreIdentityIgnoresLogsAndMetrics(t *testing.T) {
+	s := newTestStore(t)
+	sc := Score{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Result:      "56ac1b0e4f0d",
+		Dictionary:  map[string]float64{"correctness": 1},
+		Logs:        "first pass",
+		InputTokens: 12, OutputTokens: 3, TokenCost: 0.01, Duration: 1.5,
+	}
+
+	ref, err := s.SaveScore(sc)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	changed := sc
+	changed.Logs = "second pass"
+	changed.InputTokens = 99
+	changed.OutputTokens = 88
+	changed.TokenCost = 0.5
+	changed.Duration = 9.5
+	if got := ScoreRef(changed); got != ref {
+		t.Errorf("ScoreRef = %q, want the ref %q whatever the logs and metrics", got, ref)
+	}
+
+	again, err := s.SaveScore(changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again != ref {
+		t.Errorf("SaveScore = %q, want the ref %q for the same dictionary and result", again, ref)
+	}
+
+	scores, err := s.ListScores("acme", "widgets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scores) != 1 {
+		t.Errorf("ListScores returned %d scores, want 1", len(scores))
+	}
+}
+
+// TestSaveScoreDifferentDictionaryDifferentRef checks a different dictionary for
+// the same result gets a different ref and adds a second score.
+func TestSaveScoreDifferentDictionaryDifferentRef(t *testing.T) {
+	s := newTestStore(t)
+	base := Score{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Result: "56ac1b0e4f0d",
+	}
+
+	first := base
+	first.Dictionary = map[string]float64{"correctness": 1}
+	second := base
+	second.Dictionary = map[string]float64{"correctness": 0.5}
+
+	firstRef, err := s.SaveScore(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondRef, err := s.SaveScore(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secondRef == firstRef {
+		t.Errorf("second ref = %q, want a different ref", secondRef)
+	}
+
+	scores, err := s.ListScores("acme", "widgets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scores) != 2 {
+		t.Errorf("ListScores returned %d scores, want 2", len(scores))
+	}
+}
+
+// TestSaveScoreIdentityIncludesResult checks SaveScore returns the ref ScoreRef
+// derives from the dictionary within its result, that the same dictionary for
+// different results stays a distinct score under a different ref, and that each
+// result holds exactly one score for the same dictionary.
+func TestSaveScoreIdentityIncludesResult(t *testing.T) {
+	s := newTestStore(t)
+	dict := map[string]float64{"correctness": 1}
+	coords := []struct{ repo, task, test, result string }{
+		{"widgets", "fix-bug", "basic", "56ac1b0e4f0d"},
+		{"widgets", "fix-bug", "basic", "ffffffffffff"},
+		{"widgets", "fix-bug", "other", "56ac1b0e4f0d"},
+		{"widgets", "ship-it", "basic", "56ac1b0e4f0d"},
+		{"gadgets", "fix-bug", "basic", "56ac1b0e4f0d"},
+	}
+
+	refs := map[string]struct{}{}
+	for _, c := range coords {
+		sc := Score{Org: "acme", Repo: c.repo, Task: c.task, Test: c.test, Result: c.result, Dictionary: dict}
+		ref, err := s.SaveScore(sc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := ScoreRef(sc); ref != want {
+			t.Errorf("SaveScore(%s/%s/%s/%s) ref = %q, want %q", c.repo, c.task, c.test, c.result, ref, want)
+		}
+		if _, ok := refs[ref]; ok {
+			t.Errorf("SaveScore(%s/%s/%s/%s) ref %q is not distinct from an earlier score", c.repo, c.task, c.test, c.result, ref)
+		}
+		refs[ref] = struct{}{}
+
+		again, err := s.SaveScore(sc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if again != ref {
+			t.Errorf("SaveScore(%s/%s/%s/%s) again = %q, want the ref %q", c.repo, c.task, c.test, c.result, again, ref)
+		}
+	}
+
+	for _, repo := range []string{"widgets", "gadgets"} {
+		want := 0
+		for _, c := range coords {
+			if c.repo == repo {
+				want++
+			}
+		}
+		scores, err := s.ListScores("acme", repo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(scores) != want {
+			t.Errorf("ListScores(%s) returned %d scores, want %d", repo, len(scores), want)
+		}
+	}
+}
+
+// TestListScores checks ListScores returns only a repo's scores, ordered by ref,
+// without another repo's scores.
+func TestListScores(t *testing.T) {
+	s := newTestStore(t)
+	want := map[string]Score{}
+	for _, d := range []float64{1, 2, 3} {
+		sc := Score{
+			Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+			Result: "56ac1b0e4f0d", Dictionary: map[string]float64{"n": d},
+		}
+		ref, err := s.SaveScore(sc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sc.Ref = ref
+		want[ref] = sc
+	}
+	other := Score{
+		Org: "acme", Repo: "gadgets", Task: "fix-bug", Test: "basic",
+		Result: "56ac1b0e4f0d", Dictionary: map[string]float64{"n": 1},
+	}
+	if _, err := s.SaveScore(other); err != nil {
+		t.Fatal(err)
+	}
+
+	scores, err := s.ListScores("acme", "widgets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scores) != len(want) {
+		t.Fatalf("ListScores returned %d scores, want %d", len(scores), len(want))
+	}
+	refs := make([]string, len(scores))
+	for i, sc := range scores {
+		if got := want[sc.Ref]; !reflect.DeepEqual(sc, got) {
+			t.Errorf("score %q = %#v, want %#v", sc.Ref, sc, got)
+		}
+		refs[i] = sc.Ref
+	}
+	if !sort.StringsAreSorted(refs) {
+		t.Errorf("ListScores refs = %q, want them ordered", refs)
+	}
+}
+
+func TestGetScoreMissing(t *testing.T) {
+	s := newTestStore(t)
+
+	if _, err := s.GetScore("acme", "widgets", "missing"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("GetScore error = %v, want ErrNotFound", err)
+	}
+}
+
+// TestScoreRef checks a ref is short and URL-safe, is stable for the same
+// dictionary within the same result, is independent of dictionary key order,
+// and changes when the dictionary or any part of the result identity changes.
+func TestScoreRef(t *testing.T) {
+	base := Score{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Result: "56ac1b0e4f0d", Dictionary: map[string]float64{"correctness": 1, "style": 0.5},
+	}
+	ref := ScoreRef(base)
+	if ref != ScoreRef(base) {
+		t.Errorf("ScoreRef returned different refs for the same score")
+	}
+	if ref == "" || !ValidStub(ref) {
+		t.Errorf("ScoreRef = %q, want a non-empty URL-safe ref", ref)
+	}
+
+	reordered := base
+	reordered.Dictionary = map[string]float64{"style": 0.5, "correctness": 1}
+	if got := ScoreRef(reordered); got != ref {
+		t.Errorf("ScoreRef = %q, want the same ref whatever the dictionary key order", got)
+	}
+
+	for _, tc := range []struct {
+		name   string
+		change func(Score) Score
+	}{
+		{"different dictionary", func(s Score) Score { s.Dictionary = map[string]float64{"correctness": 0.5, "style": 0.5}; return s }},
+		{"different result", func(s Score) Score { s.Result = "ffffffffffff"; return s }},
+		{"different test", func(s Score) Score { s.Test = "other"; return s }},
+		{"different task", func(s Score) Score { s.Task = "other"; return s }},
+		{"different repo", func(s Score) Score { s.Repo = "gadgets"; return s }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ScoreRef(tc.change(base)); got == ref {
+				t.Errorf("ScoreRef = %q, want a different ref", got)
 			}
 		})
 	}

@@ -127,6 +127,34 @@ func getResult(d deps, ref string) error {
 	return writeJSON(d.out, body)
 }
 
+// getScores writes the inferred repo's scores as YAML. It fails when the repo is
+// missing.
+func getScores(d deps) error {
+	target, err := resolveTarget(d)
+	if err != nil {
+		return err
+	}
+	refs, err := readScoreRefs(d.ctx, target.client, target.org, target.stub)
+	if err != nil {
+		return err
+	}
+	return writeYAML(d.out, refs)
+}
+
+// getScore writes the score the ref names as JSON. It fails when the score is
+// missing.
+func getScore(d deps, ref string) error {
+	target, err := resolveTarget(d)
+	if err != nil {
+		return err
+	}
+	body, err := readScore(d.ctx, target.client, target.org, target.stub, ref)
+	if err != nil {
+		return err
+	}
+	return writeJSON(d.out, body)
+}
+
 // resolveTarget resolves the service URL and the repo a command acts on.
 func resolveTarget(d deps) (repoTarget, error) {
 	serviceURL, err := resolveServiceURL("", d.workDir)

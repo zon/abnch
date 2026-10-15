@@ -57,6 +57,22 @@ func uniqueSchemaStubs(schema []SchemaKey) bool {
 	return true
 }
 
+// AllowsScore reports whether every key in the dictionary is a key in the
+// test's score schema. A dictionary may omit a schema key, and an empty
+// dictionary is allowed.
+func (t Test) AllowsScore(dictionary map[string]float64) bool {
+	keys := make(map[string]struct{}, len(t.Schema))
+	for _, key := range t.Schema {
+		keys[key.Stub] = struct{}{}
+	}
+	for stub := range dictionary {
+		if _, ok := keys[stub]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
 // SchemaKey is one key of a test's score schema. Its stub is the key stored in
 // scores and its name is what the UI displays.
 type SchemaKey struct {
@@ -102,6 +118,36 @@ type Result struct {
 func (r Result) Validate() error {
 	if r.InputTokens < 0 || r.OutputTokens < 0 || r.TokenCost < 0 || r.Duration < 0 {
 		return ErrInvalidResult
+	}
+	return nil
+}
+
+// Score is the key-number dictionary a grader produced for a result, with the
+// logs and run metrics that came with it. It is identified by its repo, task
+// stub, test stub, result ref, and ref, so two scores with the same identity
+// are the same score. Dictionary holds a number per key of the result's test
+// score schema.
+type Score struct {
+	Org          string             `gorm:"primaryKey"`
+	Repo         string             `gorm:"primaryKey"`
+	Task         string             `gorm:"primaryKey"`
+	Test         string             `gorm:"primaryKey"`
+	Result       string             `gorm:"primaryKey"`
+	Ref          string             `gorm:"primaryKey"`
+	Dictionary   map[string]float64 `gorm:"serializer:json;type:jsonb"`
+	Logs         string
+	InputTokens  int
+	OutputTokens int
+	TokenCost    float64
+	Duration     float64
+}
+
+// Validate reports whether the score's run metrics are zero or greater. A score
+// that omits a metric records zero. Its dictionary, logs, and result may be
+// empty.
+func (s Score) Validate() error {
+	if s.InputTokens < 0 || s.OutputTokens < 0 || s.TokenCost < 0 || s.Duration < 0 {
+		return ErrInvalidScore
 	}
 	return nil
 }

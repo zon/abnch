@@ -19,6 +19,19 @@ type cli struct {
 	Set    setCmd    `cmd:"" help:"Create or update resources in the inferred repo."`
 	Add    addCmd    `cmd:"" help:"Add resources to the inferred repo."`
 	Run    runCmd    `cmd:"" help:"Run a task's agent against a test's data."`
+	Score  scoreCmd  `cmd:"" help:"Score a result with the task's grader."`
+}
+
+// scoreCmd scores a result with the task's grader.
+type scoreCmd struct {
+	Ref   string `arg:"" help:"Result ref."`
+	Model string `help:"Override the task's default model." optional:""`
+	Local bool   `help:"Select a local run, the only run mode."`
+}
+
+// Run runs the task's grader against the result and records a score.
+func (c scoreCmd) Run(deps deps) error {
+	return scoreResult(deps, c)
 }
 
 // runCmd runs a task's agent against the data in a test.
@@ -61,8 +74,29 @@ type getCmd struct {
 	Models  getModelsCmd  `cmd:"" help:"List the models in the CLI config as YAML."`
 	Model   getModelCmd   `cmd:"" help:"Print one model as YAML."`
 	Agent   getAgentCmd   `cmd:"" help:"Print a task's agent as YAML."`
+	Grader  getGraderCmd  `cmd:"" help:"Print a task's grader as YAML."`
 	Results getResultsCmd `cmd:"" help:"List the inferred repo's results as YAML."`
 	Result  getResultCmd  `cmd:"" help:"Print one result as JSON."`
+	Scores  getScoresCmd  `cmd:"" help:"List the inferred repo's scores as YAML."`
+	Score   getScoreCmd   `cmd:"" help:"Print one score as JSON."`
+}
+
+// getScoresCmd lists the inferred repo's scores.
+type getScoresCmd struct{}
+
+// Run lists the inferred repo's scores as YAML.
+func (c getScoresCmd) Run(deps deps) error {
+	return getScores(deps)
+}
+
+// getScoreCmd prints one score as JSON.
+type getScoreCmd struct {
+	Ref string `arg:"" help:"Score ref."`
+}
+
+// Run prints the score as JSON.
+func (c getScoreCmd) Run(deps deps) error {
+	return getScore(deps, c.Ref)
 }
 
 // getResultsCmd lists the inferred repo's results.
@@ -91,6 +125,16 @@ type getAgentCmd struct {
 // Run prints the task's agent as YAML.
 func (c getAgentCmd) Run(deps deps) error {
 	return getAgent(deps, c.Stub)
+}
+
+// getGraderCmd prints one task's grader as YAML.
+type getGraderCmd struct {
+	Stub string `arg:"" help:"Task stub."`
+}
+
+// Run prints the task's grader as YAML.
+func (c getGraderCmd) Run(deps deps) error {
+	return getGrader(deps, c.Stub)
 }
 
 // getModelsCmd lists the models in the CLI config.
@@ -161,10 +205,11 @@ func (c getDataCmd) Run(deps deps) error {
 
 // setCmd groups the commands that create or update resources.
 type setCmd struct {
-	Task  setTaskCmd  `cmd:"" help:"Create or update a task in the inferred repo."`
-	Test  setTestCmd  `cmd:"" help:"Create or update a test in the inferred repo."`
-	Model setModelCmd `cmd:"" help:"Create or update a model in the CLI config."`
-	Agent setAgentCmd `cmd:"" help:"Create or update a task's agent in the CLI config."`
+	Task   setTaskCmd   `cmd:"" help:"Create or update a task in the inferred repo."`
+	Test   setTestCmd   `cmd:"" help:"Create or update a test in the inferred repo."`
+	Model  setModelCmd  `cmd:"" help:"Create or update a model in the CLI config."`
+	Agent  setAgentCmd  `cmd:"" help:"Create or update a task's agent in the CLI config."`
+	Grader setGraderCmd `cmd:"" help:"Create or update a task's grader in the CLI config."`
 }
 
 // setAgentCmd creates or updates a task's agent in the CLI config.
@@ -178,6 +223,19 @@ type setAgentCmd struct {
 // Run creates or updates the task's agent in the CLI config.
 func (c setAgentCmd) Run(deps deps) error {
 	return setAgent(deps, c)
+}
+
+// setGraderCmd creates or updates a task's grader in the CLI config.
+type setGraderCmd struct {
+	Stub       string `arg:"" help:"Task stub."`
+	VersionCmd string `help:"Grader version command." optional:""`
+	BuildCmd   string `help:"Grader build command." optional:""`
+	RunCmd     string `help:"Grader run command." optional:""`
+}
+
+// Run creates or updates the task's grader in the CLI config.
+func (c setGraderCmd) Run(deps deps) error {
+	return setGrader(deps, c)
 }
 
 // setModelCmd creates or updates a model in the CLI config.

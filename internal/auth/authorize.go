@@ -26,6 +26,8 @@ const (
 	Write
 	// WriteResult writes a result, which the Service role may also write.
 	WriteResult
+	// WriteScore writes a score, which the Service role may also write.
+	WriteScore
 )
 
 // readRoles are the roles that may read a resource. Agent and Grader reach no
@@ -38,6 +40,9 @@ var writeRoles = []string{RoleAdmin}
 
 // resultWriteRoles are the roles that may write a result.
 var resultWriteRoles = []string{RoleService, RoleAdmin}
+
+// scoreWriteRoles are the roles that may write a score.
+var scoreWriteRoles = []string{RoleService, RoleAdmin}
 
 // Authorize returns a middleware that allows a request only when the caller's
 // roles permit access, and answers 403 without calling next otherwise. It
@@ -86,6 +91,8 @@ func accessRoles(access Access) []string {
 		return writeRoles
 	case WriteResult:
 		return resultWriteRoles
+	case WriteScore:
+		return scoreWriteRoles
 	default:
 		return readRoles
 	}

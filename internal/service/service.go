@@ -61,6 +61,17 @@ type Store interface {
 	// the same JSON for the same datum again returns the same ref and leaves one
 	// result. It reports store.ErrInvalidResult when a run metric is negative.
 	SaveResult(r store.Result) (string, error)
+	// GetScore returns the score with the given ref in a repo, or
+	// store.ErrNotFound.
+	GetScore(org, repo, ref string) (store.Score, error)
+	// ListScores returns a repo's scores, ordered by ref.
+	ListScores(org, repo string) ([]store.Score, error)
+	// SaveScore stores the key-number dictionary a grader produced for a result
+	// and returns the score's ref. The ref is derived from the dictionary within
+	// its result, so saving the same dictionary for the same result again
+	// returns the same ref and leaves one score. It reports store.ErrInvalidScore
+	// when a run metric is negative.
+	SaveScore(sc store.Score) (string, error)
 	// SaveRepo creates or replaces the repo with the given stubs.
 	SaveRepo(r store.Repo) error
 	// SaveTask creates or replaces the task with the given repo and stub.
@@ -174,6 +185,7 @@ func api(st Store) http.Handler {
 	read := func(h http.HandlerFunc) http.Handler { return auth.Authorize(auth.Read, h) }
 	write := func(h http.HandlerFunc) http.Handler { return auth.Authorize(auth.Write, h) }
 	writeResult := func(h http.HandlerFunc) http.Handler { return auth.Authorize(auth.WriteResult, h) }
+	writeScore := func(h http.HandlerFunc) http.Handler { return auth.Authorize(auth.WriteScore, h) }
 
 	mux.Handle("GET /repos", read(listRepos(st)))
 	mux.Handle("GET /repos/{org}/{stub}", read(getRepo(st)))
@@ -192,6 +204,9 @@ func api(st Store) http.Handler {
 	mux.Handle("GET /repos/{org}/{repo}/results", read(listResults(st)))
 	mux.Handle("GET /repos/{org}/{repo}/results/{ref}", read(getResult(st)))
 	mux.Handle("POST /repos/{org}/{repo}/results", writeResult(addResult(st)))
+	mux.Handle("GET /repos/{org}/{repo}/scores", read(listScores(st)))
+	mux.Handle("GET /repos/{org}/{repo}/scores/{ref}", read(getScore(st)))
+	mux.Handle("POST /repos/{org}/{repo}/scores", writeScore(addScore(st)))
 	mux.Handle("/", auth.AuthorizeMethod(http.HandlerFunc(notFound)))
 	return mux
 }

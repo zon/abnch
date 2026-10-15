@@ -27,6 +27,9 @@ var ErrInvalidSchema = errors.New("invalid schema")
 // ErrInvalidResult reports that a result carries a negative run metric.
 var ErrInvalidResult = errors.New("invalid result")
 
+// ErrInvalidScore reports that a score carries a negative run metric.
+var ErrInvalidScore = errors.New("invalid score")
+
 // Store reads and writes the service's domain data in Postgres.
 type Store struct {
 	db *gorm.DB
@@ -39,7 +42,7 @@ func New(db *gorm.DB) *Store {
 
 // Migrate creates the tables the store needs.
 func (s *Store) Migrate() error {
-	return s.db.AutoMigrate(&Repo{}, &Task{}, &Test{}, &Datum{}, &Result{})
+	return s.db.AutoMigrate(&Repo{}, &Task{}, &Test{}, &Datum{}, &Result{}, &Score{})
 }
 
 // Close closes the store's database connection.
@@ -205,6 +208,40 @@ func (s *Store) ListResults(org, repo string) ([]Result, error) {
 		return nil, err
 	}
 	return results, nil
+}
+
+// SaveScore stores the key-number dictionary a grader produced for a result and
+// returns the score's ref. The ref is derived from the dictionary within its
+// result, so saving the same dictionary for the same result again returns the
+// same ref and leaves one score. It returns ErrInvalidScore when a run metric
+// is negative.
+func (s *Store) SaveScore(sc Score) (string, error) {
+	if err := sc.Validate(); err != nil {
+		return "", err
+	}
+	sc.Ref = ScoreRef(sc)
+	if err := s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&sc).Error; err != nil {
+		return "", err
+	}
+	return sc.Ref, nil
+}
+
+// GetScore returns the score with the given ref in a repo, or ErrNotFound.
+func (s *Store) GetScore(org, repo, ref string) (Score, error) {
+	var sc Score
+	if err := s.db.First(&sc, "org = ? AND repo = ? AND ref = ?", org, repo, ref).Error; err != nil {
+		return Score{}, notFound(err)
+	}
+	return sc, nil
+}
+
+// ListScores returns a repo's scores, ordered by ref.
+func (s *Store) ListScores(org, repo string) ([]Score, error) {
+	var scores []Score
+	if err := s.db.Where("org = ? AND repo = ?", org, repo).Order("ref").Find(&scores).Error; err != nil {
+		return nil, err
+	}
+	return scores, nil
 }
 
 // MoveTask renames the task with the given stub to newStub and returns the
