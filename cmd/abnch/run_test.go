@@ -257,6 +257,74 @@ func TestRunPassesModelAndDatumOnStdin(t *testing.T) {
 	}
 }
 
+func TestRunPassesRunInputAsJSONOnStdin(t *testing.T) {
+	workDir := t.TempDir()
+	addRemote(t, workDir, "git@github.com:acme/widgets.git")
+	fake := newFakeService(t)
+	seedDataTest(fake)
+	body := `{"prompt":"hi"}`
+	fake.seedDatum("acme", "widgets", "fix-bug", "basic", body)
+	writeRunScripts(t, workDir)
+	d, _ := runDeps(t, workDir, fake.url, runConfig(fake.url))
+
+	if err := runRun([]string{"fix-bug/basic"}, d); err != nil {
+		t.Fatalf("run = %v, want no error", err)
+	}
+
+	raw, err := os.ReadFile(filepath.Join(workDir, "inputs.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var input map[string]json.RawMessage
+	if err := json.Unmarshal(bytes.TrimSpace(raw), &input); err != nil {
+		t.Fatalf("stdin is not a JSON object: %v\n%s", err, raw)
+	}
+	if len(input) != 2 || input["model"] == nil || input["data"] == nil {
+		t.Fatalf("stdin = %s, want an object carrying only model and data", raw)
+	}
+	var model map[string]json.RawMessage
+	if err := json.Unmarshal(input["model"], &model); err != nil {
+		t.Fatalf("model is not a JSON object: %v\n%s", err, input["model"])
+	}
+	for _, key := range []string{"name", "provider", "variant"} {
+		if _, ok := model[key]; !ok {
+			t.Errorf("model = %s, want it to carry %q", input["model"], key)
+		}
+	}
+	if string(input["data"]) != body {
+		t.Errorf("data = %s, want the datum %s", input["data"], body)
+	}
+}
+
+func TestRunPassesModelWithoutVariantOnStdin(t *testing.T) {
+	workDir := t.TempDir()
+	addRemote(t, workDir, "git@github.com:acme/widgets.git")
+	fake := newFakeService(t)
+	seedDataTest(fake)
+	body := `{"prompt":"hi"}`
+	fake.seedDatum("acme", "widgets", "fix-bug", "basic", body)
+	writeRunScripts(t, workDir)
+	config := "url: " + fake.url + "\n" +
+		"models:\n  sonnet:\n    provider: anthropic\n    name: claude-sonnet\n" +
+		"tasks:\n  fix-bug:\n    model: sonnet\n    agent:\n      runCmd: sh run.sh\n"
+	d, _ := runDeps(t, workDir, fake.url, config)
+
+	if err := runRun([]string{"fix-bug/basic"}, d); err != nil {
+		t.Fatalf("run = %v, want no error", err)
+	}
+
+	got := readRunInput(t, workDir)
+	if got.Model.Provider != "anthropic" || got.Model.Name != "claude-sonnet" {
+		t.Errorf("model = %+v, want the model's provider and name", got.Model)
+	}
+	if got.Model.Variant != "" {
+		t.Errorf("variant = %q, want empty for a model without a variant", got.Model.Variant)
+	}
+	if string(got.Data) != body {
+		t.Errorf("data = %s, want the datum %s", got.Data, body)
+	}
+}
+
 func TestRunRunsAgentAgainstOneDatum(t *testing.T) {
 	workDir := t.TempDir()
 	addRemote(t, workDir, "git@github.com:acme/widgets.git")
