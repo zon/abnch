@@ -54,6 +54,8 @@ type Store interface {
 	// GetResult returns the result with the given ref in a repo, or
 	// store.ErrNotFound.
 	GetResult(org, repo, ref string) (store.Result, error)
+	// ListResults returns a repo's results, ordered by ref.
+	ListResults(org, repo string) ([]store.Result, error)
 	// SaveResult stores the JSON an agent produced for a datum and returns the
 	// result's ref. The ref is derived from the JSON within its datum, so saving
 	// the same JSON for the same datum again returns the same ref and leaves one
@@ -181,6 +183,7 @@ func api(st Store) http.Handler {
 	mux.HandleFunc("GET /repos/{org}/{repo}/tasks/{task}/tests/{test}/data", listData(st))
 	mux.HandleFunc("POST /repos/{org}/{repo}/tasks/{task}/tests/{test}/data", addData(st))
 	mux.HandleFunc("GET /repos/{org}/{repo}/tasks/{task}/tests/{test}/data/{ref}", getData(st))
+	mux.HandleFunc("GET /repos/{org}/{repo}/results", listResults(st))
 	mux.HandleFunc("POST /repos/{org}/{repo}/results", addResult(st))
 	mux.HandleFunc("/", notFound)
 	return mux

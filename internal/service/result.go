@@ -83,6 +83,34 @@ func addResult(st Store) http.HandlerFunc {
 	}
 }
 
+// listResults writes the refs of the results in the repo the route identifies
+// as a JSON array, or the service error response when the repo does not exist.
+func listResults(st Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		org, repo := r.PathValue("org"), r.PathValue("repo")
+		if _, ok := requireRepo(w, st, org, repo); !ok {
+			return
+		}
+
+		results, err := st.ListResults(org, repo)
+		if err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "failed to list results")
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, resultRefs(results))
+	}
+}
+
+// resultRefs returns the result refs as the API represents them. An empty list
+// is an empty JSON array rather than null.
+func resultRefs(results []store.Result) []string {
+	refs := make([]string, 0, len(results))
+	for _, r := range results {
+		refs = append(refs, r.Ref)
+	}
+	return refs
+}
+
 // newResult builds the store result a body describes for the route's repo.
 func newResult(org, repo string, body resultRequest) store.Result {
 	return store.Result{

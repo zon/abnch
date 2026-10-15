@@ -2,6 +2,8 @@ package service
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -197,6 +199,134 @@ func TestAddResultMissingDatum(t *testing.T) {
 	assertServiceError(t, resp, http.StatusNotFound)
 	if len(st.results) != 0 {
 		t.Errorf("store holds %d results, want none", len(st.results))
+	}
+}
+
+// TestGetResultsListsRefs checks GET /repos/{org}/{repo}/results returns the
+// repo's result refs as a JSON array, and only that repo's results.
+func TestGetResultsListsRefs(t *testing.T) {
+	st := resultStore()
+	st.results = []store.Result{
+		{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Data: "aaa111", Ref: "aaa111", JSON: `{"n":1}`},
+		{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Data: "bbb222", Ref: "bbb222", JSON: `{"n":2}`},
+		{Org: "acme", Repo: "other", Task: "fix-bug", Test: "basic", Data: "ccc333", Ref: "ccc333", JSON: `{"n":3}`},
+	}
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets/results")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+
+	var got []string
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	want := []string{"aaa111", "bbb222"}
+	if len(got) != len(want) {
+		t.Fatalf("body listed %d refs, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("ref %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+// TestGetResultsEmptyList checks a repo with no results returns an empty JSON
+// array rather than a null body.
+func TestGetResultsEmptyList(t *testing.T) {
+	st := resultStore()
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets/results")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(body)); got != "[]" {
+		t.Errorf("body = %q, want %q", got, "[]")
+	}
+}
+
+// TestGetResultsMissingRepo checks a request for a repo that does not exist
+// returns the service error response.
+func TestGetResultsMissingRepo(t *testing.T) {
+	st := &fakeDB{}
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets/results")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusNotFound)
+}
+
+// TestGetResultsReportsStoreFailure checks a store failure returns the service
+// error response instead of a partial list.
+func TestGetResultsReportsStoreFailure(t *testing.T) {
+	st := resultStore()
+	st.listResultsErr = errors.New("boom")
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets/results")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusInternalServerError)
+}
+
+// TestGetResultsDeniedForUnpermittedRole checks a role without read access
+// reaches no result list.
+func TestGetResultsDeniedForUnpermittedRole(t *testing.T) {
+	st := resultStore()
+	base := startServiceWithStore(t, st, auth.RoleAgent)
+
+	resp, err := http.Get(base + "repos/acme/widgets/results")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusForbidden)
+	}
+}
+
+// TestGetResultsReadAllowedForRoles checks the result list is allowed for the
+// Reader, Service, and Admin roles.
+func TestGetResultsReadAllowedForRoles(t *testing.T) {
+	for _, role := range []string{auth.RoleReader, auth.RoleService, auth.RoleAdmin} {
+		t.Run(role, func(t *testing.T) {
+			st := resultStore()
+			base := startServiceWithStore(t, st, role)
+
+			resp, err := http.Get(base + "repos/acme/widgets/results")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+			}
+		})
 	}
 }
 
