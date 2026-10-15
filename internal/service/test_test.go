@@ -169,6 +169,111 @@ func TestPutTestUpdatesExistingTest(t *testing.T) {
 	}
 }
 
+// TestPutTestUpdateKeepsSchemaWhenBodyOmitsIt checks an update whose body
+// carries no schema leaves the stored schema in place, because only a body that
+// carries one replaces it.
+func TestPutTestUpdateKeepsSchemaWhenBodyOmitsIt(t *testing.T) {
+	st := testStore()
+	st.tests = []store.Test{{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic",
+		Name: "Basic", Description: "A basic test", Version: "1",
+		Schema: []store.SchemaKey{{Stub: "correctness", Name: "Correctness"}},
+	}}
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+
+	resp := sendTestPut(t, base, "repos/acme/widgets/tasks/fix-bug/tests/basic", `{"version":"2"}`)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	var got testBody
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	want := []store.SchemaKey{{Stub: "correctness", Name: "Correctness"}}
+	if len(got.Schema) != len(want) || got.Schema[0] != want[0] {
+		t.Errorf("schema = %#v, want the stored schema kept as %#v", got.Schema, want)
+	}
+	if len(st.tests) != 1 || len(st.tests[0].Schema) != 1 || st.tests[0].Schema[0] != want[0] {
+		t.Errorf("stored tests = %#v, want the schema kept as %#v", st.tests, want)
+	}
+}
+
+// TestPutTestUpdateReplacesSchemaWithEmpty checks an update whose body carries an
+// empty schema clears the stored schema, because an empty schema is still a
+// schema the body carries.
+func TestPutTestUpdateReplacesSchemaWithEmpty(t *testing.T) {
+	st := testStore()
+	st.tests = []store.Test{{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic",
+		Name: "Basic", Version: "1",
+		Schema: []store.SchemaKey{{Stub: "correctness", Name: "Correctness"}},
+	}}
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+
+	resp := sendTestPut(t, base, "repos/acme/widgets/tasks/fix-bug/tests/basic",
+		`{"name":"Basic","version":"1","schema":[]}`)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	if len(st.tests) != 1 || len(st.tests[0].Schema) != 0 {
+		t.Errorf("stored tests = %#v, want the schema cleared", st.tests)
+	}
+}
+
+// TestPutTestUpdateMergesNameAndDescription checks an update replaces the name
+// and description the body carries and keeps the fields it omits.
+func TestPutTestUpdateMergesNameAndDescription(t *testing.T) {
+	st := testStore()
+	st.tests = []store.Test{{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic",
+		Name: "Basic", Description: "A basic test", Version: "1",
+	}}
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+
+	resp := sendTestPut(t, base, "repos/acme/widgets/tasks/fix-bug/tests/basic",
+		`{"name":"Renamed","description":"A renamed test"}`)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	var got testBody
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if got.Name != "Renamed" || got.Description != "A renamed test" || got.Version != "1" {
+		t.Errorf("test = %#v, want the name and description replaced and the version kept", got)
+	}
+}
+
+// TestPutTestCreateThenUpdate checks the same write creates a test with 201 and
+// a later write updates it with 200, leaving one stored test.
+func TestPutTestCreateThenUpdate(t *testing.T) {
+	st := testStore()
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+	path := "repos/acme/widgets/tasks/fix-bug/tests/basic"
+
+	created := sendTestPut(t, base, path, `{"name":"Basic","version":"1"}`)
+	defer created.Body.Close()
+	if created.StatusCode != http.StatusCreated {
+		t.Fatalf("create status = %d, want %d", created.StatusCode, http.StatusCreated)
+	}
+
+	updated := sendTestPut(t, base, path, `{"version":"2"}`)
+	defer updated.Body.Close()
+	if updated.StatusCode != http.StatusOK {
+		t.Fatalf("update status = %d, want %d", updated.StatusCode, http.StatusOK)
+	}
+
+	if len(st.tests) != 1 || st.tests[0].Name != "Basic" || st.tests[0].Version != "2" {
+		t.Errorf("store holds %#v, want one test updated to version 2", st.tests)
+	}
+}
+
 // TestPutTestMissingTask checks a write to a task that does not exist returns
 // the service error response and creates no test.
 func TestPutTestMissingTask(t *testing.T) {
