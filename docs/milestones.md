@@ -1,12 +1,5 @@
 # Milestones
 
-## Tests and Data
-
-* A task owns tests, each with a version and a score schema
-* A test owns JSON data
-* Data can reference files by URL and checksum
-* `abnch` manages tests and data
-
 ## Models and Agents
 
 * The config records models

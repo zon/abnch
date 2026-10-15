@@ -67,7 +67,7 @@ External code that can produce a task result. Runs in an Argo Workflow from a cl
 
 The JSON produced by an agent.
 
-* Ref
+* Ref - A short, Git-ref-like identifier derived from the JSON, unique within its datum
 * JSON
 * Logs
 * Input tokens
