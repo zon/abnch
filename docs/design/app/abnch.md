@@ -103,13 +103,9 @@ Create or updates a test. Can receive options or a YAML file with matching prope
 
 The schema keys are set through the YAML input.
 
-## `abnch get tests` | `abnch get test`
+## `abnch get tests <task stub>` | `abnch get test <task stub>/<stub>`
 
-List tests.
-
-## `abnch get test <stub>`
-
-Outputs a test as YAML.
+List and read a task's tests.
 
 ## `abnch get data <task stub>/<test stub>`
 

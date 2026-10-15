@@ -131,12 +131,12 @@ Humans hold Reader or Admin. Workloads hold Service, Agent, or Grader.
 
 ### Requirement: Reader Role
 
-The Reader role SHALL allow reading tasks, results, and scores. It SHALL NOT allow any write.
+The Reader role SHALL allow reading tasks, tests, data, results, and scores. It SHALL NOT allow any write.
 
 #### Scenario: Reader reads
 
 - GIVEN a caller with the Reader role
-- WHEN the caller reads a task, result, or score
+- WHEN the caller reads a task, test, data, result, or score
 - THEN the status is `2xx`
 
 #### Scenario: Reader writes
@@ -147,7 +147,7 @@ The Reader role SHALL allow reading tasks, results, and scores. It SHALL NOT all
 
 ### Requirement: Service Role
 
-The Service role SHALL allow reading tasks, running agent workflows, posting results, running grader workflows, and posting scores.
+The Service role SHALL allow reading tasks, tests, and data, running agent workflows, posting results, running grader workflows, and posting scores.
 
 #### Scenario: Service posts a result
 

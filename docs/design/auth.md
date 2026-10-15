@@ -19,12 +19,14 @@ The CLI is a client on the same machine. `just config` generates its local crede
 
 * Reader
   * Can get tasks
+  * Can get tests and data
   * Can get results
   * Can get scores
 * Admin
   * Full access
 * Service
   * Can get tasks
+  * Can get tests and data
   * Can run agent workflows
   * Can post results
   * Can run grader workflows

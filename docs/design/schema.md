@@ -27,7 +27,7 @@ A collection of data that can be executed and graded as a group.
 * Description
 * Version
 * Schema - A list of keys found in scores
-  * Stub - The key stored in data
+  * Stub - The key stored in scores
   * Name - What the UI displays
 * Parent - Task
 
@@ -35,13 +35,13 @@ A collection of data that can be executed and graded as a group.
 
 JSON data passed to agents. Represents a single task the agent should perform.
 
-* Ref - A short, Git-ref-like identifier
+* Ref - A short, Git-ref-like identifier derived from the JSON. The same JSON always has the same ref
 * JSON
 * Parent - Test
 
 ### Files
 
-Tasks that process files should include URLs and checksums in data. Agents and graders are responsible for downloading and verifying files.
+Tasks that process files should include file references in data. A file reference is a JSON object carrying a `url` and a `checksum`. Agents and graders download and verify the files.
 
 ## Model
 
