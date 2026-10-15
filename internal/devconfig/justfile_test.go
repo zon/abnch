@@ -80,6 +80,21 @@ func TestJustConfigForwardsGivenPort(t *testing.T) {
 	}
 }
 
+// TestJustServiceLoadsLocalServiceConfig checks that the service recipe starts
+// abnchd against the local service config at `.abnchd/config.yaml`.
+func TestJustServiceLoadsLocalServiceConfig(t *testing.T) {
+	steps := nonEmptyLines(dryRunService(t))
+	if len(steps) != 1 {
+		t.Fatalf("service recipe runs %d steps, want the one abnchd command:\n%q", len(steps), steps)
+	}
+	if !strings.Contains(steps[0], "./cmd/abnchd") {
+		t.Errorf("service recipe step %q does not drive the abnchd CLI", steps[0])
+	}
+	if !strings.Contains(steps[0], ".abnchd/config.yaml") {
+		t.Errorf("service recipe step %q does not load .abnchd/config.yaml", steps[0])
+	}
+}
+
 // postgresBlock stands in for the Postgres details a human or an agent writes
 // into the local service config before running the recipe.
 const postgresBlock = "postgres:\n" +
@@ -204,14 +219,26 @@ func envWith(overrides map[string]string) []string {
 // dryRunConfig renders the config recipe's commands without running them.
 func dryRunConfig(t *testing.T, args ...string) string {
 	t.Helper()
+	return dryRun(t, "config", args...)
+}
+
+// dryRunService renders the service recipe's commands without running them.
+func dryRunService(t *testing.T) string {
+	t.Helper()
+	return dryRun(t, "service")
+}
+
+// dryRun renders a recipe's commands without running them.
+func dryRun(t *testing.T, recipe string, args ...string) string {
+	t.Helper()
 	just, err := exec.LookPath("just")
 	if err != nil {
 		t.Skip("just is not installed")
 	}
-	cmdArgs := append([]string{"--justfile", filepath.Join(repoRoot(t), "Justfile"), "--dry-run", "config"}, args...)
+	cmdArgs := append([]string{"--justfile", filepath.Join(repoRoot(t), "Justfile"), "--dry-run", recipe}, args...)
 	out, err := exec.Command(just, cmdArgs...).CombinedOutput()
 	if err != nil {
-		t.Fatalf("just --dry-run config: %v\n%s", err, out)
+		t.Fatalf("just --dry-run %s: %v\n%s", recipe, err, out)
 	}
 	return string(out)
 }

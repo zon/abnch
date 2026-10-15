@@ -94,6 +94,17 @@ After `abnchctl set local-auth` succeeds, `just config` SHALL run `abnchctl chec
 - THEN it fails
 - AND it reports that the Postgres config is missing
 
+### Requirement: Service Recipe
+
+`just service` SHALL start `abnchd` against the local service config at `.abnchd/config.yaml`.
+
+#### Scenario: Start the service
+
+- GIVEN `just config` wrote the local service config
+- WHEN the user runs `just service`
+- THEN it starts `abnchd` with `.abnchd/config.yaml`
+- AND the service connects to Postgres with the details in the file
+
 ### Requirement: Command Failure
 
 `just config` SHALL exit non-zero and report the failure when `abnchctl set local-auth` or `abnchctl check config` fails.
