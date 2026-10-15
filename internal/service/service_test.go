@@ -324,13 +324,21 @@ type fakeDB struct {
 	closed       bool
 	repos        []store.Repo
 	tasks        []store.Task
+	tests        []store.Test
+	data         []store.Datum
 	listErr      error
 	getErr       error
 	saveErr      error
 	getTaskErr   error
+	getTestErr   error
 	listTasksErr error
+	listTestsErr error
+	listDataErr  error
+	getDataErr   error
+	saveDatumErr error
 	moveTaskErr  error
 	saveTaskErr  error
+	moveTestErr  error
 }
 
 func (f *fakeDB) GetRepo(org, stub string) (store.Repo, error) {
@@ -430,6 +438,109 @@ func (f *fakeDB) MoveTask(org, repo, stub, newStub string) (store.Task, error) {
 		}
 	}
 	return store.Task{}, store.ErrNotFound
+}
+
+func (f *fakeDB) GetTest(org, repo, task, stub string) (store.Test, error) {
+	if f.getTestErr != nil {
+		return store.Test{}, f.getTestErr
+	}
+	for _, t := range f.tests {
+		if t.Org == org && t.Repo == repo && t.Task == task && t.Stub == stub {
+			return t, nil
+		}
+	}
+	return store.Test{}, store.ErrNotFound
+}
+
+func (f *fakeDB) ListTests(org, repo, task string) ([]store.Test, error) {
+	if f.listTestsErr != nil {
+		return nil, f.listTestsErr
+	}
+	var tests []store.Test
+	for _, t := range f.tests {
+		if t.Org == org && t.Repo == repo && t.Task == task {
+			tests = append(tests, t)
+		}
+	}
+	return tests, nil
+}
+
+func (f *fakeDB) ListData(org, repo, task, test string) ([]store.Datum, error) {
+	if f.listDataErr != nil {
+		return nil, f.listDataErr
+	}
+	var data []store.Datum
+	for _, d := range f.data {
+		if d.Org == org && d.Repo == repo && d.Task == task && d.Test == test {
+			data = append(data, d)
+		}
+	}
+	return data, nil
+}
+
+func (f *fakeDB) GetDatum(org, repo, task, test, ref string) (store.Datum, error) {
+	if f.getDataErr != nil {
+		return store.Datum{}, f.getDataErr
+	}
+	for _, d := range f.data {
+		if d.Org == org && d.Repo == repo && d.Task == task && d.Test == test && d.Ref == ref {
+			return d, nil
+		}
+	}
+	return store.Datum{}, store.ErrNotFound
+}
+
+func (f *fakeDB) SaveDatum(org, repo, task, test string, body []byte) (string, error) {
+	if f.saveDatumErr != nil {
+		return "", f.saveDatumErr
+	}
+	d := store.Datum{Org: org, Repo: repo, Task: task, Test: test, Ref: store.DatumRef(body), JSON: string(body)}
+	for i, existing := range f.data {
+		if existing.Org == org && existing.Repo == repo && existing.Task == task && existing.Test == test && existing.Ref == d.Ref {
+			f.data[i] = d
+			return d.Ref, nil
+		}
+	}
+	f.data = append(f.data, d)
+	return d.Ref, nil
+}
+
+func (f *fakeDB) MoveTest(org, repo, task, stub, newStub string) (store.Test, error) {
+	if f.moveTestErr != nil {
+		return store.Test{}, f.moveTestErr
+	}
+	for i, t := range f.tests {
+		if t.Org == org && t.Repo == repo && t.Task == task && t.Stub == stub {
+			if !store.ValidStub(newStub) {
+				return store.Test{}, store.ErrInvalidStub
+			}
+			for _, other := range f.tests {
+				if other.Org == org && other.Repo == repo && other.Task == task && other.Stub == newStub {
+					return store.Test{}, store.ErrConflict
+				}
+			}
+			f.tests[i].Stub = newStub
+			return f.tests[i], nil
+		}
+	}
+	return store.Test{}, store.ErrNotFound
+}
+
+func (f *fakeDB) SaveTest(t store.Test) error {
+	if !store.ValidStub(t.Stub) {
+		return store.ErrInvalidStub
+	}
+	if err := t.Validate(); err != nil {
+		return err
+	}
+	for i, existing := range f.tests {
+		if existing.Org == t.Org && existing.Repo == t.Repo && existing.Task == t.Task && existing.Stub == t.Stub {
+			f.tests[i] = t
+			return nil
+		}
+	}
+	f.tests = append(f.tests, t)
+	return nil
 }
 
 func (f *fakeDB) Close() error {

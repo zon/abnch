@@ -40,6 +40,65 @@ func getTask(d deps, stub string) error {
 	return writeYAML(d.out, t)
 }
 
+// getTests writes the tests of the task the stub names as YAML.
+func getTests(d deps, task string) error {
+	target, err := resolveTarget(d)
+	if err != nil {
+		return err
+	}
+	tests, err := readTests(d.ctx, target.client, target.org, target.stub, task)
+	if err != nil {
+		return err
+	}
+	return writeYAML(d.out, tests)
+}
+
+// getTest writes the test the path names as YAML. It fails when the test is
+// missing.
+func getTest(d deps, path string) error {
+	task, stub, err := splitTestPath(path)
+	if err != nil {
+		return err
+	}
+	target, err := resolveTarget(d)
+	if err != nil {
+		return err
+	}
+	t, found, err := readTest(d.ctx, target.client, target.org, target.stub, task, stub)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return fmt.Errorf("test %s not found", stub)
+	}
+	return writeYAML(d.out, t)
+}
+
+// getData lists the refs of the test the path names, or prints one datum as
+// JSON when the path carries a ref. It fails when the test or datum is missing.
+func getData(d deps, path string) error {
+	task, stub, ref, err := splitDataPath(path)
+	if err != nil {
+		return err
+	}
+	target, err := resolveTarget(d)
+	if err != nil {
+		return err
+	}
+	if ref == "" {
+		refs, err := readDataRefs(d.ctx, target.client, target.org, target.stub, task, stub)
+		if err != nil {
+			return err
+		}
+		return writeRefs(d.out, refs)
+	}
+	datum, err := readDatum(d.ctx, target.client, target.org, target.stub, task, stub, ref)
+	if err != nil {
+		return err
+	}
+	return writeJSON(d.out, datum)
+}
+
 // resolveTarget resolves the service URL and the repo a command acts on.
 func resolveTarget(d deps) (repoTarget, error) {
 	serviceURL, err := resolveServiceURL("", d.workDir)

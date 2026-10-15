@@ -17,12 +17,32 @@ type cli struct {
 	Logout logoutCmd `cmd:"" help:"Remove the stored session."`
 	Get    getCmd    `cmd:"" help:"Read resources from the inferred repo."`
 	Set    setCmd    `cmd:"" help:"Create or update resources in the inferred repo."`
+	Add    addCmd    `cmd:"" help:"Add resources to the inferred repo."`
+}
+
+// addCmd groups the commands that add resources.
+type addCmd struct {
+	Data addDataCmd `cmd:"" help:"Add a datum to a test in the inferred repo."`
+}
+
+// addDataCmd adds a datum to a test under a task in the inferred repo.
+type addDataCmd struct {
+	Path string `arg:"" help:"Task and test stub as <task>/<stub>."`
+	File string `help:"Path to a JSON file holding the datum." optional:""`
+}
+
+// Run adds the datum to the test in the inferred repo.
+func (c addDataCmd) Run(deps deps) error {
+	return addData(deps, c)
 }
 
 // getCmd groups the commands that read resources.
 type getCmd struct {
 	Tasks getTasksCmd `cmd:"" help:"List the tasks in the inferred repo."`
 	Task  getTaskCmd  `cmd:"" help:"Print one task as YAML."`
+	Tests getTestsCmd `cmd:"" help:"List a task's tests as YAML."`
+	Test  getTestCmd  `cmd:"" help:"Print one test as YAML."`
+	Data  getDataCmd  `cmd:"" help:"List a test's data refs or print one datum as JSON."`
 }
 
 // getTasksCmd lists the tasks in the inferred repo.
@@ -43,9 +63,55 @@ func (c getTaskCmd) Run(deps deps) error {
 	return getTask(deps, c.Stub)
 }
 
+// getTestsCmd lists a task's tests.
+type getTestsCmd struct {
+	Task string `arg:"" help:"Task stub."`
+}
+
+// Run lists the task's tests.
+func (c getTestsCmd) Run(deps deps) error {
+	return getTests(deps, c.Task)
+}
+
+// getTestCmd prints one test as YAML.
+type getTestCmd struct {
+	Path string `arg:"" help:"Task and test stub as <task>/<stub>."`
+}
+
+// Run prints the test as YAML.
+func (c getTestCmd) Run(deps deps) error {
+	return getTest(deps, c.Path)
+}
+
+// getDataCmd lists a test's data or prints one datum as JSON.
+type getDataCmd struct {
+	Path string `arg:"" help:"Task, test, and optional ref as <task>/<test>[/<ref>]."`
+}
+
+// Run lists the test's data refs or prints one datum as JSON.
+func (c getDataCmd) Run(deps deps) error {
+	return getData(deps, c.Path)
+}
+
 // setCmd groups the commands that create or update resources.
 type setCmd struct {
 	Task setTaskCmd `cmd:"" help:"Create or update a task in the inferred repo."`
+	Test setTestCmd `cmd:"" help:"Create or update a test in the inferred repo."`
+}
+
+// setTestCmd creates, updates, or renames a test under a task in the inferred
+// repo.
+type setTestCmd struct {
+	Path        string `arg:"" help:"Task and test stub as <task>/<stub>."`
+	Name        string `help:"Test name." optional:""`
+	Description string `help:"Test description." optional:""`
+	Version     string `help:"Test version." optional:""`
+	Move        string `help:"Rename the test to this stub." optional:""`
+}
+
+// Run creates or updates the test in the inferred repo.
+func (c setTestCmd) Run(deps deps) error {
+	return setTest(deps, c)
 }
 
 // setTaskCmd creates, updates, or renames a task in the inferred repo.

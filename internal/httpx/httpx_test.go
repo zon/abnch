@@ -7,6 +7,25 @@ import (
 	"testing"
 )
 
+// TestWriteRawJSON checks a service response carries the status, content type,
+// and the JSON bytes unchanged, so a stored value round trips as given.
+func TestWriteRawJSON(t *testing.T) {
+	rec := httptest.NewRecorder()
+	body := []byte(`{ "prompt":  "hi" }`)
+
+	WriteRawJSON(rec, http.StatusOK, body)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+	if got := rec.Body.String(); got != string(body) {
+		t.Errorf("body = %q, want the bytes unchanged %q", got, body)
+	}
+}
+
 // TestWriteError checks a service error response carries the status and the
 // JSON error body the API conventions define.
 func TestWriteError(t *testing.T) {

@@ -32,10 +32,34 @@ type Store interface {
 	// when it is missing, store.ErrConflict when the new stub is taken, and
 	// store.ErrInvalidStub when the new stub is not URL-safe.
 	MoveTask(org, repo, stub, newStub string) (store.Task, error)
+	// GetTest returns the test with the given repo, task stub, and test stub, or
+	// store.ErrNotFound.
+	GetTest(org, repo, task, stub string) (store.Test, error)
+	// ListTests returns a task's tests, ordered by stub.
+	ListTests(org, repo, task string) ([]store.Test, error)
+	// MoveTest renames the test with the given stubs, returning
+	// store.ErrNotFound when it is missing, store.ErrConflict when the new
+	// stub is taken, and store.ErrInvalidStub when the new stub is not
+	// URL-safe.
+	MoveTest(org, repo, task, stub, newStub string) (store.Test, error)
+	// ListData returns a test's data, ordered by ref.
+	ListData(org, repo, task, test string) ([]store.Datum, error)
+	// GetDatum returns the datum with the given ref in a test, or
+	// store.ErrNotFound.
+	GetDatum(org, repo, task, test, ref string) (store.Datum, error)
+	// SaveDatum stores the JSON a test passes to an agent and returns the
+	// datum's ref. The ref is derived from the JSON, so saving the same JSON
+	// again returns the same ref and leaves one datum.
+	SaveDatum(org, repo, task, test string, body []byte) (string, error)
 	// SaveRepo creates or replaces the repo with the given stubs.
 	SaveRepo(r store.Repo) error
 	// SaveTask creates or replaces the task with the given repo and stub.
 	SaveTask(t store.Task) error
+	// SaveTest creates or replaces the test with the given repo, task stub, and
+	// test stub. It reports store.ErrInvalidTest when the test misses a required
+	// field and store.ErrInvalidSchema when its score schema breaks its
+	// contract.
+	SaveTest(t store.Test) error
 	// Close closes the store.
 	Close() error
 }
@@ -142,6 +166,13 @@ func api(st Store) http.Handler {
 	mux.HandleFunc("GET /repos/{org}/{repo}/tasks/{stub}", getTask(st))
 	mux.HandleFunc("PUT /repos/{org}/{repo}/tasks/{stub}", putTask(st))
 	mux.HandleFunc("POST /repos/{org}/{repo}/tasks/{stub}/move", moveTask(st))
+	mux.HandleFunc("GET /repos/{org}/{repo}/tasks/{task}/tests", listTests(st))
+	mux.HandleFunc("GET /repos/{org}/{repo}/tasks/{task}/tests/{stub}", getTest(st))
+	mux.HandleFunc("PUT /repos/{org}/{repo}/tasks/{task}/tests/{stub}", putTest(st))
+	mux.HandleFunc("POST /repos/{org}/{repo}/tasks/{task}/tests/{stub}/move", moveTest(st))
+	mux.HandleFunc("GET /repos/{org}/{repo}/tasks/{task}/tests/{test}/data", listData(st))
+	mux.HandleFunc("POST /repos/{org}/{repo}/tasks/{task}/tests/{test}/data", addData(st))
+	mux.HandleFunc("GET /repos/{org}/{repo}/tasks/{task}/tests/{test}/data/{ref}", getData(st))
 	mux.HandleFunc("/", notFound)
 	return mux
 }

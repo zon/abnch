@@ -1,14 +1,17 @@
 package store
 
 import (
+	"encoding/json"
 	"errors"
+	"reflect"
+	"sort"
 	"testing"
 )
 
 func TestMigrateCreatesTables(t *testing.T) {
 	s := newTestStore(t)
 
-	for _, model := range []any{&Repo{}, &Task{}} {
+	for _, model := range []any{&Repo{}, &Task{}, &Test{}, &Datum{}} {
 		if !s.db.Migrator().HasTable(model) {
 			t.Errorf("Migrate did not create the table for %T", model)
 		}
@@ -368,5 +371,598 @@ func TestMoveTaskRejectsInvalidStub(t *testing.T) {
 				t.Errorf("task = %#v, want the unchanged task %#v", got, want)
 			}
 		})
+	}
+}
+
+// TestSaveAndGetTest checks a test round trips through the store with its name,
+// description, version, and schema.
+func TestSaveAndGetTest(t *testing.T) {
+	s := newTestStore(t)
+	want := Test{
+		Org:         "acme",
+		Repo:        "widgets",
+		Task:        "fix-bug",
+		Stub:        "basic",
+		Name:        "Basic",
+		Description: "A basic test",
+		Version:     "1",
+		Schema:      []SchemaKey{{Stub: "correctness", Name: "Correctness"}, {Stub: "style", Name: "Style"}},
+	}
+
+	if err := s.SaveTest(want); err != nil {
+		t.Fatalf("SaveTest: %v", err)
+	}
+
+	got, err := s.GetTest("acme", "widgets", "fix-bug", "basic")
+	if err != nil {
+		t.Fatalf("GetTest: %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("GetTest = %#v, want %#v", got, want)
+	}
+}
+
+// TestSaveTestUpdatesExistingTest checks a second write to the same repo, task,
+// and stub replaces the test instead of creating another one.
+func TestSaveTestUpdatesExistingTest(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.SaveTest(Test{Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic", Name: "Basic", Version: "1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveTest(Test{Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic", Name: "Basic", Description: "new", Version: "2"}); err != nil {
+		t.Fatal(err)
+	}
+
+	tests, err := s.ListTests("acme", "widgets", "fix-bug")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tests) != 1 {
+		t.Fatalf("ListTests returned %d tests, want 1", len(tests))
+	}
+	if tests[0].Version != "2" {
+		t.Errorf("Version = %q, want the updated version", tests[0].Version)
+	}
+}
+
+// TestSaveTestRejectsInvalidStub checks a test whose stub is empty or not
+// URL-safe is not stored.
+func TestSaveTestRejectsInvalidStub(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		stub string
+	}{
+		{"empty stub", ""},
+		{"separator in stub", "a/b"},
+		{"space in stub", "a b"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTestStore(t)
+
+			test := Test{Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: tc.stub, Name: "Basic", Version: "1"}
+			if err := s.SaveTest(test); !errors.Is(err, ErrInvalidStub) {
+				t.Errorf("SaveTest error = %v, want ErrInvalidStub", err)
+			}
+			tests, err := s.ListTests("acme", "widgets", "fix-bug")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(tests) != 0 {
+				t.Errorf("ListTests returned %d tests, want none", len(tests))
+			}
+		})
+	}
+}
+
+// TestSaveTestRejectsMissingRequiredFields checks a test without a name or a
+// version is refused and stored nowhere.
+func TestSaveTestRejectsMissingRequiredFields(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		test Test
+	}{
+		{"empty name", Test{Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic", Version: "1"}},
+		{"empty version", Test{Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic", Name: "Basic"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTestStore(t)
+
+			if err := s.SaveTest(tc.test); !errors.Is(err, ErrInvalidTest) {
+				t.Errorf("SaveTest error = %v, want ErrInvalidTest", err)
+			}
+			tests, err := s.ListTests("acme", "widgets", "fix-bug")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(tests) != 0 {
+				t.Errorf("ListTests returned %d tests, want none", len(tests))
+			}
+		})
+	}
+}
+
+// TestSaveTestRejectsDuplicateSchemaStub checks a test whose score schema gives
+// two keys the same stub is refused and stored nowhere.
+func TestSaveTestRejectsDuplicateSchemaStub(t *testing.T) {
+	s := newTestStore(t)
+
+	test := Test{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic",
+		Name: "Basic", Version: "1",
+		Schema: []SchemaKey{{Stub: "style", Name: "Style"}, {Stub: "style", Name: "Other"}},
+	}
+	if err := s.SaveTest(test); !errors.Is(err, ErrInvalidSchema) {
+		t.Errorf("SaveTest error = %v, want ErrInvalidSchema", err)
+	}
+	tests, err := s.ListTests("acme", "widgets", "fix-bug")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tests) != 0 {
+		t.Errorf("ListTests returned %d tests, want none", len(tests))
+	}
+}
+
+// TestSaveTestAllowsEmptySchema checks a test with no schema keys is allowed and
+// round trips with an empty schema.
+func TestSaveTestAllowsEmptySchema(t *testing.T) {
+	s := newTestStore(t)
+	want := Test{
+		Org:         "acme",
+		Repo:        "widgets",
+		Task:        "fix-bug",
+		Stub:        "basic",
+		Name:        "Basic",
+		Description: "A basic test",
+		Version:     "1",
+	}
+
+	if err := s.SaveTest(want); err != nil {
+		t.Fatalf("SaveTest: %v", err)
+	}
+
+	got, err := s.GetTest("acme", "widgets", "fix-bug", "basic")
+	if err != nil {
+		t.Fatalf("GetTest: %v", err)
+	}
+	if len(got.Schema) != 0 {
+		t.Errorf("Schema = %#v, want an empty schema", got.Schema)
+	}
+	if got.Name != want.Name || got.Description != want.Description || got.Version != want.Version {
+		t.Errorf("GetTest = %#v, want %#v", got, want)
+	}
+}
+
+// TestTestValidate checks a test needs a non-empty name and version, may carry
+// an empty schema, and rejects a schema whose key stubs are not unique.
+func TestTestValidate(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		test Test
+		want error
+	}{
+		{"valid", Test{Name: "Basic", Version: "1"}, nil},
+		{"valid with schema", Test{Name: "Basic", Version: "1", Schema: []SchemaKey{{Stub: "style", Name: "Style"}}}, nil},
+		{"empty name", Test{Version: "1"}, ErrInvalidTest},
+		{"empty version", Test{Name: "Basic"}, ErrInvalidTest},
+		{"duplicate schema stub", Test{Name: "Basic", Version: "1", Schema: []SchemaKey{{Stub: "style", Name: "Style"}, {Stub: "style", Name: "Other"}}}, ErrInvalidSchema},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.test.Validate(); !errors.Is(err, tc.want) {
+				t.Errorf("Validate error = %v, want %v", err, tc.want)
+			}
+		})
+	}
+}
+
+// TestSaveTestIdentityIncludesTask checks the same test stub in two tasks is two
+// tests, not one, because a test's identity includes its task stub.
+func TestSaveTestIdentityIncludesTask(t *testing.T) {
+	s := newTestStore(t)
+	for _, task := range []string{"fix-bug", "other"} {
+		if err := s.SaveTest(Test{Org: "acme", Repo: "widgets", Task: task, Stub: "basic", Name: "Basic", Version: "1"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, task := range []string{"fix-bug", "other"} {
+		tests, err := s.ListTests("acme", "widgets", task)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(tests) != 1 {
+			t.Fatalf("ListTests(%q) returned %d tests, want 1", task, len(tests))
+		}
+		if tests[0].Task != task {
+			t.Errorf("test task = %q, want %q", tests[0].Task, task)
+		}
+	}
+}
+
+func TestListTests(t *testing.T) {
+	s := newTestStore(t)
+	for _, test := range []Test{
+		{Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "two", Name: "Two", Version: "1"},
+		{Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "one", Name: "One", Version: "1"},
+		{Org: "acme", Repo: "widgets", Task: "other", Stub: "other", Name: "Other", Version: "1"},
+	} {
+		if err := s.SaveTest(test); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	tests, err := s.ListTests("acme", "widgets", "fix-bug")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tests) != 2 {
+		t.Fatalf("ListTests returned %d tests, want 2", len(tests))
+	}
+	if tests[0].Stub != "one" || tests[1].Stub != "two" {
+		t.Errorf("ListTests stubs = %q, want [one two]", []string{tests[0].Stub, tests[1].Stub})
+	}
+}
+
+func TestGetTestMissing(t *testing.T) {
+	s := newTestStore(t)
+
+	if _, err := s.GetTest("acme", "widgets", "fix-bug", "basic"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("GetTest error = %v, want ErrNotFound", err)
+	}
+}
+
+// TestMoveTestRenamesTest checks MoveTest renames a test, keeps its fields and
+// schema, leaves one test, and makes the old stub miss.
+func TestMoveTestRenamesTest(t *testing.T) {
+	s := newTestStore(t)
+	stored := Test{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic",
+		Name: "Basic", Description: "A basic test", Version: "1",
+		Schema: []SchemaKey{{Stub: "correctness", Name: "Correctness"}},
+	}
+	if err := s.SaveTest(stored); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.MoveTest("acme", "widgets", "fix-bug", "basic", "smoke")
+	if err != nil {
+		t.Fatalf("MoveTest: %v", err)
+	}
+	want := stored
+	want.Stub = "smoke"
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("MoveTest = %#v, want %#v", got, want)
+	}
+	if _, err := s.GetTest("acme", "widgets", "fix-bug", "basic"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("GetTest(old) error = %v, want ErrNotFound", err)
+	}
+	tests, err := s.ListTests("acme", "widgets", "fix-bug")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tests) != 1 || !reflect.DeepEqual(tests[0], want) {
+		t.Errorf("ListTests = %#v, want one renamed test", tests)
+	}
+}
+
+// TestMoveTestMissing checks MoveTest reports a test that does not exist.
+func TestMoveTestMissing(t *testing.T) {
+	s := newTestStore(t)
+
+	if _, err := s.MoveTest("acme", "widgets", "fix-bug", "basic", "smoke"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("MoveTest error = %v, want ErrNotFound", err)
+	}
+}
+
+// TestMoveTestConflict checks MoveTest refuses to overwrite a test with the new
+// stub and leaves both tests unchanged.
+func TestMoveTestConflict(t *testing.T) {
+	s := newTestStore(t)
+	for _, test := range []Test{
+		{Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic", Name: "Basic", Version: "1"},
+		{Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "smoke", Name: "Smoke", Version: "1"},
+	} {
+		if err := s.SaveTest(test); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, err := s.MoveTest("acme", "widgets", "fix-bug", "basic", "smoke"); !errors.Is(err, ErrConflict) {
+		t.Errorf("MoveTest error = %v, want ErrConflict", err)
+	}
+	tests, err := s.ListTests("acme", "widgets", "fix-bug")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tests) != 2 {
+		t.Fatalf("ListTests returned %d tests, want the two unchanged tests", len(tests))
+	}
+	if tests[0].Stub != "basic" || tests[1].Stub != "smoke" {
+		t.Errorf("ListTests stubs = %q, want [basic smoke]", []string{tests[0].Stub, tests[1].Stub})
+	}
+}
+
+// TestMoveTestLeavesOtherTasks checks MoveTest renames only its own task's test
+// and leaves the same stub in another task alone.
+func TestMoveTestLeavesOtherTasks(t *testing.T) {
+	s := newTestStore(t)
+	for _, test := range []Test{
+		{Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic", Name: "Basic", Version: "1"},
+		{Org: "acme", Repo: "widgets", Task: "other", Stub: "smoke", Name: "Smoke", Version: "1"},
+	} {
+		if err := s.SaveTest(test); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, err := s.MoveTest("acme", "widgets", "fix-bug", "basic", "smoke"); err != nil {
+		t.Fatalf("MoveTest: %v", err)
+	}
+
+	other, err := s.GetTest("acme", "widgets", "other", "smoke")
+	if err != nil {
+		t.Fatalf("GetTest(other): %v", err)
+	}
+	if other.Name != "Smoke" {
+		t.Errorf("other test = %#v, want it unchanged", other)
+	}
+}
+
+// TestMoveTestRejectsInvalidStub checks a move to a stub that is empty or not
+// URL-safe is refused and leaves the test unchanged.
+func TestMoveTestRejectsInvalidStub(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		stub string
+	}{
+		{"empty stub", ""},
+		{"separator in stub", "a/b"},
+		{"space in stub", "a b"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTestStore(t)
+			want := Test{Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic", Name: "Basic", Version: "1"}
+			if err := s.SaveTest(want); err != nil {
+				t.Fatal(err)
+			}
+
+			if _, err := s.MoveTest("acme", "widgets", "fix-bug", "basic", tc.stub); !errors.Is(err, ErrInvalidStub) {
+				t.Errorf("MoveTest error = %v, want ErrInvalidStub", err)
+			}
+			got, err := s.GetTest("acme", "widgets", "fix-bug", "basic")
+			if err != nil {
+				t.Fatalf("GetTest: %v", err)
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("test = %#v, want the unchanged test %#v", got, want)
+			}
+		})
+	}
+}
+
+// TestSaveAndGetDatum checks a datum's JSON round trips through the store
+// unchanged under its ref.
+func TestSaveAndGetDatum(t *testing.T) {
+	s := newTestStore(t)
+	body := []byte(`{"prompt":  "hi"}`)
+
+	ref, err := s.SaveDatum("acme", "widgets", "fix-bug", "basic", body)
+	if err != nil {
+		t.Fatalf("SaveDatum: %v", err)
+	}
+	if ref == "" {
+		t.Fatal("SaveDatum returned an empty ref")
+	}
+
+	got, err := s.GetDatum("acme", "widgets", "fix-bug", "basic", ref)
+	if err != nil {
+		t.Fatalf("GetDatum: %v", err)
+	}
+	want := Datum{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Ref: ref, JSON: string(body)}
+	if got != want {
+		t.Errorf("GetDatum = %#v, want %#v", got, want)
+	}
+}
+
+// TestSaveAndGetDatumFileReference checks a datum whose JSON holds a file
+// reference round trips unchanged. The store keeps the URL and checksum as the
+// client gave them and fetches nothing.
+func TestSaveAndGetDatumFileReference(t *testing.T) {
+	s := newTestStore(t)
+	body := []byte(`{"input": {"url": "https://example.com/input.txt", "checksum": "sha256:abc123"}}`)
+
+	ref, err := s.SaveDatum("acme", "widgets", "fix-bug", "basic", body)
+	if err != nil {
+		t.Fatalf("SaveDatum: %v", err)
+	}
+
+	got, err := s.GetDatum("acme", "widgets", "fix-bug", "basic", ref)
+	if err != nil {
+		t.Fatalf("GetDatum: %v", err)
+	}
+	if got.JSON != string(body) {
+		t.Fatalf("GetDatum JSON = %q, want the unchanged JSON %q", got.JSON, body)
+	}
+
+	var parsed struct {
+		Input struct {
+			URL      string `json:"url"`
+			Checksum string `json:"checksum"`
+		} `json:"input"`
+	}
+	if err := json.Unmarshal([]byte(got.JSON), &parsed); err != nil {
+		t.Fatalf("unmarshal datum JSON: %v", err)
+	}
+	if parsed.Input.URL != "https://example.com/input.txt" || parsed.Input.Checksum != "sha256:abc123" {
+		t.Errorf("file reference = %#v, want its URL and checksum unchanged", parsed.Input)
+	}
+}
+
+// TestSaveDatumSameJSONSameRef checks saving the same JSON in a test again
+// returns the same ref and leaves one datum.
+func TestSaveDatumSameJSONSameRef(t *testing.T) {
+	s := newTestStore(t)
+	body := []byte(`{"prompt":"hi"}`)
+
+	first, err := s.SaveDatum("acme", "widgets", "fix-bug", "basic", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.SaveDatum("acme", "widgets", "fix-bug", "basic", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second != first {
+		t.Errorf("second ref = %q, want the first ref %q", second, first)
+	}
+
+	data, err := s.ListData("acme", "widgets", "fix-bug", "basic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) != 1 {
+		t.Errorf("ListData returned %d data, want 1", len(data))
+	}
+}
+
+// TestSaveDatumDifferentJSONDifferentRef checks different JSON in a test gets a
+// different ref and adds a second datum.
+func TestSaveDatumDifferentJSONDifferentRef(t *testing.T) {
+	s := newTestStore(t)
+
+	first, err := s.SaveDatum("acme", "widgets", "fix-bug", "basic", []byte(`{"prompt":"hi"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.SaveDatum("acme", "widgets", "fix-bug", "basic", []byte(`{"prompt":"bye"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second == first {
+		t.Errorf("second ref = %q, want a different ref", second)
+	}
+
+	data, err := s.ListData("acme", "widgets", "fix-bug", "basic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) != 2 {
+		t.Errorf("ListData returned %d data, want 2", len(data))
+	}
+}
+
+// TestSaveDatumIdentityIncludesTest checks the same JSON in two tests is two
+// data, not one, because a datum's identity includes its test.
+func TestSaveDatumIdentityIncludesTest(t *testing.T) {
+	s := newTestStore(t)
+	body := []byte(`{"prompt":"hi"}`)
+	for _, test := range []string{"basic", "other"} {
+		if _, err := s.SaveDatum("acme", "widgets", "fix-bug", test, body); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, test := range []string{"basic", "other"} {
+		data, err := s.ListData("acme", "widgets", "fix-bug", test)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(data) != 1 {
+			t.Fatalf("ListData(%q) returned %d data, want 1", test, len(data))
+		}
+		if data[0].Test != test {
+			t.Errorf("datum test = %q, want %q", data[0].Test, test)
+		}
+	}
+}
+
+// TestSaveDatumIdentityIncludesRepoAndTask checks the same JSON under different
+// repos and tasks is a different datum under the same ref, because a datum's
+// identity includes its repo and task stub, and that SaveDatum returns the ref
+// derived from the JSON.
+func TestSaveDatumIdentityIncludesRepoAndTask(t *testing.T) {
+	s := newTestStore(t)
+	body := []byte(`{"prompt":"hi"}`)
+	coords := []struct{ repo, task string }{
+		{"widgets", "fix-bug"},
+		{"gadgets", "fix-bug"},
+		{"widgets", "ship-it"},
+	}
+
+	for _, c := range coords {
+		ref, err := s.SaveDatum("acme", c.repo, c.task, "basic", body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ref != DatumRef(body) {
+			t.Errorf("SaveDatum(%s/%s) ref = %q, want %q", c.repo, c.task, ref, DatumRef(body))
+		}
+	}
+
+	for _, c := range coords {
+		data, err := s.ListData("acme", c.repo, c.task, "basic")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(data) != 1 {
+			t.Fatalf("ListData(%s/%s) returned %d data, want 1", c.repo, c.task, len(data))
+		}
+	}
+}
+
+// TestListData checks ListData returns only a test's data, ordered by ref.
+func TestListData(t *testing.T) {
+	s := newTestStore(t)
+	want := map[string]string{}
+	for _, body := range []string{`{"n":1}`, `{"n":2}`} {
+		ref, err := s.SaveDatum("acme", "widgets", "fix-bug", "basic", []byte(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		want[ref] = body
+	}
+	if _, err := s.SaveDatum("acme", "widgets", "fix-bug", "other", []byte(`{"n":3}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := s.ListData("acme", "widgets", "fix-bug", "basic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) != len(want) {
+		t.Fatalf("ListData returned %d data, want %d", len(data), len(want))
+	}
+	refs := make([]string, len(data))
+	for i, d := range data {
+		if want[d.Ref] != d.JSON {
+			t.Errorf("datum %q JSON = %q, want %q", d.Ref, d.JSON, want[d.Ref])
+		}
+		refs[i] = d.Ref
+	}
+	if !sort.StringsAreSorted(refs) {
+		t.Errorf("ListData refs = %q, want them ordered", refs)
+	}
+}
+
+func TestGetDatumMissing(t *testing.T) {
+	s := newTestStore(t)
+
+	if _, err := s.GetDatum("acme", "widgets", "fix-bug", "basic", "missing"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("GetDatum error = %v, want ErrNotFound", err)
+	}
+}
+
+// TestDatumRef checks a ref is short and URL-safe, and that it is the same for
+// the same JSON and different for different JSON.
+func TestDatumRef(t *testing.T) {
+	first := DatumRef([]byte(`{"prompt":"hi"}`))
+	if first != DatumRef([]byte(`{"prompt":"hi"}`)) {
+		t.Errorf("DatumRef returned different refs for the same JSON")
+	}
+	if first == DatumRef([]byte(`{"prompt":"bye"}`)) {
+		t.Errorf("DatumRef returned the same ref for different JSON")
+	}
+	if first == "" || !ValidStub(first) {
+		t.Errorf("DatumRef(%q) = %q, want a non-empty URL-safe ref", `{"prompt":"hi"}`, first)
 	}
 }
