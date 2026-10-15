@@ -105,3 +105,23 @@ func (r Result) Validate() error {
 	}
 	return nil
 }
+
+// Score is the key-number dictionary a grader produced for a result, with the
+// logs and run metrics that came with it. It is identified by its repo, task
+// stub, test stub, result ref, and ref, so two scores with the same identity
+// are the same score. Dictionary holds a number per key of the result's test
+// score schema.
+type Score struct {
+	Org          string             `gorm:"primaryKey"`
+	Repo         string             `gorm:"primaryKey"`
+	Task         string             `gorm:"primaryKey"`
+	Test         string             `gorm:"primaryKey"`
+	Result       string             `gorm:"primaryKey"`
+	Ref          string             `gorm:"primaryKey"`
+	Dictionary   map[string]float64 `gorm:"serializer:json;type:jsonb"`
+	Logs         string
+	InputTokens  int
+	OutputTokens int
+	TokenCost    float64
+	Duration     float64
+}
