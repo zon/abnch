@@ -67,17 +67,27 @@ func getTest(st Store) http.HandlerFunc {
 			return
 		}
 
-		t, err := st.GetTest(org, repo, task, r.PathValue("stub"))
-		if errors.Is(err, store.ErrNotFound) {
-			httpx.WriteError(w, http.StatusNotFound, "test not found")
-			return
-		}
-		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "failed to get test")
+		t, ok := requireTest(w, st, org, repo, task, r.PathValue("stub"))
+		if !ok {
 			return
 		}
 		httpx.WriteJSON(w, http.StatusOK, testJSON(t))
 	}
+}
+
+// requireTest returns the test the route identifies under the task, writing the
+// service error response and reporting false when it does not exist.
+func requireTest(w http.ResponseWriter, st Store, org, repo, task, stub string) (store.Test, bool) {
+	t, err := st.GetTest(org, repo, task, stub)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			httpx.WriteError(w, http.StatusNotFound, "test not found")
+		} else {
+			httpx.WriteError(w, http.StatusInternalServerError, "failed to get test")
+		}
+		return store.Test{}, false
+	}
+	return t, true
 }
 
 // putTest creates or updates the test the route identifies and writes it as
