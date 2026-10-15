@@ -161,10 +161,11 @@ func (c getDataCmd) Run(deps deps) error {
 
 // setCmd groups the commands that create or update resources.
 type setCmd struct {
-	Task  setTaskCmd  `cmd:"" help:"Create or update a task in the inferred repo."`
-	Test  setTestCmd  `cmd:"" help:"Create or update a test in the inferred repo."`
-	Model setModelCmd `cmd:"" help:"Create or update a model in the CLI config."`
-	Agent setAgentCmd `cmd:"" help:"Create or update a task's agent in the CLI config."`
+	Task   setTaskCmd   `cmd:"" help:"Create or update a task in the inferred repo."`
+	Test   setTestCmd   `cmd:"" help:"Create or update a test in the inferred repo."`
+	Model  setModelCmd  `cmd:"" help:"Create or update a model in the CLI config."`
+	Agent  setAgentCmd  `cmd:"" help:"Create or update a task's agent in the CLI config."`
+	Grader setGraderCmd `cmd:"" help:"Create or update a task's grader in the CLI config."`
 }
 
 // setAgentCmd creates or updates a task's agent in the CLI config.
@@ -178,6 +179,19 @@ type setAgentCmd struct {
 // Run creates or updates the task's agent in the CLI config.
 func (c setAgentCmd) Run(deps deps) error {
 	return setAgent(deps, c)
+}
+
+// setGraderCmd creates or updates a task's grader in the CLI config.
+type setGraderCmd struct {
+	Stub       string `arg:"" help:"Task stub."`
+	VersionCmd string `help:"Grader version command." optional:""`
+	BuildCmd   string `help:"Grader build command." optional:""`
+	RunCmd     string `help:"Grader run command." optional:""`
+}
+
+// Run creates or updates the task's grader in the CLI config.
+func (c setGraderCmd) Run(deps deps) error {
+	return setGrader(deps, c)
 }
 
 // setModelCmd creates or updates a model in the CLI config.
