@@ -29,7 +29,7 @@ func New(db *gorm.DB) *Store {
 
 // Migrate creates the tables the store needs.
 func (s *Store) Migrate() error {
-	return s.db.AutoMigrate(&Repo{}, &Task{})
+	return s.db.AutoMigrate(&Repo{}, &Task{}, &Test{})
 }
 
 // Close closes the store's database connection.
@@ -95,6 +95,31 @@ func (s *Store) ListTasks(org, repo string) ([]Task, error) {
 		return nil, err
 	}
 	return tasks, nil
+}
+
+// SaveTest writes a test, creating it or replacing the stored test with the
+// same repo, task stub, and test stub.
+func (s *Store) SaveTest(t Test) error {
+	return s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&t).Error
+}
+
+// GetTest returns the test with the given repo, task stub, and test stub, or
+// ErrNotFound.
+func (s *Store) GetTest(org, repo, task, stub string) (Test, error) {
+	var t Test
+	if err := s.db.First(&t, "org = ? AND repo = ? AND task = ? AND stub = ?", org, repo, task, stub).Error; err != nil {
+		return Test{}, notFound(err)
+	}
+	return t, nil
+}
+
+// ListTests returns a task's tests, ordered by stub.
+func (s *Store) ListTests(org, repo, task string) ([]Test, error) {
+	var tests []Test
+	if err := s.db.Where("org = ? AND repo = ? AND task = ?", org, repo, task).Order("stub").Find(&tests).Error; err != nil {
+		return nil, err
+	}
+	return tests, nil
 }
 
 // MoveTask renames the task with the given stub to newStub and returns the

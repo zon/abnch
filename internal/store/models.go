@@ -17,3 +17,24 @@ type Task struct {
 	Name        string
 	Description string
 }
+
+// Test is a group of data and a score schema within a task. It is identified by
+// its repo, task stub, and test stub, so two tests with the same stubs are the
+// same test.
+type Test struct {
+	Org         string `gorm:"primaryKey"`
+	Repo        string `gorm:"primaryKey"`
+	Task        string `gorm:"primaryKey"`
+	Stub        string `gorm:"primaryKey"`
+	Name        string
+	Description string
+	Version     string
+	Schema      []SchemaKey `gorm:"serializer:json;type:jsonb"`
+}
+
+// SchemaKey is one key of a test's score schema. Its stub is the key stored in
+// scores and its name is what the UI displays.
+type SchemaKey struct {
+	Stub string `json:"stub"`
+	Name string `json:"name"`
+}

@@ -2,13 +2,14 @@ package store
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 )
 
 func TestMigrateCreatesTables(t *testing.T) {
 	s := newTestStore(t)
 
-	for _, model := range []any{&Repo{}, &Task{}} {
+	for _, model := range []any{&Repo{}, &Task{}, &Test{}} {
 		if !s.db.Migrator().HasTable(model) {
 			t.Errorf("Migrate did not create the table for %T", model)
 		}
@@ -368,5 +369,88 @@ func TestMoveTaskRejectsInvalidStub(t *testing.T) {
 				t.Errorf("task = %#v, want the unchanged task %#v", got, want)
 			}
 		})
+	}
+}
+
+// TestSaveAndGetTest checks a test round trips through the store with its name,
+// description, version, and schema.
+func TestSaveAndGetTest(t *testing.T) {
+	s := newTestStore(t)
+	want := Test{
+		Org:         "acme",
+		Repo:        "widgets",
+		Task:        "fix-bug",
+		Stub:        "basic",
+		Name:        "Basic",
+		Description: "A basic test",
+		Version:     "1",
+		Schema:      []SchemaKey{{Stub: "correctness", Name: "Correctness"}, {Stub: "style", Name: "Style"}},
+	}
+
+	if err := s.SaveTest(want); err != nil {
+		t.Fatalf("SaveTest: %v", err)
+	}
+
+	got, err := s.GetTest("acme", "widgets", "fix-bug", "basic")
+	if err != nil {
+		t.Fatalf("GetTest: %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("GetTest = %#v, want %#v", got, want)
+	}
+}
+
+// TestSaveTestUpdatesExistingTest checks a second write to the same repo, task,
+// and stub replaces the test instead of creating another one.
+func TestSaveTestUpdatesExistingTest(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.SaveTest(Test{Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic", Name: "Basic", Version: "1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveTest(Test{Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic", Name: "Basic", Description: "new", Version: "2"}); err != nil {
+		t.Fatal(err)
+	}
+
+	tests, err := s.ListTests("acme", "widgets", "fix-bug")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tests) != 1 {
+		t.Fatalf("ListTests returned %d tests, want 1", len(tests))
+	}
+	if tests[0].Version != "2" {
+		t.Errorf("Version = %q, want the updated version", tests[0].Version)
+	}
+}
+
+func TestListTests(t *testing.T) {
+	s := newTestStore(t)
+	for _, test := range []Test{
+		{Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "two", Name: "Two", Version: "1"},
+		{Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "one", Name: "One", Version: "1"},
+		{Org: "acme", Repo: "widgets", Task: "other", Stub: "other", Name: "Other", Version: "1"},
+	} {
+		if err := s.SaveTest(test); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	tests, err := s.ListTests("acme", "widgets", "fix-bug")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tests) != 2 {
+		t.Fatalf("ListTests returned %d tests, want 2", len(tests))
+	}
+	if tests[0].Stub != "one" || tests[1].Stub != "two" {
+		t.Errorf("ListTests stubs = %q, want [one two]", []string{tests[0].Stub, tests[1].Stub})
+	}
+}
+
+func TestGetTestMissing(t *testing.T) {
+	s := newTestStore(t)
+
+	if _, err := s.GetTest("acme", "widgets", "fix-bug", "basic"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("GetTest error = %v, want ErrNotFound", err)
 	}
 }
