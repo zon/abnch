@@ -81,17 +81,24 @@ func TestJustConfigForwardsGivenPort(t *testing.T) {
 }
 
 // TestJustServiceLoadsLocalServiceConfig checks that the service recipe starts
-// abnchd against the local service config at `.abnchd/config.yaml`.
+// abnchd against the local service config at `.abnchd/config.yaml`. The recipe
+// runs Air for live reload, so abnchd and its config path come from the Air
+// config beside the Justfile.
 func TestJustServiceLoadsLocalServiceConfig(t *testing.T) {
 	steps := nonEmptyLines(dryRunService(t))
 	if len(steps) != 1 {
-		t.Fatalf("service recipe runs %d steps, want the one abnchd command:\n%q", len(steps), steps)
+		t.Fatalf("service recipe runs %d steps, want the one Air command:\n%q", len(steps), steps)
 	}
-	if !strings.Contains(steps[0], "./cmd/abnchd") {
-		t.Errorf("service recipe step %q does not drive the abnchd CLI", steps[0])
+	if !strings.Contains(steps[0], "air") {
+		t.Errorf("service recipe step %q does not run Air", steps[0])
 	}
-	if !strings.Contains(steps[0], ".abnchd/config.yaml") {
-		t.Errorf("service recipe step %q does not load .abnchd/config.yaml", steps[0])
+
+	air := readFile(t, filepath.Join(repoRoot(t), ".air.toml"))
+	if !strings.Contains(air, "cmd/abnchd") {
+		t.Errorf(".air.toml does not drive the abnchd CLI:\n%s", air)
+	}
+	if !strings.Contains(air, ".abnchd/config.yaml") {
+		t.Errorf(".air.toml does not load .abnchd/config.yaml:\n%s", air)
 	}
 }
 
