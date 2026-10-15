@@ -27,6 +27,9 @@ var ErrInvalidSchema = errors.New("invalid schema")
 // ErrInvalidResult reports that a result carries a negative run metric.
 var ErrInvalidResult = errors.New("invalid result")
 
+// ErrInvalidScore reports that a score carries a negative run metric.
+var ErrInvalidScore = errors.New("invalid score")
+
 // Store reads and writes the service's domain data in Postgres.
 type Store struct {
 	db *gorm.DB
@@ -210,8 +213,12 @@ func (s *Store) ListResults(org, repo string) ([]Result, error) {
 // SaveScore stores the key-number dictionary a grader produced for a result and
 // returns the score's ref. The ref is derived from the dictionary within its
 // result, so saving the same dictionary for the same result again returns the
-// same ref and leaves one score.
+// same ref and leaves one score. It returns ErrInvalidScore when a run metric
+// is negative.
 func (s *Store) SaveScore(sc Score) (string, error) {
+	if err := sc.Validate(); err != nil {
+		return "", err
+	}
 	sc.Ref = ScoreRef(sc)
 	if err := s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&sc).Error; err != nil {
 		return "", err

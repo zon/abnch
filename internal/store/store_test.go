@@ -1365,6 +1365,62 @@ func TestSaveScoreDefaultsMetricsToZero(t *testing.T) {
 	}
 }
 
+// TestSaveScoreRejectsNegativeMetrics checks a score with a negative token
+// count, cost, or duration is refused and stored nowhere.
+func TestSaveScoreRejectsNegativeMetrics(t *testing.T) {
+	valid := Score{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Result: "56ac1b0e4f0d", Dictionary: map[string]float64{"correctness": 1},
+	}
+	for _, tc := range []struct {
+		name   string
+		change func(Score) Score
+	}{
+		{"negative input tokens", func(s Score) Score { s.InputTokens = -1; return s }},
+		{"negative output tokens", func(s Score) Score { s.OutputTokens = -1; return s }},
+		{"negative token cost", func(s Score) Score { s.TokenCost = -0.01; return s }},
+		{"negative duration", func(s Score) Score { s.Duration = -0.5; return s }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTestStore(t)
+
+			if _, err := s.SaveScore(tc.change(valid)); !errors.Is(err, ErrInvalidScore) {
+				t.Errorf("SaveScore error = %v, want ErrInvalidScore", err)
+			}
+			scores, err := s.ListScores("acme", "widgets")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(scores) != 0 {
+				t.Errorf("ListScores returned %d scores, want none", len(scores))
+			}
+		})
+	}
+}
+
+// TestScoreValidate checks a score may carry zero or positive run metrics and is
+// refused when one is negative.
+func TestScoreValidate(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		score Score
+		want  error
+	}{
+		{"zero metrics", Score{}, nil},
+		{"positive metrics", Score{InputTokens: 12, OutputTokens: 3, TokenCost: 0.01, Duration: 1.5}, nil},
+		{"negative input tokens", Score{InputTokens: -1}, ErrInvalidScore},
+		{"negative output tokens", Score{OutputTokens: -1}, ErrInvalidScore},
+		{"negative token cost", Score{TokenCost: -0.01}, ErrInvalidScore},
+		{"negative duration", Score{Duration: -0.5}, ErrInvalidScore},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.score.Validate(); !errors.Is(err, tc.want) {
+				t.Errorf("Validate error = %v, want %v", err, tc.want)
+			}
+		})
+	}
+}
+
 // TestSaveScoreSameDictionarySameRef checks saving the same dictionary for the
 // same result again returns the same ref and leaves one score.
 func TestSaveScoreSameDictionarySameRef(t *testing.T) {

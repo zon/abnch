@@ -125,3 +125,13 @@ type Score struct {
 	TokenCost    float64
 	Duration     float64
 }
+
+// Validate reports whether the score's run metrics are zero or greater. A score
+// that omits a metric records zero. Its dictionary, logs, and result may be
+// empty.
+func (s Score) Validate() error {
+	if s.InputTokens < 0 || s.OutputTokens < 0 || s.TokenCost < 0 || s.Duration < 0 {
+		return ErrInvalidScore
+	}
+	return nil
+}
