@@ -30,11 +30,23 @@ type OAuth struct {
 	Issuers []Issuer `yaml:"issuers"`
 }
 
+// OIDC is the provider the service signs human users in through.
+type OIDC struct {
+	Issuer       string            `yaml:"issuer"`
+	ClientID     string            `yaml:"clientId"`
+	ClientSecret string            `yaml:"clientSecret"`
+	RedirectURL  string            `yaml:"redirectUrl"`
+	Scopes       []string          `yaml:"scopes"`
+	RoleClaim    string            `yaml:"roleClaim"`
+	RoleMap      map[string]string `yaml:"roleMap"`
+}
+
 // Config is the local service configuration.
 type Config struct {
 	URL      string   `yaml:"url"`
 	Postgres Postgres `yaml:"postgres"`
 	OAuth    OAuth    `yaml:"oauth"`
+	OIDC     OIDC     `yaml:"oidc,omitempty"`
 }
 
 // LocalCLISubject is the dev issuer subject the local CLI authenticates as.
@@ -117,6 +129,26 @@ func UpdateAuth(data []byte, url string) ([]byte, error) {
 		}
 	}
 	issuers.Content = append(issuers.Content, &devNode)
+	return marshalYAML(&doc)
+}
+
+// UpdateCLIConfigURL returns the CLI config with its url set. It edits the
+// existing YAML document, so every other key survives, including keys the CLI
+// config does not model and comments on the kept lines.
+func UpdateCLIConfigURL(data []byte, url string) ([]byte, error) {
+	var doc yaml.Node
+	if len(data) > 0 {
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			return nil, err
+		}
+	}
+
+	root, err := configMapping(&doc)
+	if err != nil {
+		return nil, err
+	}
+
+	setMappingValue(root, "url", scalarNode(url))
 	return marshalYAML(&doc)
 }
 

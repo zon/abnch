@@ -76,6 +76,23 @@ The `--config` option SHALL override the path for both `set local-auth` and `che
 - WHEN `abnchctl set local-auth` writes the dev key
 - THEN it writes the key beside that config file
 
+### Requirement: CLI Config
+
+`abnchctl set local-auth` SHALL write the local service URL to the [CLI config](../../docs/design/app/abnch-config.md) at `.abnch/config.yaml` under the repo root, so the `abnch` CLI reaches the local service without `--url`. The write SHALL preserve the file's other keys.
+
+#### Scenario: Write the CLI config
+
+- GIVEN the user runs `just config`
+- WHEN `abnchctl set local-auth` finishes
+- THEN `.abnch/config.yaml` holds the local service URL
+
+#### Scenario: Keep other CLI config keys
+
+- GIVEN `.abnch/config.yaml` holds models and tasks
+- WHEN `abnchctl set local-auth` finishes
+- THEN the local service URL is updated
+- AND the models and tasks are unchanged
+
 ### Requirement: Check Config
 
 After `abnchctl set local-auth` succeeds, `just config` SHALL run `abnchctl check config` to confirm the Postgres config is present. The check SHALL expect the config to already exist and SHALL NOT create or change it.
@@ -93,6 +110,17 @@ After `abnchctl set local-auth` succeeds, `just config` SHALL run `abnchctl chec
 - WHEN `abnchctl check config` runs
 - THEN it fails
 - AND it reports that the Postgres config is missing
+
+### Requirement: Service Recipe
+
+`just service` SHALL start `abnchd` against the local service config at `.abnchd/config.yaml`.
+
+#### Scenario: Start the service
+
+- GIVEN `just config` wrote the local service config
+- WHEN the user runs `just service`
+- THEN it starts `abnchd` with `.abnchd/config.yaml`
+- AND the service connects to Postgres with the details in the file
 
 ### Requirement: Command Failure
 

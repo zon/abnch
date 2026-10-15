@@ -21,6 +21,15 @@ func TestCheckAcceptsCompleteConfig(t *testing.T) {
 	}
 }
 
+func TestCheckAcceptsOIDCEntry(t *testing.T) {
+	cfg := completeConfig()
+	cfg.OAuth.Issuers = nil
+	cfg.OIDC = OIDC{Issuer: "https://id.example.com", ClientID: "client"}
+	if err := Check(cfg); err != nil {
+		t.Errorf("Check = %v, want nil for a config with an oidc entry", err)
+	}
+}
+
 func TestCheckRejectsMissingAuthEntry(t *testing.T) {
 	cfg := completeConfig()
 	cfg.OAuth.Issuers = nil

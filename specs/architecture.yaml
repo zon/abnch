@@ -1,8 +1,26 @@
 - path: Justfile
   description: Sets up a local service for development.
 
+- path: cmd/abnch
+  description: Provides the abnch CLI.
+
 - path: cmd/abnchctl
   description: Provides the local development CLI.
 
+- path: cmd/abnchd
+  description: Starts the service from a service config file.
+
+- path: internal/auth
+  description: Authenticates and authorizes service callers, signs human users in, and publishes the local dev issuer.
+
 - path: internal/devconfig
-  description: Collects and stores the local service configuration.
+  description: Stores the local service configuration and the CLI credential store.
+
+- path: internal/httpx
+  description: Writes the service API's JSON responses.
+
+- path: internal/store
+  description: Stores repos and tasks in Postgres and creates its tables.
+
+- path: internal/service
+  description: Runs the service from its configuration.

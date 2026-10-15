@@ -26,16 +26,17 @@ func LoadConfig(path string) (Config, error) {
 // Check confirms a local service config is ready: complete Postgres connection
 // details and at least one auth entry.
 func Check(cfg Config) error {
-	if err := checkPostgres(cfg.Postgres); err != nil {
+	if err := CheckPostgres(cfg.Postgres); err != nil {
 		return err
 	}
-	if len(cfg.OAuth.Issuers) == 0 {
+	if len(cfg.OAuth.Issuers) == 0 && cfg.OIDC.Issuer == "" {
 		return fmt.Errorf("no auth entry: the config needs an oidc or oauth entry")
 	}
 	return nil
 }
 
-func checkPostgres(pg Postgres) error {
+// CheckPostgres confirms the Postgres connection details are complete.
+func CheckPostgres(pg Postgres) error {
 	var missing []string
 	if pg.Host == "" {
 		missing = append(missing, "host")

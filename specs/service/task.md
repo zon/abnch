@@ -19,6 +19,24 @@ Two tasks in the same repo with the same stub SHALL be the same task.
 - THEN the update applies to the same task
 - AND no second task is created
 
+### Requirement: Task Repo URL
+
+A task SHALL report its repo's stored URL in the `repo` field. Every task the API returns SHALL carry the URL of the repo that holds it.
+
+#### Scenario: Task carries its repo URL
+
+- GIVEN a repo `acme/widgets` with URL `https://github.com/acme/widgets`
+- AND a task `acme/widgets/fix-bug` exists
+- WHEN an authorized client sends `GET /repos/acme/widgets/tasks/fix-bug`
+- THEN the body's `repo` is `https://github.com/acme/widgets`
+
+#### Scenario: Listed tasks carry their repo URL
+
+- GIVEN a repo `acme/widgets` with URL `https://github.com/acme/widgets`
+- AND a task `acme/widgets/fix-bug` exists
+- WHEN an authorized client sends `GET /repos/acme/widgets/tasks`
+- THEN the listed task's `repo` is `https://github.com/acme/widgets`
+
 ### Requirement: List Tasks
 
 `GET /repos/{org}/{repo}/tasks` SHALL return the repo's tasks as a JSON array.
@@ -38,14 +56,14 @@ Two tasks in the same repo with the same stub SHALL be the same task.
 
 ### Requirement: Get Task
 
-`GET /repos/{org}/{repo}/tasks/{stub}` SHALL return one task as JSON with its stub, name, description, and repo.
+`GET /repos/{org}/{repo}/tasks/{stub}` SHALL return one task as JSON with its stub, name, description, and repo URL.
 
 #### Scenario: Get an existing task
 
 - GIVEN a task `acme/widgets/fix-bug` exists
 - WHEN an authorized client sends `GET /repos/acme/widgets/tasks/fix-bug`
 - THEN the status is `200`
-- AND the body includes the stub, name, description, and repo
+- AND the body includes the stub, name, description, and repo URL
 
 #### Scenario: Get a missing task
 

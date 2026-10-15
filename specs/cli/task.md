@@ -72,11 +72,14 @@ The command SHALL fail when the task is missing or when `<new>` is already taken
 
 `abnch get tasks` SHALL list the tasks in the inferred repo as YAML.
 
+Each task SHALL carry the repo's URL.
+
 #### Scenario: List tasks
 
 - GIVEN repo `acme/widgets` has two tasks
 - WHEN the user runs `abnch get tasks`
 - THEN the output lists both tasks as YAML
+- AND each task carries the repo's URL
 - AND the command exits zero
 
 ### Requirement: Get Task
@@ -88,6 +91,7 @@ The command SHALL fail when the task is missing or when `<new>` is already taken
 - GIVEN task `acme/widgets/fix-bug` exists
 - WHEN the user runs `abnch get task fix-bug`
 - THEN the task is written to stdout as YAML
+- AND the task carries the repo's URL
 - AND the command exits zero
 
 #### Scenario: Get a missing task

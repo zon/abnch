@@ -6,7 +6,7 @@
 
 ## `abnchctl set local-auth`
 
-Generates local `abnchd` and `abnch` auth config.
+Generates local `abnchd` auth config and the `abnch` [CLI config](abnch-config.md) that points at the local service.
 
 * --port - int - local service port. Defaults to `8080`
 

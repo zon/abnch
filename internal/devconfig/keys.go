@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
+	"fmt"
 	"os"
 )
 
@@ -28,4 +29,27 @@ func EnsureDevKey(path string) error {
 	}
 	data := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
 	return os.WriteFile(path, data, 0o600)
+}
+
+// LoadDevKey reads the dev signing key at path, so the service can serve the
+// public half of the issuer it signs.
+func LoadDevKey(path string) (*ecdsa.PrivateKey, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return nil, fmt.Errorf("dev key %s is not a PEM key", path)
+	}
+	parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("dev key %s is not valid: %w", path, err)
+	}
+	key, ok := parsed.(*ecdsa.PrivateKey)
+	if !ok {
+		return nil, fmt.Errorf("dev key %s is not an ECDSA key", path)
+	}
+	return key, nil
 }

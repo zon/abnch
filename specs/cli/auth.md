@@ -27,6 +27,14 @@ On success the command SHALL exit zero. On failure it SHALL exit non-zero, write
 - AND an error is written to stderr
 - AND no session is stored
 
+#### Scenario: Service without OIDC
+
+- GIVEN the service has no OIDC provider
+- WHEN the user runs `abnch login`
+- THEN the command exits non-zero
+- AND an error says OIDC login is unavailable
+- AND no session is stored
+
 ### Requirement: Log Out
 
 `abnch logout` SHALL remove the stored session for the service URL. Removing a session that is not stored SHALL succeed and change nothing.
@@ -134,6 +142,14 @@ A command that reaches a local service with a local credential SHALL NOT require
 - GIVEN `just config` wrote a local credential for the service URL
 - WHEN the user runs a command that reaches the service
 - THEN the CLI presents the local credential
+- AND the command does not require a sign-in
+
+#### Scenario: Configured by `just config`
+
+- GIVEN `just config` wrote `.abnch/config.yaml` and the local credential for the local service
+- WHEN the user runs a command that reaches the service
+- THEN the CLI reads the service URL from `.abnch/config.yaml`
+- AND it presents the local credential
 - AND the command does not require a sign-in
 
 ### Requirement: Local Runtime Token

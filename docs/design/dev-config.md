@@ -14,6 +14,8 @@ The recipe takes an optional port for the local service and defaults to `8080`. 
 
 `just config` writes the local service URL and the [local service runtime auth](#local-service-runtime-auth), then reports the config path.
 
+It also writes the local service URL to the [CLI config](app/abnch-config.md) at `.abnch/config.yaml` under the repo root, so the `abnch` CLI reaches the local service without `--url`.
+
 ## Local Service Runtime Auth
 
 `just config` generates a dev signing key, a dev issuer, and local CLI credentials, so a client can authenticate to a local service runtime.
@@ -28,4 +30,6 @@ The recipe takes an optional port for the local service and defaults to `8080`. 
 
 ## Running the Service
 
-A local run points the service at `.abnchd/config.yaml`. The service then connects to Postgres with the details in the file. See [Service Config Design](app/abnchd-config.md).
+`just service` starts `abnchd` against `.abnchd/config.yaml`. Run `just config` first. The service connects to Postgres with the details in the file. See [Service Config Design](app/abnchd-config.md).
+
+Run the service through [Air](https://github.com/air-verse/air) for live reload. `just service` runs `air`, which builds `cmd/abnchd` into `tmp/` and restarts the binary on a Go source change. The build and its output stay out of git. Install Air with `go install github.com/air-verse/air@latest`.
