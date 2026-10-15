@@ -1395,6 +1395,52 @@ func TestSaveScoreSameDictionarySameRef(t *testing.T) {
 	}
 }
 
+// TestSaveScoreIdentityIgnoresLogsAndMetrics checks the ref comes from the
+// dictionary within its result alone, so the same dictionary for the same
+// result stays one score under one ref whatever logs or run metrics accompany
+// it.
+func TestSaveScoreIdentityIgnoresLogsAndMetrics(t *testing.T) {
+	s := newTestStore(t)
+	sc := Score{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Result:      "56ac1b0e4f0d",
+		Dictionary:  map[string]float64{"correctness": 1},
+		Logs:        "first pass",
+		InputTokens: 12, OutputTokens: 3, TokenCost: 0.01, Duration: 1.5,
+	}
+
+	ref, err := s.SaveScore(sc)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	changed := sc
+	changed.Logs = "second pass"
+	changed.InputTokens = 99
+	changed.OutputTokens = 88
+	changed.TokenCost = 0.5
+	changed.Duration = 9.5
+	if got := ScoreRef(changed); got != ref {
+		t.Errorf("ScoreRef = %q, want the ref %q whatever the logs and metrics", got, ref)
+	}
+
+	again, err := s.SaveScore(changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again != ref {
+		t.Errorf("SaveScore = %q, want the ref %q for the same dictionary and result", again, ref)
+	}
+
+	scores, err := s.ListScores("acme", "widgets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scores) != 1 {
+		t.Errorf("ListScores returned %d scores, want 1", len(scores))
+	}
+}
+
 // TestSaveScoreDifferentDictionaryDifferentRef checks a different dictionary for
 // the same result gets a different ref and adds a second score.
 func TestSaveScoreDifferentDictionaryDifferentRef(t *testing.T) {
