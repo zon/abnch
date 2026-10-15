@@ -446,3 +446,68 @@ func TestScoreModelFlagOverridesTheTaskModel(t *testing.T) {
 		t.Errorf("model = %+v, want the flag's model", input.Model)
 	}
 }
+
+func TestScoreFailsWhenModelFlagIsUnknown(t *testing.T) {
+	workDir := t.TempDir()
+	addRemote(t, workDir, "git@github.com:acme/widgets.git")
+	fake := newFakeService(t)
+	ref := seedScoreResult(t, fake, `{"prompt":"hi"}`, `{"answer":"hi"}`)
+	writeGraderScripts(t, workDir)
+	d, out := runDeps(t, workDir, fake.url, scoreConfig(fake.url))
+
+	err := runScore([]string{ref, "--model", "ghost"}, d)
+	if err == nil {
+		t.Fatal("score = nil, want an error when the model flag names an unknown model")
+	}
+	if !strings.Contains(err.Error(), "ghost") {
+		t.Errorf("error = %q, want it to name the model", err)
+	}
+	if out.Len() != 0 {
+		t.Errorf("output = %q, want nothing for an unknown model", out.String())
+	}
+	if got := countLines(t, filepath.Join(workDir, "build.log")); got != 0 {
+		t.Errorf("build ran %d times, want none for an unknown model", got)
+	}
+	if got := countLines(t, filepath.Join(workDir, "grades.log")); got != 0 {
+		t.Errorf("grader ran %d times, want none for an unknown model", got)
+	}
+	if got := fake.scoreRefs("acme", "widgets"); len(got) != 0 {
+		t.Errorf("recorded %v scores, want none for an unknown model", got)
+	}
+}
+
+func TestScoreReportsUnknownModelOnStderr(t *testing.T) {
+	workDir := t.TempDir()
+	addRemote(t, workDir, "git@github.com:acme/widgets.git")
+	fake := newFakeService(t)
+	ref := seedScoreResult(t, fake, `{"prompt":"hi"}`, `{"answer":"hi"}`)
+	writeGraderScripts(t, workDir)
+	d, _ := runDeps(t, workDir, fake.url, scoreConfig(fake.url))
+
+	code, out, errOut := exitCode(t, []string{"score", ref, "--model", "ghost"}, d)
+	if code == 0 {
+		t.Error("exit = 0, want a non-zero exit for an unknown model")
+	}
+	if out != "" {
+		t.Errorf("stdout = %q, want nothing for an unknown model", out)
+	}
+	if !strings.Contains(errOut, "ghost") {
+		t.Errorf("stderr = %q, want the unknown model named", errOut)
+	}
+}
+
+func TestScoreAcceptsTheLocalFlag(t *testing.T) {
+	workDir := t.TempDir()
+	addRemote(t, workDir, "git@github.com:acme/widgets.git")
+	fake := newFakeService(t)
+	ref := seedScoreResult(t, fake, `{"prompt":"hi"}`, `{"answer":"hi"}`)
+	writeGraderScripts(t, workDir)
+	d, _ := runDeps(t, workDir, fake.url, scoreConfig(fake.url))
+
+	if err := runScore([]string{ref, "--local"}, d); err != nil {
+		t.Fatalf("score = %v, want no error with --local", err)
+	}
+	if got := fake.scoreRefs("acme", "widgets"); len(got) != 1 {
+		t.Errorf("recorded %v scores, want 1 with --local", got)
+	}
+}
