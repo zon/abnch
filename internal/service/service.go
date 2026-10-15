@@ -153,6 +153,7 @@ func api(st Store) http.Handler {
 	mux.HandleFunc("PUT /repos/{org}/{repo}/tasks/{stub}", putTask(st))
 	mux.HandleFunc("POST /repos/{org}/{repo}/tasks/{stub}/move", moveTask(st))
 	mux.HandleFunc("GET /repos/{org}/{repo}/tasks/{task}/tests", listTests(st))
+	mux.HandleFunc("GET /repos/{org}/{repo}/tasks/{task}/tests/{stub}", getTest(st))
 	mux.HandleFunc("PUT /repos/{org}/{repo}/tasks/{task}/tests/{stub}", putTest(st))
 	mux.HandleFunc("/", notFound)
 	return mux

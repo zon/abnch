@@ -49,6 +49,32 @@ func listTests(st Store) http.HandlerFunc {
 	}
 }
 
+// getTest writes one test as JSON, or the service error response when the repo,
+// task, or test does not exist.
+func getTest(st Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		org, repo := r.PathValue("org"), r.PathValue("repo")
+		if _, ok := requireRepo(w, st, org, repo); !ok {
+			return
+		}
+		task := r.PathValue("task")
+		if _, ok := requireTask(w, st, org, repo, task); !ok {
+			return
+		}
+
+		t, err := st.GetTest(org, repo, task, r.PathValue("stub"))
+		if errors.Is(err, store.ErrNotFound) {
+			httpx.WriteError(w, http.StatusNotFound, "test not found")
+			return
+		}
+		if err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "failed to get test")
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, testJSON(t))
+	}
+}
+
 // putTest creates or updates the test the route identifies and writes it as
 // JSON. It answers 201 when it creates a test and 200 when it updates one. A
 // write the store rejects is a client error, so a create that misses a required

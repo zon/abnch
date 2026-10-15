@@ -306,6 +306,121 @@ func TestGetTestsDeniedForUnpermittedRole(t *testing.T) {
 	}
 }
 
+// TestGetTestReturnsTest checks GET
+// /repos/{org}/{repo}/tasks/{task}/tests/{stub} returns one test with its stub,
+// name, description, version, and schema.
+func TestGetTestReturnsTest(t *testing.T) {
+	st := testStore()
+	st.tests = []store.Test{
+		{
+			Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic",
+			Name: "Basic", Description: "A basic test", Version: "1",
+			Schema: []store.SchemaKey{{Stub: "correctness", Name: "Correctness"}},
+		},
+		{
+			Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "smoke",
+			Name: "Smoke", Description: "A smoke test", Version: "2",
+		},
+	}
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets/tasks/fix-bug/tests/basic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+
+	var got testBody
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	want := testBody{
+		Stub: "basic", Name: "Basic", Description: "A basic test", Version: "1",
+		Schema: []store.SchemaKey{{Stub: "correctness", Name: "Correctness"}},
+	}
+	if got.Stub != want.Stub || got.Name != want.Name || got.Description != want.Description || got.Version != want.Version {
+		t.Errorf("test = %#v, want %#v", got, want)
+	}
+	if len(got.Schema) != len(want.Schema) || got.Schema[0] != want.Schema[0] {
+		t.Errorf("schema = %#v, want %#v", got.Schema, want.Schema)
+	}
+}
+
+// TestGetTestMissing checks a request for a test that does not exist returns the
+// service error response.
+func TestGetTestMissing(t *testing.T) {
+	st := testStore()
+	st.tests = []store.Test{{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic",
+		Name: "Basic", Version: "1",
+	}}
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets/tasks/fix-bug/tests/smoke")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusNotFound)
+}
+
+// TestGetTestMissingTask checks a request for a test in a task that does not
+// exist returns the service error response.
+func TestGetTestMissingTask(t *testing.T) {
+	st := &fakeDB{
+		repos: []store.Repo{{Org: "acme", Stub: "widgets", URL: "https://github.com/acme/widgets"}},
+	}
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets/tasks/fix-bug/tests/basic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusNotFound)
+}
+
+// TestGetTestReportsStoreFailure checks a store failure returns the service
+// error response instead of a test.
+func TestGetTestReportsStoreFailure(t *testing.T) {
+	st := testStore()
+	st.getTestErr = errors.New("boom")
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp, err := http.Get(base + "repos/acme/widgets/tasks/fix-bug/tests/basic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusInternalServerError)
+}
+
+// TestGetTestDeniedForUnpermittedRole checks a role without read access reaches
+// no test.
+func TestGetTestDeniedForUnpermittedRole(t *testing.T) {
+	st := testStore()
+	base := startServiceWithStore(t, st, auth.RoleAgent)
+
+	resp, err := http.Get(base + "repos/acme/widgets/tasks/fix-bug/tests/basic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusForbidden)
+	}
+}
+
 // sendTestPut sends a test write to the service and returns the response.
 func sendTestPut(t *testing.T, base, path, body string) *http.Response {
 	t.Helper()
