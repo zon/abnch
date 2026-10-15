@@ -526,6 +526,187 @@ func TestGetTestDeniedForUnpermittedRole(t *testing.T) {
 	}
 }
 
+// TestMoveTestRenamesTest checks POST
+// /repos/{org}/{repo}/tasks/{task}/tests/{stub}/move renames a test, returns
+// 200, and makes the new stub readable while the old stub is gone.
+func TestMoveTestRenamesTest(t *testing.T) {
+	st := testStore()
+	st.tests = []store.Test{{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic",
+		Name: "Basic", Description: "A basic test", Version: "1",
+		Schema: []store.SchemaKey{{Stub: "correctness", Name: "Correctness"}},
+	}}
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+
+	resp := sendTestMove(t, base, "repos/acme/widgets/tasks/fix-bug/tests/basic/move", `{"stub":"smoke"}`)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+
+	var got testBody
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if got.Stub != "smoke" || got.Name != "Basic" || got.Version != "1" {
+		t.Errorf("test = %#v, want the moved stub and the other fields kept", got)
+	}
+	if len(got.Schema) != 1 || got.Schema[0] != (store.SchemaKey{Stub: "correctness", Name: "Correctness"}) {
+		t.Errorf("schema = %#v, want the schema kept", got.Schema)
+	}
+
+	moved, err := http.Get(base + "repos/acme/widgets/tasks/fix-bug/tests/smoke")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer moved.Body.Close()
+	if moved.StatusCode != http.StatusOK {
+		t.Errorf("GET new stub status = %d, want %d", moved.StatusCode, http.StatusOK)
+	}
+
+	old, err := http.Get(base + "repos/acme/widgets/tasks/fix-bug/tests/basic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer old.Body.Close()
+	if old.StatusCode != http.StatusNotFound {
+		t.Errorf("GET old stub status = %d, want %d", old.StatusCode, http.StatusNotFound)
+	}
+}
+
+// TestMoveTestMissing checks moving a test that does not exist returns the
+// service error response.
+func TestMoveTestMissing(t *testing.T) {
+	st := testStore()
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+
+	resp := sendTestMove(t, base, "repos/acme/widgets/tasks/fix-bug/tests/basic/move", `{"stub":"smoke"}`)
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusNotFound)
+	if len(st.tests) != 0 {
+		t.Errorf("store holds %d tests, want none", len(st.tests))
+	}
+}
+
+// TestMoveTestMissingTask checks a move in a task that does not exist returns
+// the service error response and leaves the store alone.
+func TestMoveTestMissingTask(t *testing.T) {
+	st := &fakeDB{
+		repos: []store.Repo{{Org: "acme", Stub: "widgets", URL: "https://github.com/acme/widgets"}},
+	}
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+
+	resp := sendTestMove(t, base, "repos/acme/widgets/tasks/fix-bug/tests/basic/move", `{"stub":"smoke"}`)
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusNotFound)
+	if len(st.tasks) != 0 || len(st.tests) != 0 {
+		t.Errorf("store holds %d tasks and %d tests, want none", len(st.tasks), len(st.tests))
+	}
+}
+
+// TestMoveTestConflict checks moving onto a stub that is already taken returns
+// 409 and leaves both tests unchanged.
+func TestMoveTestConflict(t *testing.T) {
+	st := testStore()
+	st.tests = []store.Test{
+		{Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic", Name: "Basic", Version: "1"},
+		{Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "smoke", Name: "Smoke", Version: "1"},
+	}
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+
+	resp := sendTestMove(t, base, "repos/acme/widgets/tasks/fix-bug/tests/basic/move", `{"stub":"smoke"}`)
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusConflict)
+	if len(st.tests) != 2 || st.tests[0].Stub != "basic" || st.tests[1].Stub != "smoke" {
+		t.Errorf("store tests = %#v, want both tests unchanged", st.tests)
+	}
+}
+
+// TestMoveTestRejectsInvalidStub checks a move to a stub that is not URL-safe
+// returns 422 and leaves the test unchanged.
+func TestMoveTestRejectsInvalidStub(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{name: "empty stub", body: `{"stub":""}`},
+		{name: "separator in stub", body: `{"stub":"a/b"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := testStore()
+			st.tests = []store.Test{{
+				Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic", Name: "Basic", Version: "1",
+			}}
+			base := startServiceWithStore(t, st, auth.RoleAdmin)
+
+			resp := sendTestMove(t, base, "repos/acme/widgets/tasks/fix-bug/tests/basic/move", tc.body)
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusUnprocessableEntity {
+				t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusUnprocessableEntity)
+			}
+			if len(st.tests) != 1 || st.tests[0].Stub != "basic" {
+				t.Errorf("store tests = %#v, want the test unchanged", st.tests)
+			}
+		})
+	}
+}
+
+// TestMoveTestReportsStoreFailure checks a store failure returns the service
+// error response.
+func TestMoveTestReportsStoreFailure(t *testing.T) {
+	st := testStore()
+	st.moveTestErr = errors.New("boom")
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+
+	resp := sendTestMove(t, base, "repos/acme/widgets/tasks/fix-bug/tests/basic/move", `{"stub":"smoke"}`)
+	defer resp.Body.Close()
+
+	assertServiceError(t, resp, http.StatusInternalServerError)
+}
+
+// TestMoveTestDeniedForUnpermittedRole checks a role without write access
+// reaches no test move.
+func TestMoveTestDeniedForUnpermittedRole(t *testing.T) {
+	st := testStore()
+	st.tests = []store.Test{{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic", Name: "Basic", Version: "1",
+	}}
+	base := startServiceWithStore(t, st, auth.RoleReader)
+
+	resp := sendTestMove(t, base, "repos/acme/widgets/tasks/fix-bug/tests/basic/move", `{"stub":"smoke"}`)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusForbidden)
+	}
+	if len(st.tests) != 1 || st.tests[0].Stub != "basic" {
+		t.Errorf("store tests = %#v, want the test unchanged", st.tests)
+	}
+}
+
+// sendTestMove sends a test move to the service and returns the response.
+func sendTestMove(t *testing.T, base, path, body string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPost, base+path, strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
 // sendTestPut sends a test write to the service and returns the response.
 func sendTestPut(t *testing.T, base, path, body string) *http.Response {
 	t.Helper()

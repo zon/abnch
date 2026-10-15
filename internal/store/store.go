@@ -165,6 +165,34 @@ func (s *Store) MoveTask(org, repo, stub, newStub string) (Task, error) {
 	return t, nil
 }
 
+// MoveTest renames the test with the given stubs to newStub and returns the
+// moved test. It returns ErrNotFound when the test is missing, ErrConflict when
+// a test in the same task already holds newStub, and ErrInvalidStub when newStub
+// is empty or not URL-safe.
+func (s *Store) MoveTest(org, repo, task, stub, newStub string) (Test, error) {
+	t, err := s.GetTest(org, repo, task, stub)
+	if err != nil {
+		return Test{}, err
+	}
+	if !ValidStub(newStub) {
+		return Test{}, ErrInvalidStub
+	}
+	if _, err := s.GetTest(org, repo, task, newStub); err == nil {
+		return Test{}, ErrConflict
+	} else if !errors.Is(err, ErrNotFound) {
+		return Test{}, err
+	}
+
+	err = s.db.Model(&Test{}).
+		Where("org = ? AND repo = ? AND task = ? AND stub = ?", org, repo, task, stub).
+		Update("stub", newStub).Error
+	if err != nil {
+		return Test{}, err
+	}
+	t.Stub = newStub
+	return t, nil
+}
+
 // notFound maps Gorm's record-not-found error to ErrNotFound.
 func notFound(err error) error {
 	if errors.Is(err, gorm.ErrRecordNotFound) {

@@ -27,6 +27,11 @@ type testRequest struct {
 	Schema      *[]store.SchemaKey `json:"schema"`
 }
 
+// moveTestRequest is the JSON body a test move carries.
+type moveTestRequest struct {
+	Stub string `json:"stub"`
+}
+
 // listTests writes the tests of the task the route identifies as a JSON array,
 // or the service error response when the repo or task does not exist.
 func listTests(st Store) http.HandlerFunc {
@@ -105,6 +110,43 @@ func putTest(st Store) http.HandlerFunc {
 			httpx.WriteError(w, http.StatusInternalServerError, "failed to get test")
 		default:
 			writeSavedTest(w, st, mergedTest(existing, body), http.StatusOK)
+		}
+	}
+}
+
+// moveTest renames the test the route identifies to the body's stub and writes
+// the moved test as JSON. A missing test is a 404, a stub already held by
+// another test in the task is a 409, and a stub the store rejects is a client
+// error.
+func moveTest(st Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		org, repo := r.PathValue("org"), r.PathValue("repo")
+		if _, ok := requireRepo(w, st, org, repo); !ok {
+			return
+		}
+		task := r.PathValue("task")
+		if _, ok := requireTask(w, st, org, repo, task); !ok {
+			return
+		}
+
+		var body moveTestRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			httpx.WriteError(w, http.StatusUnprocessableEntity, "invalid test body")
+			return
+		}
+
+		moved, err := st.MoveTest(org, repo, task, r.PathValue("stub"), body.Stub)
+		switch {
+		case errors.Is(err, store.ErrNotFound):
+			httpx.WriteError(w, http.StatusNotFound, "test not found")
+		case errors.Is(err, store.ErrConflict):
+			httpx.WriteError(w, http.StatusConflict, "test stub is taken")
+		case errors.Is(err, store.ErrInvalidStub):
+			httpx.WriteError(w, http.StatusUnprocessableEntity, "test stub is not URL-safe")
+		case err != nil:
+			httpx.WriteError(w, http.StatusInternalServerError, "failed to move test")
+		default:
+			httpx.WriteJSON(w, http.StatusOK, testJSON(moved))
 		}
 	}
 }

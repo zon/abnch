@@ -608,3 +608,132 @@ func TestGetTestMissing(t *testing.T) {
 		t.Errorf("GetTest error = %v, want ErrNotFound", err)
 	}
 }
+
+// TestMoveTestRenamesTest checks MoveTest renames a test, keeps its fields and
+// schema, leaves one test, and makes the old stub miss.
+func TestMoveTestRenamesTest(t *testing.T) {
+	s := newTestStore(t)
+	stored := Test{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic",
+		Name: "Basic", Description: "A basic test", Version: "1",
+		Schema: []SchemaKey{{Stub: "correctness", Name: "Correctness"}},
+	}
+	if err := s.SaveTest(stored); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.MoveTest("acme", "widgets", "fix-bug", "basic", "smoke")
+	if err != nil {
+		t.Fatalf("MoveTest: %v", err)
+	}
+	want := stored
+	want.Stub = "smoke"
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("MoveTest = %#v, want %#v", got, want)
+	}
+	if _, err := s.GetTest("acme", "widgets", "fix-bug", "basic"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("GetTest(old) error = %v, want ErrNotFound", err)
+	}
+	tests, err := s.ListTests("acme", "widgets", "fix-bug")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tests) != 1 || !reflect.DeepEqual(tests[0], want) {
+		t.Errorf("ListTests = %#v, want one renamed test", tests)
+	}
+}
+
+// TestMoveTestMissing checks MoveTest reports a test that does not exist.
+func TestMoveTestMissing(t *testing.T) {
+	s := newTestStore(t)
+
+	if _, err := s.MoveTest("acme", "widgets", "fix-bug", "basic", "smoke"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("MoveTest error = %v, want ErrNotFound", err)
+	}
+}
+
+// TestMoveTestConflict checks MoveTest refuses to overwrite a test with the new
+// stub and leaves both tests unchanged.
+func TestMoveTestConflict(t *testing.T) {
+	s := newTestStore(t)
+	for _, test := range []Test{
+		{Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic", Name: "Basic", Version: "1"},
+		{Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "smoke", Name: "Smoke", Version: "1"},
+	} {
+		if err := s.SaveTest(test); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, err := s.MoveTest("acme", "widgets", "fix-bug", "basic", "smoke"); !errors.Is(err, ErrConflict) {
+		t.Errorf("MoveTest error = %v, want ErrConflict", err)
+	}
+	tests, err := s.ListTests("acme", "widgets", "fix-bug")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tests) != 2 {
+		t.Fatalf("ListTests returned %d tests, want the two unchanged tests", len(tests))
+	}
+	if tests[0].Stub != "basic" || tests[1].Stub != "smoke" {
+		t.Errorf("ListTests stubs = %q, want [basic smoke]", []string{tests[0].Stub, tests[1].Stub})
+	}
+}
+
+// TestMoveTestLeavesOtherTasks checks MoveTest renames only its own task's test
+// and leaves the same stub in another task alone.
+func TestMoveTestLeavesOtherTasks(t *testing.T) {
+	s := newTestStore(t)
+	for _, test := range []Test{
+		{Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic", Name: "Basic", Version: "1"},
+		{Org: "acme", Repo: "widgets", Task: "other", Stub: "smoke", Name: "Smoke", Version: "1"},
+	} {
+		if err := s.SaveTest(test); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, err := s.MoveTest("acme", "widgets", "fix-bug", "basic", "smoke"); err != nil {
+		t.Fatalf("MoveTest: %v", err)
+	}
+
+	other, err := s.GetTest("acme", "widgets", "other", "smoke")
+	if err != nil {
+		t.Fatalf("GetTest(other): %v", err)
+	}
+	if other.Name != "Smoke" {
+		t.Errorf("other test = %#v, want it unchanged", other)
+	}
+}
+
+// TestMoveTestRejectsInvalidStub checks a move to a stub that is empty or not
+// URL-safe is refused and leaves the test unchanged.
+func TestMoveTestRejectsInvalidStub(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		stub string
+	}{
+		{"empty stub", ""},
+		{"separator in stub", "a/b"},
+		{"space in stub", "a b"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTestStore(t)
+			want := Test{Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic", Name: "Basic", Version: "1"}
+			if err := s.SaveTest(want); err != nil {
+				t.Fatal(err)
+			}
+
+			if _, err := s.MoveTest("acme", "widgets", "fix-bug", "basic", tc.stub); !errors.Is(err, ErrInvalidStub) {
+				t.Errorf("MoveTest error = %v, want ErrInvalidStub", err)
+			}
+			got, err := s.GetTest("acme", "widgets", "fix-bug", "basic")
+			if err != nil {
+				t.Fatalf("GetTest: %v", err)
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("test = %#v, want the unchanged test %#v", got, want)
+			}
+		})
+	}
+}
