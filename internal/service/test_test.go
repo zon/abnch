@@ -692,6 +692,94 @@ func TestMoveTestDeniedForUnpermittedRole(t *testing.T) {
 	}
 }
 
+// TestTestReadAllowedForRoles checks the test read operations are allowed for
+// the Reader, Service, and Admin roles.
+func TestTestReadAllowedForRoles(t *testing.T) {
+	for _, role := range []string{auth.RoleReader, auth.RoleService, auth.RoleAdmin} {
+		t.Run(role, func(t *testing.T) {
+			st := testStore()
+			st.tests = []store.Test{{
+				Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic",
+				Name: "Basic", Version: "1",
+			}}
+			base := startServiceWithStore(t, st, role)
+
+			for _, path := range []string{
+				"repos/acme/widgets/tasks/fix-bug/tests",
+				"repos/acme/widgets/tasks/fix-bug/tests/basic",
+			} {
+				resp, err := http.Get(base + path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				resp.Body.Close()
+				if resp.StatusCode != http.StatusOK {
+					t.Errorf("%s status = %d, want %d", path, resp.StatusCode, http.StatusOK)
+				}
+			}
+		})
+	}
+}
+
+// TestTestReadDeniedForUnpermittedRole checks a role without read access is
+// refused with 403, and a store read that fails proves the service reached no
+// test.
+func TestTestReadDeniedForUnpermittedRole(t *testing.T) {
+	for _, role := range []string{auth.RoleAgent, auth.RoleGrader} {
+		t.Run(role, func(t *testing.T) {
+			st := testStore()
+			st.listTestsErr = errors.New("read denied")
+			st.getTestErr = errors.New("read denied")
+			base := startServiceWithStore(t, st, role)
+
+			for _, path := range []string{
+				"repos/acme/widgets/tasks/fix-bug/tests",
+				"repos/acme/widgets/tasks/fix-bug/tests/basic",
+			} {
+				resp, err := http.Get(base + path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				resp.Body.Close()
+				if resp.StatusCode != http.StatusForbidden {
+					t.Errorf("%s status = %d, want %d", path, resp.StatusCode, http.StatusForbidden)
+				}
+			}
+		})
+	}
+}
+
+// TestTestWriteDeniedForUnpermittedRole checks every role but Admin is refused a
+// test write with 403, and a refused write creates or changes no test.
+func TestTestWriteDeniedForUnpermittedRole(t *testing.T) {
+	for _, role := range []string{auth.RoleReader, auth.RoleService, auth.RoleAgent, auth.RoleGrader} {
+		t.Run(role, func(t *testing.T) {
+			st := testStore()
+			st.tests = []store.Test{{
+				Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic",
+				Name: "Basic", Version: "1",
+			}}
+			base := startServiceWithStore(t, st, role)
+
+			writes := []*http.Response{
+				sendTestPut(t, base, "repos/acme/widgets/tasks/fix-bug/tests/basic", `{"name":"Changed","version":"2"}`),
+				sendTestPut(t, base, "repos/acme/widgets/tasks/fix-bug/tests/smoke", `{"name":"Smoke","version":"1"}`),
+				sendTestMove(t, base, "repos/acme/widgets/tasks/fix-bug/tests/basic/move", `{"stub":"smoke"}`),
+			}
+			for i, resp := range writes {
+				resp.Body.Close()
+				if resp.StatusCode != http.StatusForbidden {
+					t.Errorf("write %d status = %d, want %d", i, resp.StatusCode, http.StatusForbidden)
+				}
+			}
+
+			if len(st.tests) != 1 || st.tests[0].Stub != "basic" || st.tests[0].Name != "Basic" || st.tests[0].Version != "1" {
+				t.Errorf("store tests = %#v, want the stored test unchanged", st.tests)
+			}
+		})
+	}
+}
+
 // sendTestMove sends a test move to the service and returns the response.
 func sendTestMove(t *testing.T, base, path, body string) *http.Response {
 	t.Helper()
