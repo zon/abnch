@@ -1,12 +1,15 @@
-mode: worktree
+mode: remote
 model: deepseek/deepseek-flash
 variant: high
-before:
-  - name: copy-local-service-config
-    command: sh
-    args:
-      - -c
-      - |
-        src=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
-        [ "$src" = "$PWD" ] && exit 0
-        cp -a "$src/.abnchd" .
+
+workflow:
+  context: lab
+  namespace: ralph-abnch
+  configMaps:
+    - name: abnch-config
+      destDir: .abnch
+      link: true
+  secrets:
+    - name: abnchd-config
+      destDir: .abnchd
+      link: true

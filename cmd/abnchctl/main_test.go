@@ -6,6 +6,7 @@ import (
 	"crypto/elliptic"
 	"crypto/x509"
 	"encoding/pem"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -526,4 +527,118 @@ func readConfig(t *testing.T, path string) devconfig.Config {
 		t.Fatal(err)
 	}
 	return cfg
+}
+
+// runInWithApplier parses a command with an explicit resource applier, so a test
+// observes what `set ralph` publishes without a Kubernetes cluster.
+func runInWithApplier(args []string, repoRoot, homeDir string, out io.Writer, applier devconfig.ResourceApplier) error {
+	return runCLI(args, deps{repoRoot: repoRoot, homeDir: homeDir, out: out, applier: applier}, func(int) {})
+}
+
+func TestSetRalphPublishesLocalConfig(t *testing.T) {
+	repo := t.TempDir()
+	seedRalphRepo(t, repo)
+	applier := &recordingApplier{}
+
+	var out bytes.Buffer
+	if err := runInWithApplier([]string{"set", "ralph"}, repo, t.TempDir(), &out, applier); err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(out.String(), "ralph-abnch") {
+		t.Errorf("output %q does not report the namespace", out.String())
+	}
+	if len(applier.secrets) != 1 || applier.secrets[0].name != devconfig.RalphSecretName {
+		t.Errorf("secrets = %#v, want the published %s", applier.secrets, devconfig.RalphSecretName)
+	}
+	if len(applier.configMaps) != 1 || applier.configMaps[0].name != devconfig.RalphConfigMapName {
+		t.Errorf("configmaps = %#v, want the published %s", applier.configMaps, devconfig.RalphConfigMapName)
+	}
+}
+
+func TestSetRalphNamespaceFlagOverridesConfig(t *testing.T) {
+	repo := t.TempDir()
+	seedRalphRepo(t, repo)
+	applier := &recordingApplier{}
+
+	if err := runInWithApplier([]string{"set", "ralph", "--namespace", "staging"}, repo, t.TempDir(), &bytes.Buffer{}, applier); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(applier.secrets) != 1 {
+		t.Fatalf("applied %d secrets, want 1", len(applier.secrets))
+	}
+	if applier.secrets[0].namespace != "staging" {
+		t.Errorf("namespace = %q, want the flag", applier.secrets[0].namespace)
+	}
+}
+
+func TestSetRalphFailsWithoutNamespace(t *testing.T) {
+	repo := t.TempDir()
+	writeRalphFiles(t, repo)
+	writeRalphConfigFile(t, repo, "mode: remote\nworkflow:\n  context: lab\n")
+
+	err := runInWithApplier([]string{"set", "ralph"}, repo, t.TempDir(), &bytes.Buffer{}, &recordingApplier{})
+	if err == nil {
+		t.Fatal("set ralph = nil, want an error for a missing namespace")
+	}
+	if !strings.Contains(err.Error(), "namespace") {
+		t.Errorf("error = %q, want it to name the missing namespace", err)
+	}
+}
+
+// recordingApplier records what `set ralph` publishes.
+type recordingApplier struct {
+	secrets    []published
+	configMaps []published
+}
+
+type published struct {
+	context   string
+	namespace string
+	name      string
+	data      map[string]string
+}
+
+func (a *recordingApplier) ApplySecret(context, namespace, name string, data map[string]string) error {
+	a.secrets = append(a.secrets, published{context, namespace, name, data})
+	return nil
+}
+
+func (a *recordingApplier) ApplyConfigMap(context, namespace, name string, data map[string]string) error {
+	a.configMaps = append(a.configMaps, published{context, namespace, name, data})
+	return nil
+}
+
+// seedRalphRepo writes the local files `set ralph` publishes and a Ralph config
+// that targets the ralph-abnch namespace.
+func seedRalphRepo(t *testing.T, repo string) {
+	t.Helper()
+	writeRalphFiles(t, repo)
+	writeRalphConfigFile(t, repo, "mode: remote\nworkflow:\n  context: lab\n  namespace: ralph-abnch\n")
+}
+
+func writeRalphFiles(t *testing.T, repo string) {
+	t.Helper()
+	writeConfigFile(t, repo, postgresSeed)
+	if err := os.WriteFile(devconfig.KeyPath(devconfig.ConfigPath(repo)), []byte("key\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(devconfig.CLIConfigPath(repo)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(devconfig.CLIConfigPath(repo), []byte("url: http://localhost:8080\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeRalphConfigFile(t *testing.T, repo, content string) {
+	t.Helper()
+	path := devconfig.RalphConfigPath(repo)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }

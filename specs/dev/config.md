@@ -10,7 +10,7 @@ Configure a local service for development. The `just config` recipe drives the `
 
 `abnchctl` SHALL read and write the local service config at `.abnchd/config.yaml` under the repo root, and SHALL keep the file out of version control.
 
-The `--config` option SHALL override the path for both `set local-auth` and `check config`.
+The `--config` option SHALL override the path for `set local-auth`, `set ralph`, and `check config`.
 
 #### Scenario: Default path
 
@@ -22,7 +22,7 @@ The `--config` option SHALL override the path for both `set local-auth` and `che
 #### Scenario: Path override
 
 - GIVEN the user passes `--config` a path
-- WHEN `abnchctl set local-auth` or `abnchctl check config` runs
+- WHEN `abnchctl set local-auth`, `abnchctl set ralph`, or `abnchctl check config` runs
 - THEN it uses that path instead of `.abnchd/config.yaml`
 
 ### Requirement: Service Port
@@ -92,6 +92,35 @@ The `--config` option SHALL override the path for both `set local-auth` and `che
 - WHEN `abnchctl set local-auth` finishes
 - THEN the local service URL is updated
 - AND the models and tasks are unchanged
+
+### Requirement: Ralph Config Publication
+
+`abnchctl set ralph` SHALL publish the local dev config to the Ralph namespace for remote runs. It SHALL write the local service config and the dev key beside it to the `abnchd-config` Secret, and the CLI config to the `abnch-config` ConfigMap.
+
+It SHALL resolve the namespace from `workflow.namespace` in `.ralph/config.yaml` and the context from `workflow.context`. The `--namespace` and `--context` options SHALL override them. It SHALL fail when no namespace is set.
+
+It SHALL NOT change `.ralph/config.yaml`. The repo's config declares the mounts.
+
+#### Scenario: Publish
+
+- GIVEN a repo with a local service config, a dev key, a CLI config, and `.ralph/config.yaml` setting `workflow.namespace: ralph-abnch`
+- WHEN `abnchctl set ralph` runs
+- THEN it writes the `abnchd-config` Secret with the local service config and the dev key
+- AND it writes the `abnch-config` ConfigMap with the CLI config
+- AND `.ralph/config.yaml` is unchanged
+
+#### Scenario: Flags target another namespace
+
+- GIVEN `.ralph/config.yaml` sets `workflow.namespace: ralph-abnch`
+- WHEN `abnchctl set ralph --namespace staging --context canary` runs
+- THEN it publishes to the `staging` namespace in the `canary` context
+
+#### Scenario: Namespace missing
+
+- GIVEN `.ralph/config.yaml` sets no `workflow.namespace`
+- WHEN `abnchctl set ralph` runs without `--namespace`
+- THEN it fails
+- AND it reports that no namespace is set
 
 ### Requirement: Check Config
 

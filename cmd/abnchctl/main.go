@@ -8,6 +8,7 @@ import (
 	"github.com/alecthomas/kong"
 
 	"github.com/zon/abnch/internal/devconfig"
+	"github.com/zon/abnch/internal/kube"
 )
 
 // cli is the abnchctl command line.
@@ -20,6 +21,7 @@ type cli struct {
 // setCmd holds the commands that write local development resources.
 type setCmd struct {
 	LocalAuth localAuthCmd `cmd:"" name:"local-auth" help:"Generate the local service config, dev key, CLI config, and CLI credential."`
+	Ralph     ralphCmd     `cmd:"" name:"ralph" help:"Publish the local dev config to the Ralph namespace for remote runs."`
 }
 
 // checkCmd holds the commands that report on local development resources.
@@ -56,6 +58,31 @@ func (c localAuthCmd) Run(deps deps) error {
 	return nil
 }
 
+// ralphCmd publishes the local dev config for Ralph remote runs.
+type ralphCmd struct {
+	Context   string `help:"Kubernetes context. Overrides workflow.context in .ralph/config.yaml." short:"c"`
+	Namespace string `help:"Kubernetes namespace. Overrides workflow.namespace in .ralph/config.yaml." short:"n"`
+}
+
+// Run publishes the local service config, dev key, and CLI config to the Ralph
+// namespace and points .ralph/config.yaml at the published resources.
+func (c ralphCmd) Run(deps deps) error {
+	namespace, err := devconfig.SetRalph(devconfig.RalphOptions{
+		RepoRoot:   deps.repoRoot,
+		ConfigPath: deps.configPath,
+		Context:    c.Context,
+		Namespace:  c.Namespace,
+		Applier:    deps.applier,
+	})
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintf(deps.out, "Published %s and %s to namespace %s\n",
+		devconfig.RalphSecretName, devconfig.RalphConfigMapName, namespace)
+	return nil
+}
+
 // checkConfigCmd confirms the local service config is ready.
 type checkConfigCmd struct{}
 
@@ -81,6 +108,7 @@ type deps struct {
 	homeDir    string
 	out        io.Writer
 	configPath string
+	applier    devconfig.ResourceApplier
 }
 
 func main() {
@@ -113,6 +141,9 @@ func runIn(args []string, repoRoot, homeDir string, out io.Writer) error {
 func runCLI(args []string, env deps, exit func(int)) error {
 	if env.configPath == "" {
 		env.configPath = devconfig.ConfigPath(env.repoRoot)
+	}
+	if env.applier == nil {
+		env.applier = kube.Client{}
 	}
 
 	var cli cli

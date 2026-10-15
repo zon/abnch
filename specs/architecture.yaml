@@ -14,10 +14,13 @@
   description: Authenticates and authorizes service callers, signs human users in, and publishes the local dev issuer.
 
 - path: internal/devconfig
-  description: Stores the local service configuration and the CLI credential store.
+  description: Stores the local service configuration and the CLI credential store, and publishes the local dev config for Ralph remote runs.
 
 - path: internal/httpx
   description: Writes the service API's JSON responses.
+
+- path: internal/kube
+  description: Thin wrapper around kubectl for managing Kubernetes resources.
 
 - path: internal/store
   description: Stores repos and tasks in Postgres and creates its tables.
