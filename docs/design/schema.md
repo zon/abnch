@@ -15,7 +15,7 @@ Organizes tests around a use case.
 * Stub
 * Name
 * Description
-* Repo
+* Repo - the URL of the repo that holds the task
 * Parent - Repo
 
 ## Tests

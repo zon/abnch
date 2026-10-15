@@ -100,13 +100,15 @@ func (f *fakeService) servePutRepo(w http.ResponseWriter, org, repo string, body
 // serveListTasks writes the repo's tasks as a JSON array, or the service error
 // response when the repo does not exist.
 func (f *fakeService) serveListTasks(w http.ResponseWriter, org, repo string) {
-	if _, ok := f.repos[org+"/"+repo]; !ok {
+	rawURL, ok := f.repos[org+"/"+repo]
+	if !ok {
 		httpx.WriteError(w, http.StatusNotFound, "repo not found")
 		return
 	}
 	tasks := make([]task, 0)
 	for key, t := range f.tasks {
 		if strings.HasPrefix(key, org+"/"+repo+"/") {
+			t.Repo = rawURL
 			tasks = append(tasks, t)
 		}
 	}
@@ -114,7 +116,8 @@ func (f *fakeService) serveListTasks(w http.ResponseWriter, org, repo string) {
 }
 
 func (f *fakeService) serveGetTask(w http.ResponseWriter, org, repo, stub string) {
-	if _, ok := f.repos[org+"/"+repo]; !ok {
+	rawURL, ok := f.repos[org+"/"+repo]
+	if !ok {
 		httpx.WriteError(w, http.StatusNotFound, "repo not found")
 		return
 	}
@@ -123,11 +126,13 @@ func (f *fakeService) serveGetTask(w http.ResponseWriter, org, repo, stub string
 		httpx.WriteError(w, http.StatusNotFound, "task not found")
 		return
 	}
+	t.Repo = rawURL
 	httpx.WriteJSON(w, http.StatusOK, t)
 }
 
 func (f *fakeService) servePutTask(w http.ResponseWriter, org, repo, stub string, body []byte) {
-	if _, ok := f.repos[org+"/"+repo]; !ok {
+	rawURL, ok := f.repos[org+"/"+repo]
+	if !ok {
 		httpx.WriteError(w, http.StatusNotFound, "repo not found")
 		return
 	}
@@ -152,6 +157,7 @@ func (f *fakeService) servePutTask(w http.ResponseWriter, org, repo, stub string
 		t.Description = req.Description
 	}
 	f.tasks[key] = t
+	t.Repo = rawURL
 	status := http.StatusOK
 	if !existed {
 		status = http.StatusCreated
@@ -160,7 +166,8 @@ func (f *fakeService) servePutTask(w http.ResponseWriter, org, repo, stub string
 }
 
 func (f *fakeService) serveMoveTask(w http.ResponseWriter, org, repo, stub string, body []byte) {
-	if _, ok := f.repos[org+"/"+repo]; !ok {
+	rawURL, ok := f.repos[org+"/"+repo]
+	if !ok {
 		httpx.WriteError(w, http.StatusNotFound, "repo not found")
 		return
 	}
@@ -183,6 +190,7 @@ func (f *fakeService) serveMoveTask(w http.ResponseWriter, org, repo, stub strin
 	delete(f.tasks, key)
 	t.Stub = req.Stub
 	f.tasks[newKey] = t
+	t.Repo = rawURL
 	httpx.WriteJSON(w, http.StatusOK, t)
 }
 

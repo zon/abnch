@@ -59,6 +59,9 @@ func TestGetTasksListsTasksAsYAML(t *testing.T) {
 	stubs := map[string]bool{}
 	for _, tk := range tasks {
 		stubs[tk.Stub] = true
+		if tk.Repo != "git@github.com:acme/widgets.git" {
+			t.Errorf("task %s repo = %q, want the repo URL", tk.Stub, tk.Repo)
+		}
 	}
 	if !stubs["fix-bug"] || !stubs["add-test"] {
 		t.Errorf("listed %v, want both tasks", stubs)
@@ -107,8 +110,8 @@ func TestGetTaskPrintsTaskAsYAML(t *testing.T) {
 	if err := yaml.Unmarshal(out.Bytes(), &tk); err != nil {
 		t.Fatalf("output is not YAML: %v\n%s", err, out.String())
 	}
-	if tk.Stub != "fix-bug" || tk.Name != "Fix bug" || tk.Description != "Fix the bug" || tk.Repo != "widgets" {
-		t.Errorf("task = %+v, want the stored task", tk)
+	if tk.Stub != "fix-bug" || tk.Name != "Fix bug" || tk.Description != "Fix the bug" || tk.Repo != "git@github.com:acme/widgets.git" {
+		t.Errorf("task = %+v, want the stored task with its repo URL", tk)
 	}
 	if !strings.Contains(out.String(), "stub: fix-bug") {
 		t.Errorf("output = %q, want YAML", out.String())

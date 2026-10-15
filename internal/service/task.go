@@ -33,7 +33,8 @@ type moveTaskRequest struct {
 func listTasks(st Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		org, repo := r.PathValue("org"), r.PathValue("repo")
-		if !requireRepo(w, st, org, repo) {
+		rp, ok := requireRepo(w, st, org, repo)
+		if !ok {
 			return
 		}
 
@@ -42,7 +43,7 @@ func listTasks(st Store) http.HandlerFunc {
 			httpx.WriteError(w, http.StatusInternalServerError, "failed to list tasks")
 			return
 		}
-		httpx.WriteJSON(w, http.StatusOK, tasksJSON(tasks))
+		httpx.WriteJSON(w, http.StatusOK, tasksJSON(tasks, rp.URL))
 	}
 }
 
@@ -51,7 +52,8 @@ func listTasks(st Store) http.HandlerFunc {
 func getTask(st Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		org, repo := r.PathValue("org"), r.PathValue("repo")
-		if !requireRepo(w, st, org, repo) {
+		rp, ok := requireRepo(w, st, org, repo)
+		if !ok {
 			return
 		}
 
@@ -64,7 +66,7 @@ func getTask(st Store) http.HandlerFunc {
 			httpx.WriteError(w, http.StatusInternalServerError, "failed to get task")
 			return
 		}
-		httpx.WriteJSON(w, http.StatusOK, taskJSON(t))
+		httpx.WriteJSON(w, http.StatusOK, taskJSON(t, rp.URL))
 	}
 }
 
@@ -74,7 +76,8 @@ func getTask(st Store) http.HandlerFunc {
 func putTask(st Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		org, repo := r.PathValue("org"), r.PathValue("repo")
-		if !requireRepo(w, st, org, repo) {
+		rp, ok := requireRepo(w, st, org, repo)
+		if !ok {
 			return
 		}
 
@@ -92,7 +95,7 @@ func putTask(st Store) http.HandlerFunc {
 				httpx.WriteError(w, http.StatusUnprocessableEntity, "task name and description are required")
 				return
 			}
-			writeSavedTask(w, st, store.Task{Org: org, Repo: repo, Stub: stub, Name: body.Name, Description: body.Description}, http.StatusCreated)
+			writeSavedTask(w, st, store.Task{Org: org, Repo: repo, Stub: stub, Name: body.Name, Description: body.Description}, rp.URL, http.StatusCreated)
 		case err != nil:
 			httpx.WriteError(w, http.StatusInternalServerError, "failed to get task")
 		default:
@@ -102,7 +105,7 @@ func putTask(st Store) http.HandlerFunc {
 			if body.Description != "" {
 				existing.Description = body.Description
 			}
-			writeSavedTask(w, st, existing, http.StatusOK)
+			writeSavedTask(w, st, existing, rp.URL, http.StatusOK)
 		}
 	}
 }
@@ -113,7 +116,8 @@ func putTask(st Store) http.HandlerFunc {
 func moveTask(st Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		org, repo := r.PathValue("org"), r.PathValue("repo")
-		if !requireRepo(w, st, org, repo) {
+		rp, ok := requireRepo(w, st, org, repo)
+		if !ok {
 			return
 		}
 
@@ -134,29 +138,30 @@ func moveTask(st Store) http.HandlerFunc {
 		case err != nil:
 			httpx.WriteError(w, http.StatusInternalServerError, "failed to move task")
 		default:
-			httpx.WriteJSON(w, http.StatusOK, taskJSON(moved))
+			httpx.WriteJSON(w, http.StatusOK, taskJSON(moved, rp.URL))
 		}
 	}
 }
 
-// requireRepo reports whether the repo the route identifies exists, writing the
-// service error response when it does not.
-func requireRepo(w http.ResponseWriter, st Store, org, repo string) bool {
-	if _, err := st.GetRepo(org, repo); err != nil {
+// requireRepo returns the repo the route identifies, writing the service error
+// response and reporting false when it does not exist.
+func requireRepo(w http.ResponseWriter, st Store, org, repo string) (store.Repo, bool) {
+	rp, err := st.GetRepo(org, repo)
+	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			httpx.WriteError(w, http.StatusNotFound, "repo not found")
 		} else {
 			httpx.WriteError(w, http.StatusInternalServerError, "failed to get repo")
 		}
-		return false
+		return store.Repo{}, false
 	}
-	return true
+	return rp, true
 }
 
 // writeSavedTask saves a task and writes it with the given status. A store
 // failure writes the service error response instead. A stub the store rejects
 // is a client error.
-func writeSavedTask(w http.ResponseWriter, st Store, t store.Task, status int) {
+func writeSavedTask(w http.ResponseWriter, st Store, t store.Task, repoURL string, status int) {
 	if err := st.SaveTask(t); err != nil {
 		if errors.Is(err, store.ErrInvalidStub) {
 			httpx.WriteError(w, http.StatusUnprocessableEntity, "task stub is not URL-safe")
@@ -165,19 +170,21 @@ func writeSavedTask(w http.ResponseWriter, st Store, t store.Task, status int) {
 		httpx.WriteError(w, http.StatusInternalServerError, "failed to save task")
 		return
 	}
-	httpx.WriteJSON(w, status, taskJSON(t))
+	httpx.WriteJSON(w, status, taskJSON(t, repoURL))
 }
 
-// tasksJSON returns the tasks as the API represents them.
-func tasksJSON(tasks []store.Task) []task {
+// tasksJSON returns the tasks as the API represents them. Each task carries the
+// URL of the repo that holds it.
+func tasksJSON(tasks []store.Task, repoURL string) []task {
 	out := make([]task, 0, len(tasks))
 	for _, t := range tasks {
-		out = append(out, taskJSON(t))
+		out = append(out, taskJSON(t, repoURL))
 	}
 	return out
 }
 
-// taskJSON returns one task as the API represents it.
-func taskJSON(t store.Task) task {
-	return task{Stub: t.Stub, Name: t.Name, Description: t.Description, Repo: t.Repo}
+// taskJSON returns one task as the API represents it. The repo field carries the
+// URL of the repo that holds the task.
+func taskJSON(t store.Task, repoURL string) task {
+	return task{Stub: t.Stub, Name: t.Name, Description: t.Description, Repo: repoURL}
 }

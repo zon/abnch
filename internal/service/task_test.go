@@ -50,8 +50,8 @@ func TestGetTasksListsTasks(t *testing.T) {
 		t.Fatalf("decode body: %v", err)
 	}
 	want := []taskBody{
-		{Stub: "add-feature", Name: "Add a feature", Description: "A new widget", Repo: "widgets"},
-		{Stub: "fix-bug", Name: "Fix a bug", Description: "A broken widget", Repo: "widgets"},
+		{Stub: "add-feature", Name: "Add a feature", Description: "A new widget", Repo: "https://github.com/acme/widgets"},
+		{Stub: "fix-bug", Name: "Fix a bug", Description: "A broken widget", Repo: "https://github.com/acme/widgets"},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("body listed %d tasks, want %d", len(got), len(want))
@@ -167,7 +167,7 @@ func TestGetTaskReturnsTask(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
 		t.Fatalf("decode body: %v", err)
 	}
-	want := taskBody{Stub: "fix-bug", Name: "Fix a bug", Description: "A broken widget", Repo: "widgets"}
+	want := taskBody{Stub: "fix-bug", Name: "Fix a bug", Description: "A broken widget", Repo: "https://github.com/acme/widgets"}
 	if got != want {
 		t.Errorf("task = %#v, want %#v", got, want)
 	}
@@ -264,7 +264,7 @@ func TestPutTaskCreatesTask(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
 		t.Fatalf("decode body: %v", err)
 	}
-	want := taskBody{Stub: "fix-bug", Name: "Fix a bug", Description: "A broken widget", Repo: "widgets"}
+	want := taskBody{Stub: "fix-bug", Name: "Fix a bug", Description: "A broken widget", Repo: "https://github.com/acme/widgets"}
 	if got != want {
 		t.Errorf("task = %#v, want %#v", got, want)
 	}
@@ -301,7 +301,7 @@ func TestPutTaskUpdatesExistingTask(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
 		t.Fatalf("decode body: %v", err)
 	}
-	want := taskBody{Stub: "fix-bug", Name: "Fix a bug", Description: "new", Repo: "widgets"}
+	want := taskBody{Stub: "fix-bug", Name: "Fix a bug", Description: "new", Repo: "https://github.com/acme/widgets"}
 	if got != want {
 		t.Errorf("task = %#v, want the description replaced and the name kept %#v", got, want)
 	}
@@ -332,7 +332,7 @@ func TestPutTaskUpdateReplacesName(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
 		t.Fatalf("decode body: %v", err)
 	}
-	want := taskBody{Stub: "fix-bug", Name: "Fix the bug", Description: "A broken widget", Repo: "widgets"}
+	want := taskBody{Stub: "fix-bug", Name: "Fix the bug", Description: "A broken widget", Repo: "https://github.com/acme/widgets"}
 	if got != want {
 		t.Errorf("task = %#v, want the name replaced and the description kept %#v", got, want)
 	}
@@ -455,7 +455,7 @@ func TestMoveTaskRenamesTask(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
 		t.Fatalf("decode body: %v", err)
 	}
-	want := taskBody{Stub: "fix-typo", Name: "Fix a bug", Description: "A broken widget", Repo: "widgets"}
+	want := taskBody{Stub: "fix-typo", Name: "Fix a bug", Description: "A broken widget", Repo: "https://github.com/acme/widgets"}
 	if got != want {
 		t.Errorf("task = %#v, want %#v", got, want)
 	}
