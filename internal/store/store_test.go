@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"errors"
 	"reflect"
 	"sort"
@@ -760,6 +761,40 @@ func TestSaveAndGetDatum(t *testing.T) {
 	want := Datum{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Ref: ref, JSON: string(body)}
 	if got != want {
 		t.Errorf("GetDatum = %#v, want %#v", got, want)
+	}
+}
+
+// TestSaveAndGetDatumFileReference checks a datum whose JSON holds a file
+// reference round trips unchanged. The store keeps the URL and checksum as the
+// client gave them and fetches nothing.
+func TestSaveAndGetDatumFileReference(t *testing.T) {
+	s := newTestStore(t)
+	body := []byte(`{"input": {"url": "https://example.com/input.txt", "checksum": "sha256:abc123"}}`)
+
+	ref, err := s.SaveDatum("acme", "widgets", "fix-bug", "basic", body)
+	if err != nil {
+		t.Fatalf("SaveDatum: %v", err)
+	}
+
+	got, err := s.GetDatum("acme", "widgets", "fix-bug", "basic", ref)
+	if err != nil {
+		t.Fatalf("GetDatum: %v", err)
+	}
+	if got.JSON != string(body) {
+		t.Fatalf("GetDatum JSON = %q, want the unchanged JSON %q", got.JSON, body)
+	}
+
+	var parsed struct {
+		Input struct {
+			URL      string `json:"url"`
+			Checksum string `json:"checksum"`
+		} `json:"input"`
+	}
+	if err := json.Unmarshal([]byte(got.JSON), &parsed); err != nil {
+		t.Fatalf("unmarshal datum JSON: %v", err)
+	}
+	if parsed.Input.URL != "https://example.com/input.txt" || parsed.Input.Checksum != "sha256:abc123" {
+		t.Errorf("file reference = %#v, want its URL and checksum unchanged", parsed.Input)
 	}
 }
 
