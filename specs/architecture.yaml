@@ -1,5 +1,11 @@
 - path: Justfile
-  description: Sets up a local service for development.
+  description: Sets up a local service for development, and builds and scans the service image.
+
+- path: deploy/containers
+  description: Builds and configures the deployed containers.
+
+- path: .github/workflows
+  description: Delivers the container images.
 
 - path: cmd/abnch
   description: Provides the abnch CLI.
