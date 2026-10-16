@@ -1,0 +1,45 @@
+# The service image the delivery workflow publishes. The repository defaults to
+# the service image and the tag to the chart appVersion, which tracks the repo
+# version, when left empty.
+image:
+  repository: ghcr.io/zon/abnch/abnchd
+  tag: ""
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+# The Service that reaches the service pods.
+service:
+  type: ClusterIP
+  port: 80
+
+# The Kubernetes Secret that holds the service's secret config values, and the
+# keys within it that hold them. The chart carries the secret's name and keys,
+# never the values. The name defaults to the release's object name.
+secrets:
+  name: ""
+  postgresPasswordKey: postgres-password
+  oidcClientSecretKey: oidc-client-secret
+
+# The service config the chart renders and abnchd reads. The service's base URL
+# also names the host and port it listens on, so a pod binds every interface on
+# the container port. The Postgres password and OIDC client secret come from the
+# Secret above, not from these values.
+config:
+  url: http://0.0.0.0:8080
+  postgres:
+    host: ""
+    port: 5432
+    dbname: abnch
+    user: abnch
+    sslmode: disable
+    timeZone: UTC
+  oidc:
+    issuer: ""
+    clientId: ""
+    redirectUrl: ""
+    scopes: []
+    roleClaim: ""
+    roleMap: {}
+  oauth:
+    issuers: []

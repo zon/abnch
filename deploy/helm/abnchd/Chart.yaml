@@ -1,0 +1,7 @@
+apiVersion: v2
+name: abnchd
+description: Installs the Agent Benchmark service into a Kubernetes cluster.
+type: application
+version: 0.2.0
+# The repo version in internal/version/VERSION. The image tag defaults to it.
+appVersion: "0.2.0"

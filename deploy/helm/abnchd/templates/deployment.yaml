@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "abnchd.fullname" . }}
+  labels:
+    {{- include "abnchd.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "abnchd.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "abnchd.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: abnchd
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - {{ include "abnchd.configPath" . }}
+          env:
+            - name: ABNCHD_POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "abnchd.secretName" . }}
+                  key: {{ .Values.secrets.postgresPasswordKey }}
+            - name: ABNCHD_OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "abnchd.secretName" . }}
+                  key: {{ .Values.secrets.oidcClientSecretKey }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /etc/abnchd
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "abnchd.configMapName" . }}
