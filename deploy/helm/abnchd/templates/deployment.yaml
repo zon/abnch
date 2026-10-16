@@ -18,7 +18,17 @@ spec:
         - name: abnchd
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - {{ include "abnchd.configPath" . }}
           ports:
             - name: http
               containerPort: 8080
               protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /etc/abnchd
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "abnchd.configMapName" . }}

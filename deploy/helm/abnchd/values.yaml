@@ -11,3 +11,27 @@ replicaCount: 1
 service:
   type: ClusterIP
   port: 80
+
+# The service config the chart renders and abnchd reads. The service's base URL
+# also names the host and port it listens on, so a pod binds every interface on
+# the container port.
+config:
+  url: http://0.0.0.0:8080
+  postgres:
+    host: ""
+    port: 5432
+    dbname: abnch
+    user: abnch
+    password: ""
+    sslmode: disable
+    timeZone: UTC
+  oidc:
+    issuer: ""
+    clientId: ""
+    clientSecret: ""
+    redirectUrl: ""
+    scopes: []
+    roleClaim: ""
+    roleMap: {}
+  oauth:
+    issuers: []

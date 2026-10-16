@@ -6,12 +6,15 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/zon/abnch/internal/devconfig"
 )
 
 // serviceImage is the registry path the delivery workflow publishes to and the
@@ -24,12 +27,14 @@ type objectMeta struct {
 	Labels map[string]string `yaml:"labels"`
 }
 
-// manifest is the union of the Deployment and Service fields the tests read.
+// manifest is the union of the Deployment, Service, and ConfigMap fields the
+// tests read.
 type manifest struct {
-	APIVersion string       `yaml:"apiVersion"`
-	Kind       string       `yaml:"kind"`
-	Metadata   objectMeta   `yaml:"metadata"`
-	Spec       manifestSpec `yaml:"spec"`
+	APIVersion string            `yaml:"apiVersion"`
+	Kind       string            `yaml:"kind"`
+	Metadata   objectMeta        `yaml:"metadata"`
+	Data       map[string]string `yaml:"data"`
+	Spec       manifestSpec      `yaml:"spec"`
 }
 
 // manifestSpec holds the Deployment and Service spec fields in one struct, since
@@ -49,13 +54,33 @@ type podTemplate struct {
 // podSpec is the subset of a pod spec the tests read.
 type podSpec struct {
 	Containers []container `yaml:"containers"`
+	Volumes    []volume    `yaml:"volumes"`
 }
 
 // container is the subset of a container the tests read.
 type container struct {
-	Name  string          `yaml:"name"`
-	Image string          `yaml:"image"`
-	Ports []containerPort `yaml:"ports"`
+	Name         string          `yaml:"name"`
+	Image        string          `yaml:"image"`
+	Args         []string        `yaml:"args"`
+	Ports        []containerPort `yaml:"ports"`
+	VolumeMounts []volumeMount   `yaml:"volumeMounts"`
+}
+
+// volume is a pod volume and the ConfigMap it reads.
+type volume struct {
+	Name      string        `yaml:"name"`
+	ConfigMap *configMapRef `yaml:"configMap"`
+}
+
+// configMapRef names the ConfigMap a volume reads.
+type configMapRef struct {
+	Name string `yaml:"name"`
+}
+
+// volumeMount attaches a volume at a container path.
+type volumeMount struct {
+	Name      string `yaml:"name"`
+	MountPath string `yaml:"mountPath"`
 }
 
 // containerPort is one port a container exposes.
@@ -177,6 +202,133 @@ func TestServiceSelectsDeploymentPods(t *testing.T) {
 	if target := containerPortName(dep.Spec.Template.Spec.Containers[0]); target != "" && target != ports[0].TargetPort {
 		t.Errorf("Service targetPort = %v, want the container port %q", ports[0].TargetPort, target)
 	}
+}
+
+// TestChartRendersServiceConfig checks that the chart renders its values into a
+// service config the service reads: the url, Postgres connection, and the OIDC
+// and workload auth settings all come through.
+func TestChartRendersServiceConfig(t *testing.T) {
+	manifests := renderChart(t,
+		"--set", "config.url=http://abnch.example.com:8080",
+		"--set", "config.postgres.host=db",
+		"--set", "config.postgres.port=5433",
+		"--set", "config.postgres.dbname=abnch",
+		"--set", "config.postgres.user=admin",
+		"--set", "config.postgres.password=pg-secret",
+		"--set", "config.postgres.sslmode=require",
+		"--set", "config.postgres.timeZone=America/New_York",
+		"--set", "config.oidc.issuer=https://id.example.com",
+		"--set", "config.oidc.clientId=abnch",
+		"--set", "config.oidc.clientSecret=oidc-secret",
+		"--set", "config.oidc.redirectUrl=http://abnch.example.com:8080/callback",
+		"--set", "config.oidc.scopes={openid,email}",
+		"--set", "config.oidc.roleClaim=groups",
+		"--set", "config.oidc.roleMap.admin=Admin",
+		"--set", "config.oauth.issuers[0].issuer=https://k8s.example.com",
+		"--set", "config.oauth.issuers[0].audience=abnch",
+		"--set", "config.oauth.issuers[0].roleClaim=sub",
+		"--set", "config.oauth.issuers[0].roleMap.build=Service",
+	)
+
+	cfg := renderedConfig(t, manifests)
+
+	if got, want := cfg.URL, "http://abnch.example.com:8080"; got != want {
+		t.Errorf("url = %q, want %q", got, want)
+	}
+	pg := cfg.Postgres
+	if pg.Host != "db" || pg.Port != 5433 || pg.DBName != "abnch" || pg.User != "admin" ||
+		pg.Password != "pg-secret" || pg.SSLMode != "require" || pg.TimeZone != "America/New_York" {
+		t.Errorf("postgres = %+v, want the chart values", pg)
+	}
+	oidc := cfg.OIDC
+	if oidc.Issuer != "https://id.example.com" || oidc.ClientID != "abnch" ||
+		oidc.ClientSecret != "oidc-secret" || oidc.RedirectURL != "http://abnch.example.com:8080/callback" ||
+		oidc.RoleClaim != "groups" || oidc.RoleMap["admin"] != "Admin" {
+		t.Errorf("oidc = %+v, want the chart values", oidc)
+	}
+	if got, want := strings.Join(oidc.Scopes, ","), "openid,email"; got != want {
+		t.Errorf("oidc.scopes = %q, want %q", got, want)
+	}
+	if len(cfg.OAuth.Issuers) != 1 {
+		t.Fatalf("oauth.issuers = %+v, want one issuer", cfg.OAuth.Issuers)
+	}
+	iss := cfg.OAuth.Issuers[0]
+	if iss.Issuer != "https://k8s.example.com" || iss.Audience != "abnch" ||
+		iss.RoleClaim != "sub" || iss.RoleMap["build"] != "Service" {
+		t.Errorf("oauth issuer = %+v, want the chart values", iss)
+	}
+}
+
+// TestDeploymentReadsRenderedConfig checks that the Deployment mounts the config
+// the chart renders and starts abnchd with that file's path, so the service runs
+// from the chart values.
+func TestDeploymentReadsRenderedConfig(t *testing.T) {
+	manifests := renderChart(t)
+
+	dep, ok := findKind(manifests, "Deployment")
+	if !ok {
+		t.Fatalf("chart renders no Deployment:\n%s", renderManifests(manifests))
+	}
+	cm, ok := findKind(manifests, "ConfigMap")
+	if !ok {
+		t.Fatalf("chart renders no ConfigMap:\n%s", renderManifests(manifests))
+	}
+	if cm.Data["config.yaml"] == "" {
+		t.Fatalf("ConfigMap %s holds no config.yaml:\n%s", cm.Metadata.Name, renderManifests(manifests))
+	}
+
+	c := dep.Spec.Template.Spec.Containers[0]
+	if len(c.Args) == 0 {
+		t.Fatalf("container runs no args, so it never names the config path:\n%s", renderManifests(manifests))
+	}
+
+	configPath := c.Args[0]
+	if path.Base(configPath) != "config.yaml" {
+		t.Errorf("container config argument = %q, want the rendered config.yaml", configPath)
+	}
+
+	mountPath, ok := configMountPath(dep.Spec.Template.Spec.Volumes, c.VolumeMounts, cm.Metadata.Name, configPath)
+	if !ok {
+		t.Errorf("container mounts no volume from ConfigMap %s at %s:\n%+v",
+			cm.Metadata.Name, configPath, c.VolumeMounts)
+	}
+	if mountPath != "" && configPath != path.Join(mountPath, "config.yaml") {
+		t.Errorf("container reads %q, want the config ConfigMap mounted at %q", configPath, mountPath)
+	}
+}
+
+// renderedConfig returns the service config the chart renders from its values.
+func renderedConfig(t *testing.T, manifests []manifest) devconfig.Config {
+	t.Helper()
+	cm, ok := findKind(manifests, "ConfigMap")
+	if !ok {
+		t.Fatalf("chart renders no ConfigMap:\n%s", renderManifests(manifests))
+	}
+	cfg, err := devconfig.UnmarshalConfig([]byte(cm.Data["config.yaml"]))
+	if err != nil {
+		t.Fatalf("rendered config is not valid: %v\n%s", err, cm.Data["config.yaml"])
+	}
+	return cfg
+}
+
+// configMountPath returns the mount path of the volume that reads configMap and
+// holds the given config path, so a caller checks the container reads the
+// rendered config.
+func configMountPath(volumes []volume, mounts []volumeMount, configMap, configPath string) (string, bool) {
+	byName := make(map[string]volume, len(volumes))
+	for _, v := range volumes {
+		byName[v.Name] = v
+	}
+	for _, m := range mounts {
+		v, ok := byName[m.Name]
+		if !ok || v.ConfigMap == nil || v.ConfigMap.Name != configMap {
+			continue
+		}
+		if strings.HasPrefix(configPath, m.MountPath+"/") {
+			return m.MountPath, true
+		}
+	}
+	return "", false
 }
 
 // TestChartLints checks that helm accepts the chart with its default values.

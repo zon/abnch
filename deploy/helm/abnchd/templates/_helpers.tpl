@@ -20,3 +20,13 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/name: {{ include "abnchd.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{/* The ConfigMap holding the service config the chart renders. */}}
+{{- define "abnchd.configMapName" -}}
+{{- printf "%s-config" (include "abnchd.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/* The service config file the container reads. */}}
+{{- define "abnchd.configPath" -}}
+/etc/abnchd/config.yaml
+{{- end }}
