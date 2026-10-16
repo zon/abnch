@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -568,8 +569,99 @@ func TestChartLints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("helm lint: %v\n%s", err, out)
 	}
-	if strings.Contains(string(out), "Error") {
+	if strings.Contains(string(out), "[ERROR]") {
 		t.Errorf("helm lint reported an error:\n%s", out)
+	}
+}
+
+// dns1123Subdomain is the name form Kubernetes accepts for object metadata.
+var dns1123Subdomain = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`)
+
+// TestChartRendersValidManifests checks that the chart renders valid Kubernetes
+// manifests with its default values: every document names a kind and API version
+// the cluster serves, carries a DNS-1123 name, and holds the fields its kind
+// requires.
+func TestChartRendersValidManifests(t *testing.T) {
+	manifests := renderChart(t)
+	if len(manifests) == 0 {
+		t.Fatal("chart renders no manifests with its default values")
+	}
+
+	kinds := map[string]string{
+		"Deployment": "apps/v1",
+		"Service":    "v1",
+		"ConfigMap":  "v1",
+	}
+	seen := map[string]bool{}
+	for _, m := range manifests {
+		apiVersion, known := kinds[m.Kind]
+		if !known {
+			t.Errorf("chart renders unknown kind %q", m.Kind)
+			continue
+		}
+		seen[m.Kind] = true
+
+		if m.APIVersion != apiVersion {
+			t.Errorf("%s apiVersion = %q, want %q", m.Kind, m.APIVersion, apiVersion)
+		}
+		if !dns1123Subdomain.MatchString(m.Metadata.Name) {
+			t.Errorf("%s name = %q, want a DNS-1123 subdomain", m.Kind, m.Metadata.Name)
+		}
+
+		switch m.Kind {
+		case "Deployment":
+			checkValidDeployment(t, m)
+		case "Service":
+			checkValidService(t, m)
+		case "ConfigMap":
+			if len(m.Data) == 0 {
+				t.Errorf("ConfigMap %s holds no data", m.Metadata.Name)
+			}
+		}
+	}
+
+	for kind := range kinds {
+		if !seen[kind] {
+			t.Errorf("chart renders no %s with its default values", kind)
+		}
+	}
+}
+
+// checkValidDeployment checks the fields a Deployment requires to schedule pods.
+func checkValidDeployment(t *testing.T, m manifest) {
+	t.Helper()
+	if len(m.Spec.Selector) == 0 {
+		t.Errorf("Deployment %s selects no pods", m.Metadata.Name)
+	}
+	if m.Spec.Template == nil {
+		t.Errorf("Deployment %s has no pod template", m.Metadata.Name)
+		return
+	}
+	if len(m.Spec.Template.Spec.Containers) == 0 {
+		t.Errorf("Deployment %s runs no containers", m.Metadata.Name)
+		return
+	}
+	for _, c := range m.Spec.Template.Spec.Containers {
+		if c.Name == "" || c.Image == "" {
+			t.Errorf("Deployment %s container = %+v, want a name and image", m.Metadata.Name, c)
+		}
+	}
+}
+
+// checkValidService checks the fields a Service requires to reach pods.
+func checkValidService(t *testing.T, m manifest) {
+	t.Helper()
+	if len(m.Spec.Selector) == 0 {
+		t.Errorf("Service %s selects no pods", m.Metadata.Name)
+	}
+	if len(m.Spec.Ports) == 0 {
+		t.Errorf("Service %s forwards no ports", m.Metadata.Name)
+		return
+	}
+	for _, p := range m.Spec.Ports {
+		if p.Port < 1 || p.Port > 65535 {
+			t.Errorf("Service %s port = %d, want 1-65535", m.Metadata.Name, p.Port)
+		}
 	}
 }
 
