@@ -1,6 +1,7 @@
 package containers
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -81,6 +82,37 @@ func TestRuntimeStageHoldsBinaryAndRuntimeDeps(t *testing.T) {
 	}
 }
 
+// TestRuntimeStageRunsAbnchdFromCallerConfig checks that the runtime stage
+// starts abnchd and passes it the config path the caller gives, so a deployment
+// mounts a service config and names it on the command line.
+func TestRuntimeStageRunsAbnchdFromCallerConfig(t *testing.T) {
+	stages := stagesUnderTest(t)
+	run := stages[1]
+
+	entry, ok := run.instruction("ENTRYPOINT")
+	if !ok {
+		t.Fatalf("runtime stage sets no ENTRYPOINT, so the image does not run abnchd:\n%s", run.joined())
+	}
+	argv, err := execForm(entry)
+	if err != nil {
+		t.Fatalf("ENTRYPOINT %s is not exec form: %v", entry, err)
+	}
+	if len(argv) == 0 || filepath.Base(argv[0]) != "abnchd" {
+		t.Errorf("ENTRYPOINT %s does not run the abnchd binary", entry)
+	}
+	if len(argv) != 1 {
+		t.Errorf("ENTRYPOINT %s passes arguments, so the image fixes the config path instead of taking the caller's", entry)
+	}
+
+	copied := copyFrom(run, stages[0].name)
+	if !copied.found {
+		t.Fatalf("runtime stage does not copy the app from the build stage %q:\n%s", stages[0].name, run.joined())
+	}
+	if len(argv) > 0 && argv[0] != copied.dest {
+		t.Errorf("ENTRYPOINT runs %q but the binary is copied to %q", argv[0], copied.dest)
+	}
+}
+
 // TestBaseImagesArePinned checks that each base image names a version rather
 // than a moving tag such as latest.
 func TestBaseImagesArePinned(t *testing.T) {
@@ -131,9 +163,10 @@ func TestBuilderGoMatchesGoMod(t *testing.T) {
 	}
 }
 
-// TestImageRunsAbnchd builds the image and runs the app it holds. It skips when
-// no container engine is installed, so the suite runs without one.
-func TestImageRunsAbnchd(t *testing.T) {
+// TestImageRunsAbnchdFromConfig builds the image and starts the app it holds
+// the way a deployment does. It skips when no container engine is installed, so
+// the suite runs without one.
+func TestImageRunsAbnchdFromConfig(t *testing.T) {
 	engine, ok := containerEngine()
 	if !ok {
 		t.Skip("no podman or docker installed; skipping the image build")
@@ -148,20 +181,36 @@ func TestImageRunsAbnchd(t *testing.T) {
 	}
 	t.Cleanup(func() { exec.Command(engine, "rmi", "-f", tag).Run() })
 
-	run := exec.Command(engine, "run", "--rm", tag, "--help")
-	out, err := run.CombinedOutput()
+	help := exec.Command(engine, "run", "--rm", tag, "--help")
+	out, err := help.CombinedOutput()
 	if err != nil {
-		t.Fatalf("%s run: %v\n%s", engine, err, out)
+		t.Fatalf("%s run --help: %v\n%s", engine, err, out)
 	}
 	if !strings.Contains(string(out), "abnchd") {
 		t.Errorf("image output does not name abnchd:\n%s", out)
 	}
+
+	if out, err := exec.Command(engine, "run", "--rm", tag).CombinedOutput(); err == nil {
+		t.Errorf("image started with no config path and did not fail:\n%s", out)
+	}
+
+	// A caller-supplied path reaches abnchd, so a missing file is reported by
+	// name.
+	path := "/etc/abnchd/missing.yaml"
+	out, err = exec.Command(engine, "run", "--rm", tag, path).CombinedOutput()
+	if err == nil {
+		t.Fatalf("image started with a missing config and did not fail:\n%s", out)
+	}
+	if !strings.Contains(string(out), path) {
+		t.Errorf("image output does not name the config path %q it was given:\n%s", path, out)
+	}
 }
 
-// copyLine is the source of a COPY --from line.
+// copyLine is a COPY --from line's source and destination paths.
 type copyLine struct {
 	found bool
 	src   string
+	dest  string
 }
 
 // copyFrom returns the first COPY in s that copies from the named stage.
@@ -181,7 +230,7 @@ func copyFrom(s stage, name string) copyLine {
 			args = append(args, field)
 		}
 		if strings.EqualFold(from, name) && len(args) >= 2 {
-			return copyLine{found: true, src: args[0]}
+			return copyLine{found: true, src: args[0], dest: args[len(args)-1]}
 		}
 	}
 	return copyLine{}
@@ -258,6 +307,27 @@ func splitCommand(line string) (string, string) {
 // has reports whether any instruction in s contains substr.
 func (s stage) has(substr string) bool {
 	return strings.Contains(s.joined(), substr)
+}
+
+// instruction returns the arguments of the last instruction in s whose command
+// matches cmd, such as ENTRYPOINT or CMD.
+func (s stage) instruction(cmd string) (string, bool) {
+	for i := len(s.instr) - 1; i >= 0; i-- {
+		c, rest := splitCommand(s.instr[i])
+		if strings.EqualFold(c, cmd) {
+			return rest, true
+		}
+	}
+	return "", false
+}
+
+// execForm parses an instruction's exec-form JSON array of arguments.
+func execForm(rest string) ([]string, error) {
+	var argv []string
+	if err := json.Unmarshal([]byte(rest), &argv); err != nil {
+		return nil, err
+	}
+	return argv, nil
 }
 
 // joined returns the stage instructions as one block of text.

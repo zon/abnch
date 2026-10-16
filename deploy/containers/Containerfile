@@ -16,4 +16,6 @@ RUN apk add --no-cache ca-certificates
 
 COPY --from=build /abnchd /usr/local/bin/abnchd
 
+# Exec form so the container command reaches abnchd, which takes the service
+# config path as its first argument.
 ENTRYPOINT ["/usr/local/bin/abnchd"]
