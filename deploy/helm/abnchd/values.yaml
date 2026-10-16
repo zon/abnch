@@ -1,0 +1,13 @@
+# The service image the delivery workflow publishes. The tag defaults to the
+# chart appVersion when left empty.
+image:
+  repository: ghcr.io/zon/abnch/abnchd
+  tag: ""
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+# The Service that reaches the service pods.
+service:
+  type: ClusterIP
+  port: 80

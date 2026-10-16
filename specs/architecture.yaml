@@ -4,6 +4,9 @@
 - path: deploy/containers
   description: Builds and configures the deployed containers.
 
+- path: deploy/helm
+  description: Installs the service into a Kubernetes cluster.
+
 - path: .github/workflows
   description: Delivers the container images.
 
