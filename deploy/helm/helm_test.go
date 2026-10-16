@@ -16,6 +16,7 @@ import (
 
 	"github.com/zon/abnch/internal/devconfig"
 	"github.com/zon/abnch/internal/service"
+	"github.com/zon/abnch/internal/version"
 )
 
 // serviceImage is the registry path the delivery workflow publishes to and the
@@ -181,6 +182,54 @@ func TestDeploymentRunsServiceImage(t *testing.T) {
 		t.Fatal("chart renders no Deployment with an overridden tag")
 	}
 	if got, want := dep.Spec.Template.Spec.Containers[0].Image, serviceImage+":v9.9.9"; got != want {
+		t.Errorf("container image = %q, want %q", got, want)
+	}
+}
+
+// TestChartImageDefaultsToRepoVersion checks that the chart's image values
+// default to the service image at the repo version, so a caller installs the
+// chart and runs the version its apps report.
+func TestChartImageDefaultsToRepoVersion(t *testing.T) {
+	var chart struct {
+		AppVersion string `yaml:"appVersion"`
+	}
+	if err := yaml.Unmarshal([]byte(readFile(t, filepath.Join(chartDir(t), "Chart.yaml"))), &chart); err != nil {
+		t.Fatalf("parse Chart.yaml: %v", err)
+	}
+	if chart.AppVersion != version.Version {
+		t.Errorf("chart appVersion = %q, want the repo version %q", chart.AppVersion, version.Version)
+	}
+
+	var values struct {
+		Image struct {
+			Repository string `yaml:"repository"`
+			Tag        string `yaml:"tag"`
+		} `yaml:"image"`
+	}
+	if err := yaml.Unmarshal([]byte(readFile(t, filepath.Join(chartDir(t), "values.yaml"))), &values); err != nil {
+		t.Fatalf("parse values.yaml: %v", err)
+	}
+	if values.Image.Repository != serviceImage {
+		t.Errorf("values image.repository = %q, want %q", values.Image.Repository, serviceImage)
+	}
+
+	dep, ok := findKind(renderChart(t), "Deployment")
+	if !ok {
+		t.Fatalf("chart renders no Deployment")
+	}
+	if got, want := dep.Spec.Template.Spec.Containers[0].Image, serviceImage+":"+version.Version; got != want {
+		t.Errorf("default container image = %q, want %q", got, want)
+	}
+}
+
+// TestChartImageRepositoryIsValue checks that the image repository follows a
+// chart value, so a caller installs the image from another registry.
+func TestChartImageRepositoryIsValue(t *testing.T) {
+	dep, ok := findKind(renderChart(t, "--set", "image.repository=registry.example.com/abnchd"), "Deployment")
+	if !ok {
+		t.Fatal("chart renders no Deployment with an overridden repository")
+	}
+	if got, want := dep.Spec.Template.Spec.Containers[0].Image, "registry.example.com/abnchd:"+version.Version; got != want {
 		t.Errorf("container image = %q, want %q", got, want)
 	}
 }

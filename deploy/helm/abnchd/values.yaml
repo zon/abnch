@@ -1,5 +1,6 @@
-# The service image the delivery workflow publishes. The tag defaults to the
-# chart appVersion when left empty.
+# The service image the delivery workflow publishes. The repository defaults to
+# the service image and the tag to the chart appVersion, which tracks the repo
+# version, when left empty.
 image:
   repository: ghcr.io/zon/abnch/abnchd
   tag: ""
