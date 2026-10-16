@@ -1,6 +1,9 @@
 - path: Justfile
   description: Sets up a local service for development.
 
+- path: deploy/containers
+  description: Builds and configures the deployed containers.
+
 - path: cmd/abnch
   description: Provides the abnch CLI.
 
