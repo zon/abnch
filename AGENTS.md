@@ -10,6 +10,7 @@
 * [Code](docs/zpecs/code.md) - Read before writing code
   * [Architecture](docs/zpecs/architecture.md) - Read before planning code structure
   * [Dependencies](docs/zpecs/dependencies.md) - Read before adding or changing code dependencies
+  * [Containers](docs/zpecs/containers.md) - Read before building or delivering a container image
 * [Prose](docs/zpecs/prose.md) - Read before writing any kind of prose
 * [Prompts](docs/zpecs/prompts.md) - Read before writing an agent prompt
 * [Spec](docs/zpecs/specs.md) - Read before writing a spec

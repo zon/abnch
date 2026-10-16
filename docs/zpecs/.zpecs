@@ -2,6 +2,7 @@ doc docs/zpecs/README.md
 doc docs/zpecs/architecture-outline.md
 doc docs/zpecs/architecture.md
 doc docs/zpecs/code.md
+doc docs/zpecs/containers.md
 doc docs/zpecs/dependencies.md
 doc docs/zpecs/design.md
 doc docs/zpecs/glossary.md
