@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,13 +11,30 @@ import (
 
 	"github.com/zon/abnch/internal/devconfig"
 	"github.com/zon/abnch/internal/kube"
+	"github.com/zon/abnch/internal/version"
 )
 
 // cli is the abnchctl command line.
 type cli struct {
-	Config string   `help:"Local service config path." type:"path" default:"${configPath}"`
-	Set    setCmd   `cmd:"" help:"Create or update local development resources."`
-	Check  checkCmd `cmd:"" help:"Report on local development resources."`
+	Version versionFlag `name:"version" help:"Print version information and quit."`
+	Config  string      `help:"Local service config path." type:"path" default:"${configPath}"`
+	Set     setCmd      `cmd:"" help:"Create or update local development resources."`
+	Check   checkCmd    `cmd:"" help:"Report on local development resources."`
+}
+
+// errVersion stops parsing after the version prints, so a version request is not
+// reported as a missing command.
+var errVersion = errors.New("version printed")
+
+// versionFlag prints the app version and stops parsing when --version is set.
+type versionFlag bool
+
+func (versionFlag) Decode(*kong.DecodeContext) error { return nil }
+func (versionFlag) IsBool() bool                     { return true }
+
+func (versionFlag) BeforeApply(app *kong.Kong, vars kong.Vars) error {
+	fmt.Fprintln(app.Stdout, vars["version"])
+	return errVersion
 }
 
 // setCmd holds the commands that write local development resources.
@@ -161,6 +179,7 @@ func runCLI(args []string, env deps, exit func(int)) error {
 			"configPath":        env.configPath,
 			"ralphPostgresHost": devconfig.RalphPostgresHost,
 			"ralphPostgresPort": strconv.Itoa(devconfig.RalphPostgresPort),
+			"version":           version.Version,
 		},
 	)
 	if err != nil {
@@ -168,6 +187,9 @@ func runCLI(args []string, env deps, exit func(int)) error {
 	}
 
 	ctx, err := parser.Parse(args)
+	if errors.Is(err, errVersion) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}

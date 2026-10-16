@@ -29,6 +29,10 @@ Behavior contracts for the Agent Benchmark system.
 
 - [Config](dev/config.md) — configuring a local service for development
 
+## Version
+
+- [Version](version.md) — reporting the semantic version the repo's apps share and tagging the service image
+
 ## Deployment
 
 - [Container](deployment/container.md) — packaging and delivering the repo's apps as container images

@@ -20,6 +20,12 @@ Removes the stored session for the service URL.
 
 * --url: optional string - service url. Defaults to the [config](abnch-config.md) url
 
+## `abnch --version`
+
+Prints the semantic version the repo's apps share and exits.
+
+The `set test` version uses `--test-version`, so `--version` names the app version everywhere.
+
 ## `set` Commands
 
 `set` commands update if a matching resource already exists or create if the resource is missing. Updates are peformed by merging values passed to the command with the resource.
@@ -98,7 +104,7 @@ Create or updates a test. Can receive options or a YAML file with matching prope
 
 * --name: string - test name
 * --description: string - test description
-* --version: string - test version
+* --test-version: string - test version
 * --move: optional string - renames test from <stub> to --move value
 
 The schema keys are set through the YAML input.

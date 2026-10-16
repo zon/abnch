@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/zon/abnch/internal/devconfig"
+	"github.com/zon/abnch/internal/version"
 )
 
 // signInService serves the service sign-in the CLI starts: it redirects the
@@ -484,5 +485,18 @@ func TestLogoutFailsWhenConfigHasNoURL(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "url") {
 		t.Errorf("error = %q, want it to name the missing url", err)
+	}
+}
+
+// TestVersionFlagPrintsTheVersion checks `abnch --version` prints the repo's
+// semantic version and reports success.
+func TestVersionFlagPrintsTheVersion(t *testing.T) {
+	var out bytes.Buffer
+
+	if err := runIn([]string{"--version"}, t.TempDir(), t.TempDir(), unusedBrowser(t), context.Background(), &out); err != nil {
+		t.Fatalf("--version = %v, want no error", err)
+	}
+	if got := strings.TrimSpace(out.String()); got != version.Version {
+		t.Errorf("--version printed %q, want %q", got, version.Version)
 	}
 }

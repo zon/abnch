@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/zon/abnch/internal/devconfig"
+	"github.com/zon/abnch/internal/version"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -670,5 +671,18 @@ func writeRalphConfigFile(t *testing.T, repo, content string) {
 	}
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestVersionFlagPrintsTheVersion checks `abnchctl --version` prints the repo's
+// semantic version and reports success.
+func TestVersionFlagPrintsTheVersion(t *testing.T) {
+	var out bytes.Buffer
+
+	if err := runIn([]string{"--version"}, t.TempDir(), t.TempDir(), &out); err != nil {
+		t.Fatalf("--version = %v, want no error", err)
+	}
+	if got := strings.TrimSpace(out.String()); got != version.Version {
+		t.Errorf("--version printed %q, want %q", got, version.Version)
 	}
 }

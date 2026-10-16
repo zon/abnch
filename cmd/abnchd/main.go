@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,11 +12,28 @@ import (
 	"github.com/alecthomas/kong"
 
 	"github.com/zon/abnch/internal/service"
+	"github.com/zon/abnch/internal/version"
 )
 
 // cli is the abnchd command line.
 type cli struct {
-	Config string `arg:"" help:"Service config file." type:"path"`
+	Version versionFlag `name:"version" help:"Print version information and quit."`
+	Config  string      `arg:"" help:"Service config file." type:"path"`
+}
+
+// errVersion stops parsing after the version prints, so a version request is not
+// reported as a missing config.
+var errVersion = errors.New("version printed")
+
+// versionFlag prints the app version and stops parsing when --version is set.
+type versionFlag bool
+
+func (versionFlag) Decode(*kong.DecodeContext) error { return nil }
+func (versionFlag) IsBool() bool                     { return true }
+
+func (versionFlag) BeforeApply(app *kong.Kong, vars kong.Vars) error {
+	fmt.Fprintln(app.Stdout, vars["version"])
+	return errVersion
 }
 
 func main() {
@@ -47,11 +65,15 @@ func runCLI(ctx context.Context, args []string, out io.Writer, exit func(int)) e
 		kong.Description("The Agent Benchmark service."),
 		kong.Writers(out, out),
 		kong.Exit(exit),
+		kong.Vars{"version": version.Version},
 	)
 	if err != nil {
 		return err
 	}
 	if _, err := parser.Parse(args); err != nil {
+		if errors.Is(err, errVersion) {
+			return nil
+		}
 		return err
 	}
 

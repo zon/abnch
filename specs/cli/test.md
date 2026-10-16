@@ -10,7 +10,7 @@ Create, update, and read tests with the `abnch` CLI. A test lives under a task i
 
 `abnch set test <task>/<stub>` SHALL create a test when it is missing and update it when it exists.
 
-The command SHALL accept `--name`, `--description`, and `--version` options, and SHALL also accept a YAML or JSON document on stdin with matching properties, including the score schema. Values from options and stdin SHALL merge with the existing test.
+The command SHALL accept `--name`, `--description`, and `--test-version` options, and SHALL also accept a YAML or JSON document on stdin with matching properties, including the score schema. Values from options and stdin SHALL merge with the existing test.
 
 The command SHALL fail when a required field is missing from both the input and the existing test, and when the task is missing.
 
@@ -18,7 +18,7 @@ The command SHALL fail when a required field is missing from both the input and 
 
 - GIVEN the working directory derives repo `acme/widgets`
 - AND task `fix-bug` exists and no test `basic` exists
-- WHEN the user runs `abnch set test fix-bug/basic --name "Basic" --version 1`
+- WHEN the user runs `abnch set test fix-bug/basic --name "Basic" --test-version 1`
 - THEN the test is created in `acme/widgets/fix-bug`
 - AND `abnch get test fix-bug/basic` returns it
 
@@ -40,7 +40,7 @@ The command SHALL fail when a required field is missing from both the input and 
 #### Scenario: Missing task
 
 - GIVEN no task `fix-bug` exists
-- WHEN the user runs `abnch set test fix-bug/basic --name "Basic" --version 1`
+- WHEN the user runs `abnch set test fix-bug/basic --name "Basic" --test-version 1`
 - THEN the command exits non-zero
 - AND an error is written to stderr
 - AND no task or test is created
@@ -103,6 +103,6 @@ When the service returns an error, the CLI SHALL surface the service error messa
 #### Scenario: Service error
 
 - GIVEN the service returns `403` for a test write
-- WHEN the user runs `abnch set test fix-bug/basic --name "Basic" --version 1`
+- WHEN the user runs `abnch set test fix-bug/basic --name "Basic" --test-version 1`
 - THEN the command exits non-zero
 - AND the service error message is written to stderr

@@ -3,6 +3,7 @@
 ## Common Options
 
 * --config - string - abnchd config path. Defaults to `<repo>/.abnchd/config.yaml`
+* --version - bool - print the semantic version the repo's apps share and exit
 
 ## `abnchctl set local-auth`
 

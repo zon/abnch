@@ -97,6 +97,44 @@ func TestWorkflowPushesToServiceImageRegistry(t *testing.T) {
 	}
 }
 
+// TestWorkflowTagsImageWithRepoVersion checks that the workflow reads the repo
+// version and tags the service image with it, so a release image carries the
+// version its apps report.
+func TestWorkflowTagsImageWithRepoVersion(t *testing.T) {
+	_, steps := deliveryWorkflow(t)
+
+	versionFile := filepath.Join("internal", "version", "VERSION")
+	if !anyStepMentions(steps, versionFile) {
+		t.Errorf("no step reads %s, so the image carries no repo version:\n%s", versionFile, renderSteps(steps))
+	}
+
+	build, ok := indexOf(steps, buildsServiceImage)
+	if !ok {
+		t.Fatalf("no step builds the service image:\n%s", renderSteps(steps))
+	}
+	if !strings.Contains(steps[build].Run, "steps.version.outputs.value") {
+		t.Errorf("build step does not tag the image with the repo version:\n%s", steps[build].Run)
+	}
+
+	push, ok := indexOf(steps, pushesServiceImage)
+	if !ok {
+		t.Fatalf("no step pushes the service image:\n%s", renderSteps(steps))
+	}
+	if !strings.Contains(steps[push].Run, "steps.version.outputs.value") {
+		t.Errorf("push step does not push the versioned image:\n%s", steps[push].Run)
+	}
+}
+
+// anyStepMentions reports whether any step's command mentions substr.
+func anyStepMentions(steps []workflowStep, substr string) bool {
+	for _, s := range steps {
+		if strings.Contains(s.Run, substr) {
+			return true
+		}
+	}
+	return false
+}
+
 // TestWorkflowPushesOnlyAfterCleanScan checks that a failing scan stops the
 // pipeline before the push, so a vulnerable image never reaches the registry.
 func TestWorkflowPushesOnlyAfterCleanScan(t *testing.T) {

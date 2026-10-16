@@ -182,7 +182,7 @@ func TestSetTestCreatesTest(t *testing.T) {
 	seedTestTask(fake)
 	d := setTestDeps(t, workDir, fake.url, "")
 
-	if err := runSetTest([]string{"fix-bug/basic", "--name", "Basic", "--version", "1"}, d); err != nil {
+	if err := runSetTest([]string{"fix-bug/basic", "--name", "Basic", "--test-version", "1"}, d); err != nil {
 		t.Fatalf("set test = %v, want no error", err)
 	}
 
@@ -264,7 +264,7 @@ func TestSetTestUpdateKeepsSchema(t *testing.T) {
 	})
 	d := setTestDeps(t, workDir, fake.url, "")
 
-	if err := runSetTest([]string{"fix-bug/basic", "--version", "2"}, d); err != nil {
+	if err := runSetTest([]string{"fix-bug/basic", "--test-version", "2"}, d); err != nil {
 		t.Fatalf("set test = %v, want no error", err)
 	}
 
@@ -345,7 +345,7 @@ func TestSetTestFailsWhenTaskMissing(t *testing.T) {
 	fake.seedRepo("acme", "widgets", "git@github.com:acme/widgets.git")
 	d := setTestDeps(t, workDir, fake.url, "")
 
-	if err := runSetTest([]string{"fix-bug/basic", "--name", "Basic", "--version", "1"}, d); err == nil {
+	if err := runSetTest([]string{"fix-bug/basic", "--name", "Basic", "--test-version", "1"}, d); err == nil {
 		t.Fatal("set test = nil, want an error for a missing task")
 	} else if !strings.Contains(err.Error(), "fix-bug") {
 		t.Errorf("error = %q, want it to name the missing task", err)
@@ -364,7 +364,7 @@ func TestSetTestFailsWhenRepoMissing(t *testing.T) {
 	fake := newFakeService(t)
 	d := setTestDeps(t, workDir, fake.url, "")
 
-	err := runSetTest([]string{"fix-bug/basic", "--name", "Basic", "--version", "1"}, d)
+	err := runSetTest([]string{"fix-bug/basic", "--name", "Basic", "--test-version", "1"}, d)
 	if err == nil {
 		t.Fatal("set test = nil, want an error for a missing repo")
 	}
@@ -383,7 +383,7 @@ func TestSetTestFailsOnInvalidStdin(t *testing.T) {
 	seedTestTask(fake)
 	d := setTestDeps(t, workDir, fake.url, "schema: [\n")
 
-	if err := runSetTest([]string{"fix-bug/basic", "--name", "Basic", "--version", "1"}, d); err == nil {
+	if err := runSetTest([]string{"fix-bug/basic", "--name", "Basic", "--test-version", "1"}, d); err == nil {
 		t.Fatal("set test = nil, want an error for an invalid body")
 	}
 	if fake.count() != 0 {
@@ -398,7 +398,7 @@ func TestSetTestFailsOnInvalidPath(t *testing.T) {
 	seedTestTask(fake)
 	d := setTestDeps(t, workDir, fake.url, "")
 
-	if err := runSetTest([]string{"fix-bug", "--name", "Basic", "--version", "1"}, d); err == nil {
+	if err := runSetTest([]string{"fix-bug", "--name", "Basic", "--test-version", "1"}, d); err == nil {
 		t.Fatal("set test = nil, want an error for a path without a stub")
 	}
 	if fake.count() != 0 {
@@ -476,7 +476,7 @@ func TestSetTestSurfacesServiceError(t *testing.T) {
 	service := forbiddenService(t)
 	d := setTestDeps(t, workDir, service, "")
 
-	err := runSetTest([]string{"fix-bug/basic", "--name", "Basic", "--version", "1"}, d)
+	err := runSetTest([]string{"fix-bug/basic", "--name", "Basic", "--test-version", "1"}, d)
 	if err == nil {
 		t.Fatal("set test = nil, want an error when the service rejects the write")
 	}
@@ -489,7 +489,7 @@ func TestSetTestSendsNoRequestOutsideGitRepo(t *testing.T) {
 	fake := newFakeService(t)
 	d := setTestDeps(t, t.TempDir(), fake.url, "")
 
-	if err := runSetTest([]string{"fix-bug/basic", "--name", "Basic", "--version", "1"}, d); err == nil {
+	if err := runSetTest([]string{"fix-bug/basic", "--name", "Basic", "--test-version", "1"}, d); err == nil {
 		t.Fatal("set test = nil, want an error outside a Git repo")
 	}
 	if fake.count() != 0 {
@@ -504,7 +504,7 @@ func TestSetTestReportsMissingTaskOnStderr(t *testing.T) {
 	fake.seedRepo("acme", "widgets", "git@github.com:acme/widgets.git")
 	d := setTestDeps(t, workDir, fake.url, "")
 
-	code, out, errOut := exitCode(t, []string{"set", "test", "fix-bug/basic", "--name", "Basic", "--version", "1"}, d)
+	code, out, errOut := exitCode(t, []string{"set", "test", "fix-bug/basic", "--name", "Basic", "--test-version", "1"}, d)
 	if code == 0 {
 		t.Error("exit = 0, want a non-zero exit for a missing task")
 	}

@@ -33,3 +33,6 @@
 
 - path: internal/service
   description: Runs the service from its configuration.
+
+- path: internal/version
+  description: Reports the semantic version the repo's apps share.

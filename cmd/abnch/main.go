@@ -3,23 +3,42 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 
 	"github.com/alecthomas/kong"
+
+	"github.com/zon/abnch/internal/version"
 )
 
 // cli is the abnch command line.
 type cli struct {
-	Login  loginCmd  `cmd:"" help:"Sign in a human user and store the session."`
-	Logout logoutCmd `cmd:"" help:"Remove the stored session."`
-	Get    getCmd    `cmd:"" help:"Read resources from the inferred repo."`
-	Set    setCmd    `cmd:"" help:"Create or update resources in the inferred repo."`
-	Add    addCmd    `cmd:"" help:"Add resources to the inferred repo."`
-	Run    runCmd    `cmd:"" help:"Run a task's agent against a test's data."`
-	Score  scoreCmd  `cmd:"" help:"Score a result with the task's grader."`
+	Version versionFlag `name:"version" help:"Print version information and quit."`
+	Login   loginCmd    `cmd:"" help:"Sign in a human user and store the session."`
+	Logout  logoutCmd   `cmd:"" help:"Remove the stored session."`
+	Get     getCmd      `cmd:"" help:"Read resources from the inferred repo."`
+	Set     setCmd      `cmd:"" help:"Create or update resources in the inferred repo."`
+	Add     addCmd      `cmd:"" help:"Add resources to the inferred repo."`
+	Run     runCmd      `cmd:"" help:"Run a task's agent against a test's data."`
+	Score   scoreCmd    `cmd:"" help:"Score a result with the task's grader."`
+}
+
+// errVersion stops parsing after the version prints, so a version request is not
+// reported as a missing command.
+var errVersion = errors.New("version printed")
+
+// versionFlag prints the app version and stops parsing when --version is set.
+type versionFlag bool
+
+func (versionFlag) Decode(*kong.DecodeContext) error { return nil }
+func (versionFlag) IsBool() bool                     { return true }
+
+func (versionFlag) BeforeApply(app *kong.Kong, vars kong.Vars) error {
+	fmt.Fprintln(app.Stdout, vars["version"])
+	return errVersion
 }
 
 // scoreCmd scores a result with the task's grader.
@@ -256,7 +275,7 @@ type setTestCmd struct {
 	Path        string `arg:"" help:"Task and test stub as <task>/<stub>."`
 	Name        string `help:"Test name." optional:""`
 	Description string `help:"Test description." optional:""`
-	Version     string `help:"Test version." optional:""`
+	Version     string `name:"test-version" help:"Test version." optional:""`
 	Move        string `help:"Rename the test to this stub." optional:""`
 }
 
@@ -375,12 +394,16 @@ func runCLI(args []string, env deps, exit func(int)) error {
 		kong.Description("Agent Benchmark command line."),
 		kong.Writers(env.out, env.out),
 		kong.Exit(exit),
+		kong.Vars{"version": version.Version},
 	)
 	if err != nil {
 		return err
 	}
 
 	ctx, err := parser.Parse(args)
+	if errors.Is(err, errVersion) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}

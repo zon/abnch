@@ -18,9 +18,15 @@ jobs:
       - name: Check out the repo
         uses: actions/checkout@v7.0.1
 
+      - name: Read the repo version
+        id: version
+        run: echo "value=$(cat internal/version/VERSION)" >> "$GITHUB_OUTPUT"
+
       - name: Build the service image
         run: |
-          podman build -f deploy/containers/Containerfile -t "$IMAGE:${{ github.sha }}" .
+          podman build -f deploy/containers/Containerfile \
+            -t "$IMAGE:${{ steps.version.outputs.value }}" \
+            -t "$IMAGE:${{ github.sha }}" .
 
       - name: Install Trivy
         run: |
@@ -29,10 +35,10 @@ jobs:
 
       - name: Scan the image
         run: |
-          podman save "$IMAGE:${{ github.sha }}" -o image.tar
-          trivy image --input image.tar --severity HIGH,CRITICAL --exit-code 1
+          trivy image --severity HIGH,CRITICAL --exit-code 1 "$IMAGE:${{ steps.version.outputs.value }}"
 
       - name: Push the image
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
+          podman push "$IMAGE:${{ steps.version.outputs.value }}"
           podman push "$IMAGE:${{ github.sha }}"
