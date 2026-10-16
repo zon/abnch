@@ -24,9 +24,10 @@ const (
 	credentialsName   = "credentials.yaml"
 )
 
-// ConfigGitignore is the .gitignore entry for the config directory, which holds
-// both the local service config and the dev signing key.
-const ConfigGitignore = ConfigDir + "/"
+// ConfigGitignore is the .gitignore entry for the config path, which holds both
+// the local service config and the dev signing key. It has no trailing slash, so
+// it excludes a stray symlink or file at that path as well as the directory.
+const ConfigGitignore = ConfigDir
 
 // Options configures a local auth setup.
 type Options struct {
