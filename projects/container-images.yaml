@@ -1,4 +1,0 @@
-- The repo ships a multi-stage Containerfile that builds `abnchd` and a runtime image holding the binary and its runtime dependencies. Base images are pinned to the latest available version, and Go dependencies follow the pinned module versions in `go.mod`.
-- The service image runs `abnchd` with the service config path supplied to it, so a deployment mounts a service config and passes its path to the image.
-- A `just container` recipe builds the service image and scans it with Trivy, and fails on a high or critical vulnerability.
-- A GitHub Actions workflow builds the service image, scans it with Trivy, stops on a high or critical vulnerability, and pushes the image to `ghcr.io/zon/abnch/abnchd` when the scan passes.
