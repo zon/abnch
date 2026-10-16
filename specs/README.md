@@ -36,3 +36,4 @@ Behavior contracts for the Agent Benchmark system.
 ## Deployment
 
 - [Container](deployment/container.md) — packaging and delivering the repo's apps as container images
+- [Helm](deployment/helm.md) — installing the service into a Kubernetes cluster with a Helm chart
