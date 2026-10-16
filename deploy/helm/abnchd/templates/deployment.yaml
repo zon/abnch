@@ -20,6 +20,17 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args:
             - {{ include "abnchd.configPath" . }}
+          env:
+            - name: ABNCHD_POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "abnchd.secretName" . }}
+                  key: {{ .Values.secrets.postgresPasswordKey }}
+            - name: ABNCHD_OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "abnchd.secretName" . }}
+                  key: {{ .Values.secrets.oidcClientSecretKey }}
           ports:
             - name: http
               containerPort: 8080

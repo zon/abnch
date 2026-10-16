@@ -21,6 +21,11 @@ app.kubernetes.io/name: {{ include "abnchd.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
+{{/* The Secret holding the service's secret config values. */}}
+{{- define "abnchd.secretName" -}}
+{{- .Values.secrets.name | default (include "abnchd.fullname" .) }}
+{{- end }}
+
 {{/* The ConfigMap holding the service config the chart renders. */}}
 {{- define "abnchd.configMapName" -}}
 {{- printf "%s-config" (include "abnchd.fullname" .) | trunc 63 | trimSuffix "-" }}

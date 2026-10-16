@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"time"
 
 	"github.com/zon/abnch/internal/auth"
@@ -106,6 +107,28 @@ type Options struct {
 	Out io.Writer
 }
 
+// PostgresPasswordEnv is the environment variable a deployment sets from a
+// Kubernetes secret to supply the Postgres password.
+const PostgresPasswordEnv = "ABNCHD_POSTGRES_PASSWORD"
+
+// OIDCClientSecretEnv is the environment variable a deployment sets from a
+// Kubernetes secret to supply the OIDC client secret.
+const OIDCClientSecretEnv = "ABNCHD_OIDC_CLIENT_SECRET"
+
+// ApplySecretEnv returns cfg with the Postgres password and OIDC client secret
+// replaced by the values getenv reports when they are set. A deployment sets
+// those variables from a Kubernetes secret, so the secret values reach the
+// service without appearing in the chart's rendered config.
+func ApplySecretEnv(cfg devconfig.Config, getenv func(string) string) devconfig.Config {
+	if v := getenv(PostgresPasswordEnv); v != "" {
+		cfg.Postgres.Password = v
+	}
+	if v := getenv(OIDCClientSecretEnv); v != "" {
+		cfg.OIDC.ClientSecret = v
+	}
+	return cfg
+}
+
 // Run loads the service config, connects to Postgres, and serves the service
 // until ctx is canceled. It returns a clear error when the config file is
 // missing or malformed, or when Postgres is unreachable.
@@ -119,6 +142,7 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
+	cfg = ApplySecretEnv(cfg, os.Getenv)
 
 	addr, err := serviceAddr(cfg, opts.ConfigPath)
 	if err != nil {

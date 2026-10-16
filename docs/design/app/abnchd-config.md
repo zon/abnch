@@ -67,6 +67,10 @@ A Kubernetes service account token carries the `sub` claim `system:serviceaccoun
 
 A dev issuer token is minted by the CLI and signed with a dev key. A local service config trusts the dev issuer that signs it, and the service serves that issuer's public half from its JWKS. The dev key sits beside the config in the `.abnchd` directory. See [Dev Config Design](../dev-config.md).
 
+## Deployment Secrets
+
+A deployment supplies the Postgres password and the OIDC client secret from a Kubernetes secret rather than the config file. It sets `ABNCHD_POSTGRES_PASSWORD` and `ABNCHD_OIDC_CLIENT_SECRET` from the secret's keys, and the service applies them over the values it loaded. A local run keeps both values in the config file.
+
 ## Local Development
 
 A local run reads a config that `just config` writes. Use the [dev tooling](abnchctl.md) to set it up:

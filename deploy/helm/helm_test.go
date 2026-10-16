@@ -15,6 +15,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/zon/abnch/internal/devconfig"
+	"github.com/zon/abnch/internal/service"
 )
 
 // serviceImage is the registry path the delivery workflow publishes to and the
@@ -62,8 +63,26 @@ type container struct {
 	Name         string          `yaml:"name"`
 	Image        string          `yaml:"image"`
 	Args         []string        `yaml:"args"`
+	Env          []envVar        `yaml:"env"`
 	Ports        []containerPort `yaml:"ports"`
 	VolumeMounts []volumeMount   `yaml:"volumeMounts"`
+}
+
+// envVar is one container environment variable and where its value comes from.
+type envVar struct {
+	Name      string        `yaml:"name"`
+	ValueFrom *envValueFrom `yaml:"valueFrom"`
+}
+
+// envValueFrom names the source of an environment variable.
+type envValueFrom struct {
+	SecretKeyRef *secretKeyRef `yaml:"secretKeyRef"`
+}
+
+// secretKeyRef reads one key from a Kubernetes Secret.
+type secretKeyRef struct {
+	Name string `yaml:"name"`
+	Key  string `yaml:"key"`
 }
 
 // volume is a pod volume and the ConfigMap it reads.
@@ -214,12 +233,10 @@ func TestChartRendersServiceConfig(t *testing.T) {
 		"--set", "config.postgres.port=5433",
 		"--set", "config.postgres.dbname=abnch",
 		"--set", "config.postgres.user=admin",
-		"--set", "config.postgres.password=pg-secret",
 		"--set", "config.postgres.sslmode=require",
 		"--set", "config.postgres.timeZone=America/New_York",
 		"--set", "config.oidc.issuer=https://id.example.com",
 		"--set", "config.oidc.clientId=abnch",
-		"--set", "config.oidc.clientSecret=oidc-secret",
 		"--set", "config.oidc.redirectUrl=http://abnch.example.com:8080/callback",
 		"--set", "config.oidc.scopes={openid,email}",
 		"--set", "config.oidc.roleClaim=groups",
@@ -237,14 +254,20 @@ func TestChartRendersServiceConfig(t *testing.T) {
 	}
 	pg := cfg.Postgres
 	if pg.Host != "db" || pg.Port != 5433 || pg.DBName != "abnch" || pg.User != "admin" ||
-		pg.Password != "pg-secret" || pg.SSLMode != "require" || pg.TimeZone != "America/New_York" {
+		pg.SSLMode != "require" || pg.TimeZone != "America/New_York" {
 		t.Errorf("postgres = %+v, want the chart values", pg)
 	}
 	oidc := cfg.OIDC
 	if oidc.Issuer != "https://id.example.com" || oidc.ClientID != "abnch" ||
-		oidc.ClientSecret != "oidc-secret" || oidc.RedirectURL != "http://abnch.example.com:8080/callback" ||
+		oidc.RedirectURL != "http://abnch.example.com:8080/callback" ||
 		oidc.RoleClaim != "groups" || oidc.RoleMap["admin"] != "Admin" {
 		t.Errorf("oidc = %+v, want the chart values", oidc)
+	}
+	if pg.Password != "" {
+		t.Errorf("postgres.password = %q, want the secret to supply it, not the values", pg.Password)
+	}
+	if oidc.ClientSecret != "" {
+		t.Errorf("oidc.clientSecret = %q, want the secret to supply it, not the values", oidc.ClientSecret)
 	}
 	if got, want := strings.Join(oidc.Scopes, ","), "openid,email"; got != want {
 		t.Errorf("oidc.scopes = %q, want %q", got, want)
@@ -257,6 +280,160 @@ func TestChartRendersServiceConfig(t *testing.T) {
 		iss.RoleClaim != "sub" || iss.RoleMap["build"] != "Service" {
 		t.Errorf("oauth issuer = %+v, want the chart values", iss)
 	}
+}
+
+// TestChartValuesHoldNoSecretValues checks that the chart values carry the
+// secret's name and keys rather than the Postgres password and OIDC client
+// secret themselves.
+func TestChartValuesHoldNoSecretValues(t *testing.T) {
+	var values struct {
+		Secrets struct {
+			Name                string `yaml:"name"`
+			PostgresPasswordKey string `yaml:"postgresPasswordKey"`
+			OIDCClientSecretKey string `yaml:"oidcClientSecretKey"`
+		} `yaml:"secrets"`
+		Config struct {
+			Postgres struct {
+				Password string `yaml:"password"`
+			} `yaml:"postgres"`
+			OIDC struct {
+				ClientSecret string `yaml:"clientSecret"`
+			} `yaml:"oidc"`
+		} `yaml:"config"`
+	}
+	if err := yaml.Unmarshal([]byte(readFile(t, filepath.Join(chartDir(t), "values.yaml"))), &values); err != nil {
+		t.Fatalf("parse values.yaml: %v", err)
+	}
+
+	if values.Secrets.PostgresPasswordKey == "" || values.Secrets.OIDCClientSecretKey == "" {
+		t.Errorf("values name no secret keys, so the chart cannot read the secret: %+v", values.Secrets)
+	}
+	if values.Config.Postgres.Password != "" {
+		t.Errorf("values hold postgres.password %q, want them to name the secret key instead", values.Config.Postgres.Password)
+	}
+	if values.Config.OIDC.ClientSecret != "" {
+		t.Errorf("values hold oidc.clientSecret %q, want them to name the secret key instead", values.Config.OIDC.ClientSecret)
+	}
+}
+
+// TestDeploymentInjectsSecretConfig checks that the Deployment reads the
+// Postgres password and OIDC client secret from a Kubernetes Secret the chart
+// values name, so the chart never carries those values.
+func TestDeploymentInjectsSecretConfig(t *testing.T) {
+	dep, ok := findKind(renderChart(t,
+		"--set", "secrets.name=abnchd-secret",
+		"--set", "secrets.postgresPasswordKey=pg-pass",
+		"--set", "secrets.oidcClientSecretKey=oidc-secret",
+	), "Deployment")
+	if !ok {
+		t.Fatal("chart renders no Deployment")
+	}
+	env := dep.Spec.Template.Spec.Containers[0].Env
+
+	pg, ok := secretRef(env, service.PostgresPasswordEnv)
+	if !ok {
+		t.Fatalf("container has no %s env, so the Postgres password never comes from the secret:\n%+v",
+			service.PostgresPasswordEnv, env)
+	}
+	if pg.Name != "abnchd-secret" || pg.Key != "pg-pass" {
+		t.Errorf("%s reads %s/%s, want abnchd-secret/pg-pass", service.PostgresPasswordEnv, pg.Name, pg.Key)
+	}
+
+	oidc, ok := secretRef(env, service.OIDCClientSecretEnv)
+	if !ok {
+		t.Fatalf("container has no %s env, so the OIDC client secret never comes from the secret:\n%+v",
+			service.OIDCClientSecretEnv, env)
+	}
+	if oidc.Name != "abnchd-secret" || oidc.Key != "oidc-secret" {
+		t.Errorf("%s reads %s/%s, want abnchd-secret/oidc-secret", service.OIDCClientSecretEnv, oidc.Name, oidc.Key)
+	}
+}
+
+// TestDeploymentSecretDefaultsToReleaseName checks that the secret name defaults
+// to the release's object name, so a caller reads the release's secret without
+// naming it.
+func TestDeploymentSecretDefaultsToReleaseName(t *testing.T) {
+	dep, ok := findKind(renderChart(t), "Deployment")
+	if !ok {
+		t.Fatal("chart renders no Deployment")
+	}
+
+	pg, ok := secretRef(dep.Spec.Template.Spec.Containers[0].Env, service.PostgresPasswordEnv)
+	if !ok {
+		t.Fatalf("container has no %s env", service.PostgresPasswordEnv)
+	}
+	if pg.Name != dep.Metadata.Name {
+		t.Errorf("secret name = %q, want the release name %q", pg.Name, dep.Metadata.Name)
+	}
+}
+
+// TestDeploymentSecretSuppliesServiceConfig checks that the secret the
+// Deployment reads reaches the config the service runs with, so the Postgres
+// password and OIDC client secret come from the secret.
+func TestDeploymentSecretSuppliesServiceConfig(t *testing.T) {
+	manifests := renderChart(t,
+		"--set", "config.url=http://abnch.example.com:8080",
+		"--set", "config.postgres.host=db",
+		"--set", "config.postgres.dbname=abnch",
+		"--set", "config.postgres.user=admin",
+		"--set", "config.postgres.sslmode=require",
+		"--set", "config.postgres.timeZone=UTC",
+		"--set", "config.oidc.issuer=https://id.example.com",
+		"--set", "config.oidc.clientId=abnch",
+		"--set", "secrets.name=abnchd-secret",
+		"--set", "secrets.postgresPasswordKey=pg-pass",
+		"--set", "secrets.oidcClientSecretKey=oidc-secret",
+	)
+
+	cfg := renderedConfig(t, manifests)
+	if cfg.Postgres.Password != "" || cfg.OIDC.ClientSecret != "" {
+		t.Fatalf("rendered config holds secret values: postgres.password=%q oidc.clientSecret=%q",
+			cfg.Postgres.Password, cfg.OIDC.ClientSecret)
+	}
+
+	dep, ok := findKind(manifests, "Deployment")
+	if !ok {
+		t.Fatal("chart renders no Deployment")
+	}
+	getenv := secretEnv(dep.Spec.Template.Spec.Containers[0].Env, map[string]string{
+		"abnchd-secret/pg-pass":     "pg-secret",
+		"abnchd-secret/oidc-secret": "oidc-secret",
+	})
+
+	cfg = service.ApplySecretEnv(cfg, func(name string) string { return getenv[name] })
+	if cfg.Postgres.Password != "pg-secret" {
+		t.Errorf("postgres.password = %q, want the secret value", cfg.Postgres.Password)
+	}
+	if cfg.OIDC.ClientSecret != "oidc-secret" {
+		t.Errorf("oidc.clientSecret = %q, want the secret value", cfg.OIDC.ClientSecret)
+	}
+	if err := devconfig.CheckPostgres(cfg.Postgres); err != nil {
+		t.Errorf("service config is not usable with the secret values: %v", err)
+	}
+}
+
+// secretRef returns the environment entry that reads a secret key.
+func secretRef(env []envVar, name string) (secretKeyRef, bool) {
+	for _, e := range env {
+		if e.Name == name && e.ValueFrom != nil && e.ValueFrom.SecretKeyRef != nil {
+			return *e.ValueFrom.SecretKeyRef, true
+		}
+	}
+	return secretKeyRef{}, false
+}
+
+// secretEnv resolves each secret-backed environment variable to the value the
+// Secret holds at the named key, as Kubernetes does at pod start.
+func secretEnv(env []envVar, secret map[string]string) map[string]string {
+	out := map[string]string{}
+	for _, e := range env {
+		if e.ValueFrom == nil || e.ValueFrom.SecretKeyRef == nil {
+			continue
+		}
+		ref := e.ValueFrom.SecretKeyRef
+		out[e.Name] = secret[ref.Name+"/"+ref.Key]
+	}
+	return out
 }
 
 // TestDeploymentReadsRenderedConfig checks that the Deployment mounts the config
