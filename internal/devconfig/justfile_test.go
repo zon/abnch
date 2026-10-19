@@ -116,7 +116,7 @@ const postgresBlock = "postgres:\n" +
 // TestJustConfigSetsUpLocalService runs the real config recipe over a
 // hand-written Postgres config and checks that both steps pass.
 func TestJustConfigSetsUpLocalService(t *testing.T) {
-	out, err := runConfigRecipe(t, postgresBlock)
+	out, _, err := runConfigRecipe(t, postgresBlock)
 	if err != nil {
 		t.Fatalf("just config = %v, want success:\n%s", err, out)
 	}
@@ -125,11 +125,38 @@ func TestJustConfigSetsUpLocalService(t *testing.T) {
 	}
 }
 
+// TestJustConfigWritesPlaintextLoopbackConfig runs the real recipe with a port
+// and checks the config it writes keeps local development on HTTP on loopback,
+// with no TLS block.
+func TestJustConfigWritesPlaintextLoopbackConfig(t *testing.T) {
+	out, work, err := runConfigRecipe(t, postgresBlock, "9090")
+	if err != nil {
+		t.Fatalf("just config = %v, want success:\n%s", err, out)
+	}
+
+	path := ConfigPath(work)
+	cfg := readConfigFile(t, path)
+	if cfg.URL != "http://localhost:9090" {
+		t.Errorf("url = %q, want http://localhost:9090", cfg.URL)
+	}
+	if cfg.Listen != "" {
+		t.Errorf("listen = %q, want no listen address so the service uses the url loopback", cfg.Listen)
+	}
+	if cfg.TLS != nil {
+		t.Errorf("tls = %#v, want no TLS block for local development", cfg.TLS)
+	}
+
+	doc := readYAMLDoc(t, path)
+	if _, ok := doc["tls"]; ok {
+		t.Errorf("just config wrote a tls block: %#v", doc["tls"])
+	}
+}
+
 // TestJustConfigFailsWhenSetLocalAuthFails runs the config recipe with a
 // malformed local service config, so set local-auth fails to read it. The
 // recipe must exit non-zero, report the failure, and never reach check config.
 func TestJustConfigFailsWhenSetLocalAuthFails(t *testing.T) {
-	out, err := runConfigRecipe(t, "postgres: [\n")
+	out, _, err := runConfigRecipe(t, "postgres: [\n")
 	if err == nil {
 		t.Fatalf("just config = nil, want a non-zero exit when set local-auth fails:\n%s", out)
 	}
@@ -145,7 +172,7 @@ func TestJustConfigFailsWhenSetLocalAuthFails(t *testing.T) {
 // Postgres block, so set local-auth succeeds but check config fails. The recipe
 // must exit non-zero and report it.
 func TestJustConfigFailsWhenCheckConfigFails(t *testing.T) {
-	out, err := runConfigRecipe(t, "")
+	out, _, err := runConfigRecipe(t, "")
 	if err == nil {
 		t.Fatalf("just config = nil, want a non-zero exit when check config fails:\n%s", out)
 	}
@@ -158,10 +185,11 @@ func TestJustConfigFailsWhenCheckConfigFails(t *testing.T) {
 }
 
 // runConfigRecipe runs the real config recipe end to end and returns just's
-// combined output. It seeds seed as the local service config, then builds
-// abnchctl and substitutes a stub `go` that runs that binary from an isolated
-// repo root and HOME, so the recipe's writes stay in temp directories.
-func runConfigRecipe(t *testing.T, seed string) (string, error) {
+// combined output and the repo root it wrote into. It seeds seed as the local
+// service config, then builds abnchctl and substitutes a stub `go` that runs
+// that binary from an isolated repo root and HOME, so the recipe's writes stay
+// in temp directories. It passes args to the recipe.
+func runConfigRecipe(t *testing.T, seed string, args ...string) (string, string, error) {
 	t.Helper()
 
 	just, err := exec.LookPath("just")
@@ -197,13 +225,13 @@ func runConfigRecipe(t *testing.T, seed string) (string, error) {
 		t.Fatal(err)
 	}
 
-	cmd := exec.Command(just, "--justfile", filepath.Join(root, "Justfile"), "config")
+	cmd := exec.Command(just, append([]string{"--justfile", filepath.Join(root, "Justfile"), "config"}, args...)...)
 	cmd.Env = envWith(map[string]string{
 		"PATH": stubDir + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"HOME": t.TempDir(),
 	})
 	out, err := cmd.CombinedOutput()
-	return string(out), err
+	return string(out), work, err
 }
 
 // envWith returns the process environment with each override replacing any

@@ -60,6 +60,34 @@ func TestSetLocalAuthWritesLocalAuthConfig(t *testing.T) {
 	}
 }
 
+// TestSetLocalAuthWritesPlaintextLoopbackConfig keeps local development on
+// plaintext loopback: the URL is http on localhost and the config names no TLS
+// block.
+func TestSetLocalAuthWritesPlaintextLoopbackConfig(t *testing.T) {
+	repo := t.TempDir()
+
+	path, err := SetLocalAuth(Options{Port: 9000, RepoRoot: repo, HomeDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := readConfigFile(t, path)
+	if cfg.URL != "http://localhost:9000" {
+		t.Errorf("url = %q, want http://localhost:9000", cfg.URL)
+	}
+	if cfg.Listen != "" {
+		t.Errorf("listen = %q, want no listen address so the service uses the url loopback", cfg.Listen)
+	}
+	if cfg.TLS != nil {
+		t.Errorf("tls = %#v, want no TLS block for local development", cfg.TLS)
+	}
+
+	doc := readYAMLDoc(t, path)
+	if _, ok := doc["tls"]; ok {
+		t.Errorf("config wrote a tls block: %#v", doc["tls"])
+	}
+}
+
 func TestSetLocalAuthPreservesPostgres(t *testing.T) {
 	repo := t.TempDir()
 	home := t.TempDir()
