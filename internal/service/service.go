@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -149,6 +150,11 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 
+	tlsConfig, err := serverTLSConfig(cfg.TLS)
+	if err != nil {
+		return fmt.Errorf("config file %s: %w", opts.ConfigPath, err)
+	}
+
 	db, err := opener(ctx, cfg.Postgres)
 	if err != nil {
 		return err
@@ -175,7 +181,7 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 
-	return serve(ctx, addr, handler, out)
+	return serve(ctx, addr, handler, tlsConfig, out)
 }
 
 // serviceHandler builds the service's routes: the local dev issuer it hosts,
@@ -355,13 +361,63 @@ func checkTLS(rawURL string, tls *devconfig.TLS) error {
 	return nil
 }
 
-// serve hosts the handler on addr until ctx is canceled.
-func serve(ctx context.Context, addr string, handler http.Handler, out io.Writer) error {
+// serverTLSConfig returns the TLS configuration for the certificate and key
+// the service config names, or nil when the config names no tls block.
+func serverTLSConfig(cfg *devconfig.TLS) (*tls.Config, error) {
+	if cfg == nil {
+		return nil, nil
+	}
+
+	pair, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("tls certificate %q and key %q are missing, unreadable, or not a valid pair: %w", cfg.CertFile, cfg.KeyFile, err)
+	}
+	return &tls.Config{
+		Certificates: []tls.Certificate{pair},
+		MinVersion:   tls.VersionTLS12,
+	}, nil
+}
+
+// tlsListener wraps accepted connections in TLS, so a plaintext request fails
+// the handshake instead of reading as an HTTP request.
+type tlsListener struct {
+	net.Listener
+	config *tls.Config
+}
+
+func (l *tlsListener) Accept() (net.Conn, error) {
+	conn, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return &tlsConn{Conn: tls.Server(conn, l.config)}, nil
+}
+
+// tlsConn hands the service the TLS connection state. It wraps handshake errors
+// so the HTTP server closes the connection without answering a plaintext
+// request.
+type tlsConn struct {
+	*tls.Conn
+}
+
+func (c *tlsConn) HandshakeContext(ctx context.Context) error {
+	if err := c.Conn.HandshakeContext(ctx); err != nil {
+		return fmt.Errorf("tls handshake: %w", err)
+	}
+	return nil
+}
+
+// serve hosts the handler on addr until ctx is canceled. A non-nil tlsConfig
+// makes it serve HTTPS on that address and nowhere else.
+func serve(ctx context.Context, addr string, handler http.Handler, tlsConfig *tls.Config, out io.Writer) error {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("failed to listen on %s: %w", addr, err)
 	}
 	fmt.Fprintf(out, "abnchd listening on %s\n", ln.Addr())
+	if tlsConfig != nil {
+		ln = &tlsListener{Listener: ln, config: tlsConfig}
+	}
 
 	srv := &http.Server{Handler: handler}
 	errCh := make(chan error, 1)
