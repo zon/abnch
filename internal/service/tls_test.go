@@ -27,6 +27,7 @@ import (
 type testCertificate struct {
 	certFile string
 	keyFile  string
+	leaf     *x509.Certificate
 	pool     *x509.CertPool
 }
 
@@ -73,6 +74,7 @@ func newTestCertificate(t *testing.T) testCertificate {
 	if err != nil {
 		t.Fatal(err)
 	}
+	cert.leaf = leaf
 	cert.pool = x509.NewCertPool()
 	cert.pool.AddCert(leaf)
 	return cert
@@ -275,6 +277,69 @@ func TestRunRejectsMismatchedCertificateAndKey(t *testing.T) {
 	if !strings.Contains(strings.ToLower(err.Error()), "pair") {
 		t.Errorf("error = %q, want it to report the invalid pair", err)
 	}
+}
+
+// TestRunReloadsRenewedCertificate checks the service serves a renewed
+// certificate and key for new connections without a restart.
+func TestRunReloadsRenewedCertificate(t *testing.T) {
+	first := newTestCertificate(t)
+	renewed := newTestCertificate(t)
+	base, _ := startHTTPService(t, first, Options{})
+	addr := strings.TrimSuffix(strings.TrimPrefix(base, "https://"), "/")
+
+	pool := x509.NewCertPool()
+	pool.AddCert(first.leaf)
+	pool.AddCert(renewed.leaf)
+
+	if got := servedCertificate(t, addr, pool); !got.Equal(first.leaf) {
+		t.Fatalf("served certificate %v, want the original %v", got.SerialNumber, first.leaf.SerialNumber)
+	}
+
+	renewCertificateFiles(t, first, renewed)
+
+	if got := servedCertificate(t, addr, pool); !got.Equal(renewed.leaf) {
+		t.Fatalf("served certificate %v, want the renewed %v", got.SerialNumber, renewed.leaf.SerialNumber)
+	}
+}
+
+// renewCertificateFiles replaces the certificate and key at the paths the
+// service reads with those from renewed.
+func renewCertificateFiles(t *testing.T, current, renewed testCertificate) {
+	t.Helper()
+	files := []struct{ dst, src string }{
+		{current.certFile, renewed.certFile},
+		{current.keyFile, renewed.keyFile},
+	}
+	for _, file := range files {
+		data, err := os.ReadFile(file.src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, file.dst, data)
+	}
+}
+
+// servedCertificate returns the certificate the service at addr presents to a
+// new connection.
+func servedCertificate(t *testing.T, addr string, roots *x509.CertPool) *x509.Certificate {
+	t.Helper()
+
+	conn, err := tls.DialWithDialer(
+		&net.Dialer{Timeout: 2 * time.Second},
+		"tcp",
+		addr,
+		&tls.Config{RootCAs: roots},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	certs := conn.ConnectionState().PeerCertificates
+	if len(certs) == 0 {
+		t.Fatal("TLS connection presented no certificate")
+	}
+	return certs[0]
 }
 
 // waitForServiceWith waits until the client reaches the service at url.

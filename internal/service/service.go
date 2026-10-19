@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/zon/abnch/internal/auth"
@@ -368,22 +370,86 @@ func serverTLSConfig(cfg *devconfig.TLS) (*tls.Config, error) {
 		return nil, nil
 	}
 
-	certPEM, err := os.ReadFile(cfg.CertFile)
+	pair, err := readTLSKeyPair(cfg.CertFile, cfg.KeyFile)
 	if err != nil {
-		return nil, fmt.Errorf("tls certificate file %q is missing or unreadable: %w", cfg.CertFile, err)
+		return nil, err
 	}
-	keyPEM, err := os.ReadFile(cfg.KeyFile)
-	if err != nil {
-		return nil, fmt.Errorf("tls key file %q is missing or unreadable: %w", cfg.KeyFile, err)
-	}
-	pair, err := tls.X509KeyPair(certPEM, keyPEM)
-	if err != nil {
-		return nil, fmt.Errorf("tls certificate %q and key %q are not a valid pair: %w", cfg.CertFile, cfg.KeyFile, err)
+	reloader := &certificateReloader{
+		certFile: cfg.CertFile,
+		keyFile:  cfg.KeyFile,
+		current:  pair,
 	}
 	return &tls.Config{
-		Certificates: []tls.Certificate{pair},
-		MinVersion:   tls.VersionTLS12,
+		GetCertificate: reloader.certificate,
+		MinVersion:     tls.VersionTLS12,
 	}, nil
+}
+
+// tlsKeyPair is a loaded certificate and key with the PEM data it came from.
+type tlsKeyPair struct {
+	cert    tls.Certificate
+	certPEM []byte
+	keyPEM  []byte
+}
+
+// readTLSKeyPair reads the certificate and key files and parses them into a
+// pair.
+func readTLSKeyPair(certFile, keyFile string) (*tlsKeyPair, error) {
+	certPEM, keyPEM, err := readTLSFiles(certFile, keyFile)
+	if err != nil {
+		return nil, err
+	}
+	cert, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		return nil, fmt.Errorf("tls certificate %q and key %q are not a valid pair: %w", certFile, keyFile, err)
+	}
+	return &tlsKeyPair{cert: cert, certPEM: certPEM, keyPEM: keyPEM}, nil
+}
+
+// readTLSFiles reads the certificate and key files, naming the file that is
+// missing or unreadable.
+func readTLSFiles(certFile, keyFile string) (certPEM, keyPEM []byte, err error) {
+	certPEM, err = os.ReadFile(certFile)
+	if err != nil {
+		return nil, nil, fmt.Errorf("tls certificate file %q is missing or unreadable: %w", certFile, err)
+	}
+	keyPEM, err = os.ReadFile(keyFile)
+	if err != nil {
+		return nil, nil, fmt.Errorf("tls key file %q is missing or unreadable: %w", keyFile, err)
+	}
+	return certPEM, keyPEM, nil
+}
+
+// certificateReloader serves the certificate and key at its paths, reloading
+// them when they change.
+type certificateReloader struct {
+	certFile string
+	keyFile  string
+	mu       sync.Mutex
+	current  *tlsKeyPair
+}
+
+// certificate returns the pair for a new TLS connection, reloading it when the
+// files hold a different certificate or key. A failed reload keeps the last
+// valid pair.
+func (r *certificateReloader) certificate(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	certPEM, keyPEM, err := readTLSFiles(r.certFile, r.keyFile)
+	if err != nil {
+		return &r.current.cert, nil
+	}
+	if bytes.Equal(certPEM, r.current.certPEM) && bytes.Equal(keyPEM, r.current.keyPEM) {
+		return &r.current.cert, nil
+	}
+
+	pair, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		return &r.current.cert, nil
+	}
+	r.current = &tlsKeyPair{cert: pair, certPEM: certPEM, keyPEM: keyPEM}
+	return &r.current.cert, nil
 }
 
 // tlsListener wraps accepted connections in TLS, so a plaintext request fails
