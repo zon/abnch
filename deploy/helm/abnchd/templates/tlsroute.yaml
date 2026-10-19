@@ -1,0 +1,21 @@
+{{- if .Values.ingress.enabled }}
+{{- if not .Values.ingress.hostname }}
+{{- fail "ingress.hostname is required when ingress.enabled is true" }}
+{{- end }}
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: TLSRoute
+metadata:
+  name: {{ include "abnchd.fullname" . }}
+  labels:
+    {{- include "abnchd.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ .Values.ingress.gateway.name }}
+      namespace: {{ .Values.ingress.gateway.namespace }}
+  hostnames:
+    - {{ .Values.ingress.hostname | quote }}
+  rules:
+    - backendRefs:
+        - name: {{ include "abnchd.fullname" . }}
+          port: {{ .Values.service.port }}
+{{- end }}

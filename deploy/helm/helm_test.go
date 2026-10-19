@@ -57,6 +57,26 @@ type manifestSpec struct {
 	DNSNames   []string       `yaml:"dnsNames"`
 	IssuerRef  issuerRef      `yaml:"issuerRef"`
 	IsCA       bool           `yaml:"isCA"`
+	Hostnames  []string       `yaml:"hostnames"`
+	ParentRefs []parentRef    `yaml:"parentRefs"`
+	Rules      []routeRule    `yaml:"rules"`
+}
+
+// parentRef names a Gateway a route attaches to.
+type parentRef struct {
+	Name      string `yaml:"name"`
+	Namespace string `yaml:"namespace"`
+}
+
+// routeRule is one rule a route applies to its hostnames.
+type routeRule struct {
+	BackendRefs []backendRef `yaml:"backendRefs"`
+}
+
+// backendRef names a Service a route forwards to.
+type backendRef struct {
+	Name string `yaml:"name"`
+	Port int    `yaml:"port"`
 }
 
 // issuerRef names the issuer that signs a Certificate.
@@ -326,6 +346,96 @@ func TestServiceForwardsHTTPSPort(t *testing.T) {
 	}
 	if got, want := ports[0].TargetPort, "https"; got != want {
 		t.Errorf("Service targetPort = %v, want the container port %q", got, want)
+	}
+}
+
+// TestChartIngressUsesGatewayAPITLSRoute checks that an enabled ingress renders
+// a Gateway API TLSRoute that forwards the hostname's TLS traffic to the
+// service, so the gateway passes TLS through to abnchd without terminating it.
+func TestChartIngressUsesGatewayAPITLSRoute(t *testing.T) {
+	const hostname = "bench.example.com"
+	manifests := renderChart(t,
+		"--set", "ingress.enabled=true",
+		"--set", "ingress.hostname="+hostname,
+		"--set", "ingress.gateway.name=api",
+		"--set", "ingress.gateway.namespace=gateway-system",
+	)
+
+	route, ok := findKind(manifests, "TLSRoute")
+	if !ok {
+		t.Fatalf("chart renders no TLSRoute with the ingress enabled:\n%s", renderManifests(manifests))
+	}
+	if got, want := route.APIVersion, "gateway.networking.k8s.io/v1alpha2"; got != want {
+		t.Errorf("TLSRoute apiVersion = %q, want %q", got, want)
+	}
+	if !dns1123Subdomain.MatchString(route.Metadata.Name) {
+		t.Errorf("TLSRoute name = %q, want a DNS-1123 subdomain", route.Metadata.Name)
+	}
+	if want := []string{hostname}; !slices.Equal(route.Spec.Hostnames, want) {
+		t.Errorf("TLSRoute hostnames = %v, want %v", route.Spec.Hostnames, want)
+	}
+
+	if len(route.Spec.ParentRefs) != 1 {
+		t.Fatalf("TLSRoute has %d parent refs, want the Gateway:\n%+v", len(route.Spec.ParentRefs), route.Spec.ParentRefs)
+	}
+	parent := route.Spec.ParentRefs[0]
+	if parent.Name != "api" || parent.Namespace != "gateway-system" {
+		t.Errorf("TLSRoute parent = %s/%s, want api/gateway-system", parent.Namespace, parent.Name)
+	}
+
+	svc, ok := findKind(manifests, "Service")
+	if !ok {
+		t.Fatalf("chart renders no Service:\n%s", renderManifests(manifests))
+	}
+	if len(route.Spec.Rules) != 1 || len(route.Spec.Rules[0].BackendRefs) != 1 {
+		t.Fatalf("TLSRoute rules = %+v, want one backend", route.Spec.Rules)
+	}
+	backend := route.Spec.Rules[0].BackendRefs[0]
+	if backend.Name != svc.Metadata.Name {
+		t.Errorf("TLSRoute backend = %q, want the service %q", backend.Name, svc.Metadata.Name)
+	}
+	if got, want := backend.Port, 443; got != want {
+		t.Errorf("TLSRoute backend port = %d, want %d", got, want)
+	}
+}
+
+// TestChartIngressIsOffByDefault checks that a default install renders no route,
+// so the chart installs into a cluster without a Gateway.
+func TestChartIngressIsOffByDefault(t *testing.T) {
+	if _, ok := findKind(renderChart(t), "TLSRoute"); ok {
+		t.Error("chart renders a TLSRoute by default, want the ingress off")
+	}
+}
+
+// TestChartRequiresIngressHostname checks that enabling the ingress without a
+// hostname fails with an error that names the required setting.
+func TestChartRequiresIngressHostname(t *testing.T) {
+	out, err := renderChartOutput(t,
+		"--set", "tls.issuerRef.name="+testIssuerName,
+		"--set", "ingress.enabled=true",
+	)
+	if err == nil {
+		t.Fatalf("helm template accepted an ingress without a hostname:\n%s", out)
+	}
+	if !strings.Contains(string(out), "ingress.hostname") {
+		t.Errorf("helm template error does not name ingress.hostname:\n%s", out)
+	}
+}
+
+// TestServiceCertificateCoversIngressHostname checks that the service
+// Certificate covers the ingress hostname, so the gateway's passthrough
+// connections reach a certificate the client trusts.
+func TestServiceCertificateCoversIngressHostname(t *testing.T) {
+	const hostname = "bench.example.com"
+	manifests := renderChart(t,
+		"--set", "ingress.enabled=true",
+		"--set", "ingress.hostname="+hostname,
+	)
+
+	cert := serviceCertificate(t, manifests)
+	if !slices.Contains(cert.Spec.DNSNames, hostname) {
+		t.Errorf("service Certificate covers %v, want it to include the ingress hostname %q",
+			cert.Spec.DNSNames, hostname)
 	}
 }
 

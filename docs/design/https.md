@@ -1,6 +1,6 @@
 # HTTPS Design
 
-The service serves its API over HTTPS. TLS starts at abnchd. The process reads the certificate and key, then accepts TLS itself, rather than leaving TLS to an ingress or a proxy in front of it. A deployment issues the certificate with cert-manager and mounts it into the pod.
+The service serves its API over HTTPS. TLS starts at abnchd. The process reads the certificate and key, then accepts TLS itself. A gateway in front of it forwards the encrypted connection by SNI. A deployment issues the certificate with cert-manager and mounts it into the pod.
 
 HTTPS protects traffic between a client and abnchd. It does not encrypt data in Postgres or hide data from the service. Payload encryption, encryption at rest, and mutual TLS are out of scope. The Postgres connection has its own `sslmode` setting, separate from the client-facing HTTPS.
 
@@ -26,7 +26,9 @@ cert-manager renews a certificate by writing a new value to the certificate's Se
 
 The chart requires cert-manager but renders no issuer of its own. It creates the service Certificate and signs it with an external issuer that the values name in `tls.issuerRef`. The chart fails to render when that name is missing. The Deployment mounts the Certificate Secret and starts abnchd over HTTPS.
 
-The service Certificate covers `tls.dnsNames`. The default is the Service's cluster DNS name. A deployment that serves clients outside the cluster sets the public host names in `tls.dnsNames` and the same host in `config.url`.
+The service Certificate covers `tls.dnsNames`. The default is the Service's cluster DNS name. A deployment that serves clients outside the cluster names the public host names in `tls.dnsNames` or enables the ingress. It sets the public host in `config.url`.
+
+An enabled ingress renders a Gateway API TLSRoute attached to an existing Gateway. The Gateway forwards TLS by SNI and does not terminate it. The route forwards the ingress hostname to the Service's HTTPS port. The hostname joins the service Certificate's names.
 
 A deployment that uses a private CA distributes the CA certificate to clients that must trust it.
 

@@ -16,13 +16,25 @@ service:
 # The service certificate. The chart signs it with an existing cert-manager
 # issuer, which issuerRef names. The chart renders no issuer of its own and fails
 # when issuerRef.name is empty. dnsNames defaults to the Service's cluster DNS
-# name when empty.
+# name when empty. An enabled ingress adds its hostname to the certificate.
 tls:
   issuerRef:
     name: ""
     kind: Issuer
     group: cert-manager.io
   dnsNames: []
+
+# The Gateway API route that publishes the service outside the cluster. The
+# chart attaches a TLSRoute to an existing Gateway, which forwards TLS by SNI
+# without terminating it, so abnchd still terminates TLS. Set hostname to the
+# public host, set the same host in config.url, and let the chart add the host
+# to the service certificate.
+ingress:
+  enabled: false
+  hostname: ""
+  gateway:
+    name: ingress
+    namespace: envoy-gateway-system
 
 # The Kubernetes Secret that holds the service's secret config values, and the
 # keys within it that hold them. The chart carries the secret's name and keys,

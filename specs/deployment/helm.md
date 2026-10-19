@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Install the service into a Kubernetes cluster. The chart supplies the [Service Config](../../docs/design/app/abnchd-config.md) through its values, runs the service image the [Container spec](container.md) delivers, and configures HTTPS with cert-manager. The image is tagged with the [shared version](../version.md). The delivery pipeline publishes the chart to a registry so a cluster deployment installs it by name and version. The [Deployment Design](../../docs/design/deployment.md) describes the chart, where it is published, and the secrets a deployment supplies. The [HTTPS Design](../../docs/design/https.md) describes TLS at the service.
+Install the service into a Kubernetes cluster. The chart supplies the [Service Config](../../docs/design/app/abnchd-config.md) through its values, runs the service image the [Container spec](container.md) delivers, configures HTTPS with cert-manager, and can publish the service through a Gateway API TLSRoute. The image is tagged with the [shared version](../version.md). The delivery pipeline publishes the chart to a registry so a cluster deployment installs it by name and version. The [Deployment Design](../../docs/design/deployment.md) describes the chart, where it is published, and the secrets a deployment supplies. The [HTTPS Design](../../docs/design/https.md) describes TLS at the service.
 
 ## Requirements
 
@@ -72,11 +72,39 @@ The chart SHALL configure `abnchd` to serve HTTPS and SHALL expose only the HTTP
 - WHEN a client sends a plaintext HTTP request to the Service
 - THEN the service serves no plaintext API
 
+### Requirement: Gateway Ingress
+
+The chart SHALL render a Gateway API TLSRoute when its ingress values enable it. The route SHALL attach to the Gateway named in `ingress.gateway`, SHALL match `ingress.hostname`, and SHALL forward to the Service's HTTPS port. The gateway SHALL forward TLS without terminating it.
+
+The chart SHALL fail to render when the ingress is enabled without a hostname.
+
+#### Scenario: Publish through the gateway
+
+- GIVEN values that enable the ingress and name a hostname and Gateway
+- WHEN the chart renders
+- THEN it renders a TLSRoute for that hostname
+- AND the route attaches to that Gateway
+- AND the route forwards to the Service's HTTPS port
+
+#### Scenario: Ingress disabled
+
+- GIVEN values that do not enable the ingress
+- WHEN the chart renders
+- THEN it renders no route
+- AND the Service remains reachable inside the cluster
+
+#### Scenario: Missing ingress hostname
+
+- GIVEN values that enable the ingress without a hostname
+- WHEN the chart renders
+- THEN it fails
+- AND it reports that a hostname is required
+
 ### Requirement: Certificate Resources
 
 The chart SHALL require cert-manager and SHALL NOT install it. It SHALL render a cert-manager Certificate for the service signed by an existing issuer. The chart SHALL NOT render an Issuer or a CA. Values SHALL name the issuer in `tls.issuerRef`, and the chart SHALL fail to render when `tls.issuerRef.name` is empty.
 
-The service certificate SHALL cover `tls.dnsNames`. When the value is empty, the certificate SHALL cover the Service's cluster DNS name.
+The service certificate SHALL cover `tls.dnsNames`. When the value is empty, the certificate SHALL cover the Service's cluster DNS name. The certificate SHALL also cover an enabled ingress hostname.
 
 #### Scenario: External issuer
 
