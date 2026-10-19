@@ -61,6 +61,50 @@ func TestWorkflowDeliversServiceImage(t *testing.T) {
 	}
 }
 
+// TestWorkflowScansSavedImageArchive checks that the scan reads the archive
+// Podman saved from the built image, so Trivy need not reach a container socket
+// on the runner.
+func TestWorkflowScansSavedImageArchive(t *testing.T) {
+	_, steps := deliveryWorkflow(t)
+
+	build, ok := indexOf(steps, buildsServiceImage)
+	if !ok {
+		t.Fatalf("no step builds the service image from the Containerfile:\n%s", renderSteps(steps))
+	}
+	scan, ok := indexOf(steps, scansServiceImage)
+	if !ok {
+		t.Fatalf("no step scans the service image with Trivy:\n%s", renderSteps(steps))
+	}
+	save, ok := indexOf(steps, savesServiceImage)
+	if !ok {
+		t.Fatalf("no step saves the built image to an archive:\n%s", renderSteps(steps))
+	}
+
+	if save < build || save > scan {
+		t.Errorf("pipeline builds at %d, saves at %d, scans at %d, want build then save then scan", build, save, scan)
+	}
+	if !referencesImage(steps[save].Run) {
+		t.Errorf("save step %q does not use the workflow image %s:\n%s", steps[save].Name, serviceImage, steps[save].Run)
+	}
+
+	archive := savedArchive(steps[save].Run)
+	if archive == "" {
+		t.Fatalf("save step %q names no archive:\n%s", steps[save].Name, steps[save].Run)
+	}
+	input := flagValue(steps[scan].Run, "--input")
+	if input == "" {
+		t.Errorf("scan step %q does not read the saved archive with --input:\n%s", steps[scan].Name, steps[scan].Run)
+	} else if input != archive {
+		t.Errorf("scan reads %q but the save step wrote %q", input, archive)
+	}
+
+	for _, line := range strings.Split(steps[scan].Run, "\n") {
+		if strings.Contains(line, "trivy image") && referencesImage(line) {
+			t.Errorf("Trivy reads the image by name rather than from the archive, so it needs a container socket:\n%s", line)
+		}
+	}
+}
+
 // TestWorkflowStopsOnHighOrCritical checks that the scan limits itself to high
 // and critical vulnerabilities and fails the pipeline when it finds one.
 func TestWorkflowStopsOnHighOrCritical(t *testing.T) {
@@ -209,6 +253,39 @@ func scansServiceImage(s workflowStep) bool {
 // pushesServiceImage reports whether a step pushes the image.
 func pushesServiceImage(s workflowStep) bool {
 	return strings.Contains(s.Run, "podman push")
+}
+
+// savesServiceImage reports whether a step saves an image to an archive.
+func savesServiceImage(s workflowStep) bool {
+	return strings.Contains(s.Run, "podman save")
+}
+
+// savedArchive returns the archive path a save command names.
+func savedArchive(run string) string {
+	for _, line := range strings.Split(run, "\n") {
+		if !strings.Contains(line, "podman save") {
+			continue
+		}
+		if path := flagValue(line, "-o"); path != "" {
+			return path
+		}
+		if path := flagValue(line, "--output"); path != "" {
+			return path
+		}
+	}
+	return ""
+}
+
+// flagValue returns the argument after flag on a command line.
+func flagValue(run, flag string) string {
+	fields := strings.Fields(run)
+	for i, field := range fields {
+		if field != flag || i+1 >= len(fields) {
+			continue
+		}
+		return strings.Trim(fields[i+1], `"'`)
+	}
+	return ""
 }
 
 // referencesImage reports whether a command publishes or reads the image named

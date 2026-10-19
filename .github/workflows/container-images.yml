@@ -35,7 +35,8 @@ jobs:
 
       - name: Scan the image
         run: |
-          trivy image --severity HIGH,CRITICAL --exit-code 1 "$IMAGE:${{ steps.version.outputs.value }}"
+          podman save "$IMAGE:${{ steps.version.outputs.value }}" -o image.tar
+          trivy image --input image.tar --severity HIGH,CRITICAL --exit-code 1
 
       - name: Push the image
         run: |
