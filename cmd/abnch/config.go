@@ -56,6 +56,54 @@ func configPath(workDir string) string {
 	return filepath.Join(workDir, configDir, configName)
 }
 
+// setConfig creates or updates the CLI config's service URL. It keeps the
+// existing URL when --url is not given and fails when neither provides one.
+func setConfig(d deps, c setConfigCmd) error {
+	url := c.URL
+	if url == "" {
+		cfg, err := loadConfig(d.workDir)
+		if err != nil {
+			return fmt.Errorf("failed to read %s: %w", configPath(d.workDir), err)
+		}
+		url = cfg.URL
+	}
+	if url == "" {
+		return errors.New("no service url: pass --url")
+	}
+	if err := setConfigURL(d.workDir, url); err != nil {
+		return err
+	}
+	fmt.Fprintln(d.out, "Set config")
+	return nil
+}
+
+// setConfigURL records the service URL in the CLI config under workDir. It
+// edits the existing YAML document, so every other key survives. A missing
+// config is created.
+func setConfigURL(workDir, url string) error {
+	return editConfig(workDir, func(data []byte) ([]byte, error) {
+		return updateConfigURL(data, url)
+	})
+}
+
+// updateConfigURL returns the config document with url set, preserving every
+// other key and comment.
+func updateConfigURL(data []byte, url string) ([]byte, error) {
+	var doc yaml.Node
+	if len(data) > 0 {
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			return nil, err
+		}
+	}
+
+	root, err := rootMapping(&doc)
+	if err != nil {
+		return nil, err
+	}
+	setMappingValue(root, "url", scalarNode(url))
+	return marshalNode(&doc)
+}
+
 // setTaskModel records the task's default model in the CLI config under workDir.
 // It edits the existing YAML document, so every other key survives. A missing
 // config is created.

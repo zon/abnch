@@ -224,11 +224,22 @@ func (c getDataCmd) Run(deps deps) error {
 
 // setCmd groups the commands that create or update resources.
 type setCmd struct {
+	Config setConfigCmd `cmd:"" help:"Create or update the CLI config."`
 	Task   setTaskCmd   `cmd:"" help:"Create or update a task in the inferred repo."`
 	Test   setTestCmd   `cmd:"" help:"Create or update a test in the inferred repo."`
 	Model  setModelCmd  `cmd:"" help:"Create or update a model in the CLI config."`
 	Agent  setAgentCmd  `cmd:"" help:"Create or update a task's agent in the CLI config."`
 	Grader setGraderCmd `cmd:"" help:"Create or update a task's grader in the CLI config."`
+}
+
+// setConfigCmd creates or updates the CLI config.
+type setConfigCmd struct {
+	URL string `help:"Service URL." optional:""`
+}
+
+// Run creates or updates the CLI config.
+func (c setConfigCmd) Run(deps deps) error {
+	return setConfig(deps, c)
 }
 
 // setAgentCmd creates or updates a task's agent in the CLI config.
