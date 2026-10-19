@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -35,11 +36,19 @@ func TestSetConfigCreatesConfig(t *testing.T) {
 	}
 }
 
-func TestSetConfigUpdatesURLAndPreservesOtherKeys(t *testing.T) {
+func TestSetConfigUpdatesURLAndPreservesModelsAndTasks(t *testing.T) {
 	workDir := t.TempDir()
 	writeCLIConfig(t, workDir, "url: https://old.example.com\n"+
-		"models:\n  sonnet:\n    provider: anthropic\n    name: claude-sonnet\n"+
-		"tasks:\n  fix-bug:\n    model: sonnet\n")
+		"models:\n"+
+		"  sonnet:\n    provider: anthropic\n    name: claude-sonnet\n    variant: high\n"+
+		"  haiku:\n    provider: anthropic\n    name: claude-haiku\n"+
+		"tasks:\n"+
+		"  fix-bug:\n    model: sonnet\n    agent:\n      versionCmd: ./version.sh\n      buildCmd: ./build.sh\n      runCmd: ./run.sh\n"+
+		"  write-docs:\n    model: haiku\n    grader:\n      runCmd: ./grade.sh\n")
+	before, err := loadConfig(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	d := commandDeps(t, workDir)
 
 	code, _, errOut := exitCode(t, []string{"set", "config", "--url", "https://new.example.com"}, d)
@@ -47,18 +56,18 @@ func TestSetConfigUpdatesURLAndPreservesOtherKeys(t *testing.T) {
 		t.Fatalf("exit = %d, want 0: %s", code, errOut)
 	}
 
-	cfg, err := loadConfig(workDir)
+	after, err := loadConfig(workDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.URL != "https://new.example.com" {
-		t.Errorf("url = %q, want the new url", cfg.URL)
+	if after.URL != "https://new.example.com" {
+		t.Errorf("url = %q, want the new url", after.URL)
 	}
-	if got := cfg.Models["sonnet"]; got.Provider != "anthropic" || got.Name != "claude-sonnet" {
-		t.Errorf("model = %+v, want the existing model kept", got)
+	if !reflect.DeepEqual(after.Models, before.Models) {
+		t.Errorf("models = %+v, want the existing models kept as %+v", after.Models, before.Models)
 	}
-	if got := cfg.Tasks["fix-bug"]; got.Model != "sonnet" {
-		t.Errorf("task = %+v, want the existing task kept", got)
+	if !reflect.DeepEqual(after.Tasks, before.Tasks) {
+		t.Errorf("tasks = %+v, want the existing tasks kept as %+v", after.Tasks, before.Tasks)
 	}
 }
 
