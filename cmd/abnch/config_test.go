@@ -90,6 +90,32 @@ func TestSetConfigFailsWithoutURL(t *testing.T) {
 	}
 }
 
+func TestSetConfigFailsWithoutURLInExistingConfig(t *testing.T) {
+	workDir := t.TempDir()
+	body := "models:\n" +
+		"  sonnet:\n    provider: anthropic\n    name: claude-sonnet\n"
+	writeCLIConfig(t, workDir, body)
+	d := commandDeps(t, workDir)
+
+	code, out, errOut := exitCode(t, []string{"set", "config"}, d)
+	if code == 0 {
+		t.Error("exit = 0, want a non-zero exit when the config has no url")
+	}
+	if out != "" {
+		t.Errorf("stdout = %q, want nothing without a url", out)
+	}
+	if !strings.Contains(errOut, "--url") {
+		t.Errorf("stderr = %q, want it to name --url", errOut)
+	}
+	after, err := os.ReadFile(configPath(workDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != body {
+		t.Errorf("config = %q, want it unchanged as %q", after, body)
+	}
+}
+
 func TestSetConfigKeepsExistingURLWhenNotGiven(t *testing.T) {
 	workDir := t.TempDir()
 	writeCLIConfig(t, workDir, "url: https://bench.example.com\n")
