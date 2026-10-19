@@ -85,6 +85,7 @@ func (c addDataCmd) Run(deps deps) error {
 
 // getCmd groups the commands that read resources.
 type getCmd struct {
+	Config  getConfigCmd  `cmd:"" help:"Print the CLI config as YAML."`
 	Tasks   getTasksCmd   `cmd:"" help:"List the tasks in the inferred repo."`
 	Task    getTaskCmd    `cmd:"" help:"Print one task as YAML."`
 	Tests   getTestsCmd   `cmd:"" help:"List a task's tests as YAML."`
@@ -98,6 +99,14 @@ type getCmd struct {
 	Result  getResultCmd  `cmd:"" help:"Print one result as JSON."`
 	Scores  getScoresCmd  `cmd:"" help:"List the inferred repo's scores as YAML."`
 	Score   getScoreCmd   `cmd:"" help:"Print one score as JSON."`
+}
+
+// getConfigCmd prints the CLI config as YAML.
+type getConfigCmd struct{}
+
+// Run prints the CLI config as YAML.
+func (c getConfigCmd) Run(deps deps) error {
+	return getConfig(deps)
 }
 
 // getScoresCmd lists the inferred repo's scores.

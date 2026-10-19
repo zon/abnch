@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"go.yaml.in/yaml/v3"
 )
 
 func TestSetConfigCreatesConfig(t *testing.T) {
@@ -68,6 +70,59 @@ func TestSetConfigUpdatesURLAndPreservesModelsAndTasks(t *testing.T) {
 	}
 	if !reflect.DeepEqual(after.Tasks, before.Tasks) {
 		t.Errorf("tasks = %+v, want the existing tasks kept as %+v", after.Tasks, before.Tasks)
+	}
+}
+
+func TestGetConfigPrintsConfigAsYAML(t *testing.T) {
+	workDir := t.TempDir()
+	writeCLIConfig(t, workDir, "# Service config\n"+
+		"url: https://bench.example.com\n"+
+		"models:\n"+
+		"  sonnet:\n    provider: anthropic\n    name: claude-sonnet\n    variant: high\n"+
+		"tasks:\n"+
+		"  fix-bug:\n    model: sonnet\n    agent:\n      runCmd: ./run.sh\n    grader:\n      runCmd: ./grade.sh\n")
+	want, err := loadConfig(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := commandDeps(t, workDir)
+
+	code, out, errOut := exitCode(t, []string{"get", "config"}, d)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0: %s", code, errOut)
+	}
+	if errOut != "" {
+		t.Errorf("stderr = %q, want nothing on success", errOut)
+	}
+
+	var got cliConfig
+	if err := yaml.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("output is not YAML: %v\n%s", err, out)
+	}
+	if got.URL != want.URL {
+		t.Errorf("url = %q, want %q", got.URL, want.URL)
+	}
+	if !reflect.DeepEqual(got.Models, want.Models) {
+		t.Errorf("models = %+v, want %+v", got.Models, want.Models)
+	}
+	if !reflect.DeepEqual(got.Tasks, want.Tasks) {
+		t.Errorf("tasks = %+v, want %+v", got.Tasks, want.Tasks)
+	}
+}
+
+func TestGetConfigWithoutConfigPrintsNothing(t *testing.T) {
+	workDir := t.TempDir()
+	d := commandDeps(t, workDir)
+
+	code, out, errOut := exitCode(t, []string{"get", "config"}, d)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 without a config: %s", code, errOut)
+	}
+	if out != "" {
+		t.Errorf("stdout = %q, want nothing without a config", out)
+	}
+	if errOut != "" {
+		t.Errorf("stderr = %q, want nothing without a config", errOut)
 	}
 }
 

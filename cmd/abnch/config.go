@@ -56,6 +56,24 @@ func configPath(workDir string) string {
 	return filepath.Join(workDir, configDir, configName)
 }
 
+// getConfig writes the CLI config under the working directory as YAML. A
+// missing config writes nothing.
+func getConfig(d deps) error {
+	path := configPath(d.workDir)
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to read %s: %w", path, err)
+	}
+
+	cfg, err := loadConfig(d.workDir)
+	if err != nil {
+		return fmt.Errorf("failed to read %s: %w", path, err)
+	}
+	return writeYAML(d.out, cfg)
+}
+
 // setConfig creates or updates the CLI config's service URL. It keeps the
 // existing URL when --url is not given and fails when neither provides one.
 func setConfig(d deps, c setConfigCmd) error {
