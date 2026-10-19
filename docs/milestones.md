@@ -1,7 +1,9 @@
 # Milestones
 
-## Deployment
+## Repo Config
 
-* Repo meets [container standards](zpecs/containers.md)
-* A Helm chart can install the service into a cluster
-* The delivery workflow publishes the chart to the registry, so a cluster deployment installs it by name and version
+* A new user can set up a fresh repo without editing files by hand
+* `abnch set config --url <url>` creates `.abnch/config.yaml` with the service URL
+* `abnch get config` prints the effective config
+* Config updates for models, tasks, agents, and graders keep the service URL
+* A command that needs the service URL and finds none says how to set it
