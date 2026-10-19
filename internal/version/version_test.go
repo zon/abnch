@@ -20,20 +20,47 @@ func TestVersionIsSemantic(t *testing.T) {
 // milestone's minor bump, so a later change cannot silently revert it below the
 // release the chart and image tag name.
 func TestVersionAdvancedForDeployment(t *testing.T) {
-	fields := strings.Split(Version, ".")
-	if len(fields) != 3 {
-		t.Fatalf("Version = %q, want major.minor.patch", Version)
-	}
-	major, err := strconv.Atoi(fields[0])
-	if err != nil {
-		t.Fatalf("Version = %q, want a numeric major", Version)
-	}
-	minor, err := strconv.Atoi(fields[1])
-	if err != nil {
-		t.Fatalf("Version = %q, want a numeric minor", Version)
-	}
+	parts := parseVersion(t, Version)
 
-	if major == 0 && minor < 2 {
+	if parts[0] == 0 && parts[1] < 2 {
 		t.Errorf("Version = %q, want a minor bump past 0.1.0", Version)
 	}
+}
+
+// TestVersionAdvancedForChartDelivery checks the version carries the patch bump
+// that follows the Deployment release, so a later change cannot silently revert
+// it below the release the chart and image tag name.
+func TestVersionAdvancedForChartDelivery(t *testing.T) {
+	got := parseVersion(t, Version)
+	want := [3]int{0, 2, 1}
+
+	for i := range want {
+		if got[i] == want[i] {
+			continue
+		}
+		if got[i] < want[i] {
+			t.Errorf("Version = %q, want at least 0.2.1", Version)
+		}
+		return
+	}
+}
+
+func parseVersion(t *testing.T, value string) [3]int {
+	t.Helper()
+
+	fields := strings.Split(value, ".")
+	if len(fields) != 3 {
+		t.Fatalf("Version = %q, want major.minor.patch", value)
+	}
+
+	var parts [3]int
+	for i, field := range fields {
+		n, err := strconv.Atoi(field)
+		if err != nil {
+			t.Fatalf("Version = %q, want numeric fields", value)
+		}
+		parts[i] = n
+	}
+
+	return parts
 }

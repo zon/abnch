@@ -187,20 +187,30 @@ func TestDeploymentRunsServiceImage(t *testing.T) {
 	}
 }
 
-// TestChartImageDefaultsToRepoVersion checks that the chart's image values
-// default to the service image at the repo version, so a caller installs the
-// chart and runs the version its apps report.
-func TestChartImageDefaultsToRepoVersion(t *testing.T) {
+// TestChartVersionMatchesRepoVersion checks that the chart version and app
+// version both equal the repo version, so the chart at a version runs the image
+// at that version.
+func TestChartVersionMatchesRepoVersion(t *testing.T) {
 	var chart struct {
+		Version    string `yaml:"version"`
 		AppVersion string `yaml:"appVersion"`
 	}
 	if err := yaml.Unmarshal([]byte(readFile(t, filepath.Join(chartDir(t), "Chart.yaml"))), &chart); err != nil {
 		t.Fatalf("parse Chart.yaml: %v", err)
 	}
+
+	if chart.Version != version.Version {
+		t.Errorf("chart version = %q, want the repo version %q", chart.Version, version.Version)
+	}
 	if chart.AppVersion != version.Version {
 		t.Errorf("chart appVersion = %q, want the repo version %q", chart.AppVersion, version.Version)
 	}
+}
 
+// TestChartImageDefaultsToRepoVersion checks that the chart's image values
+// default to the service image at the repo version, so a caller installs the
+// chart and runs the version its apps report.
+func TestChartImageDefaultsToRepoVersion(t *testing.T) {
 	var values struct {
 		Image struct {
 			Repository string `yaml:"repository"`
