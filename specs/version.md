@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Report the semantic version the repo's apps share. One version covers `abnch`, `abnchd`, and `abnchctl`, and tags the service image. The [Container spec](deployment/container.md) delivers that image.
+Report the semantic version the repo's apps share. One version covers `abnch`, `abnchd`, and `abnchctl`, tags the service image, and versions the Helm chart. The [Container spec](deployment/container.md) delivers that image and the [Helm spec](deployment/helm.md) delivers that chart.
 
 ## Requirements
 
@@ -52,3 +52,20 @@ The delivery pipeline SHALL tag the service image with the repo version.
 - WHEN it builds the service image
 - THEN it tags the image with the repo version
 - AND it pushes that tag after a clean scan
+
+### Requirement: Chart Version
+
+The Helm chart SHALL carry the repo version as both its chart version and its app version, so the chart at a version runs the image at that version.
+
+#### Scenario: Chart matches the repo version
+
+- GIVEN the repo version
+- WHEN the chart is read
+- THEN its chart version equals the repo version
+- AND its app version equals the repo version
+
+#### Scenario: Chart drifts from the repo version
+
+- GIVEN a chart version or app version that differs from the repo version
+- WHEN the test suite runs
+- THEN it fails naming the mismatch

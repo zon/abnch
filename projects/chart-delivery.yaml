@@ -1,0 +1,12 @@
+# Deployment milestone: the delivery workflow publishes the Helm chart to the
+# registry beside the service image, so a cluster deployment installs it by
+# name and version instead of copying the chart.
+# See docs/milestones.md, docs/design/deployment.md, specs/deployment/helm.md,
+# and specs/version.md.
+
+- "A push to `main` with a clean image publishes `ghcr.io/zon/abnch/abnchd` at the repo version. The workflow's scan step reads the image Podman built from a saved archive, since Trivy on the runner has no Podman socket. Today the scan fails to find the image and nothing is pushed"
+- "The chart's `version` and `appVersion` both equal the repo version in `internal/version/VERSION`, and a test under `deploy/helm` fails naming the mismatch when either drifts"
+- "After it pushes the service image at the repo version, the delivery workflow lints and packages `deploy/helm/abnchd` and publishes it to `oci://ghcr.io/zon/abnch/charts` as `abnchd` at the repo version, logging in to the registry with the job's own token. A failed image scan publishes no chart"
+- "The workflow skips the chart publish when the registry already holds `abnchd` at the repo version, so a published chart version never changes and a push to `main` that does not bump the version publishes nothing"
+- "A Go test under `deploy/helm` checks that the delivery workflow lints, packages, and publishes the chart at the repo version after the image push, the way `deploy/containers/workflow_test.go` checks the image"
+- "Apply a semver patch bump to the app version"
