@@ -303,6 +303,9 @@ func serviceAddr(cfg devconfig.Config, path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("config file %s: %w", path, err)
 	}
+	if cfg.Listen != "" {
+		addr = cfg.Listen
+	}
 
 	if err := devconfig.CheckPostgres(cfg.Postgres); err != nil {
 		return "", fmt.Errorf("config file %s: %w", path, err)

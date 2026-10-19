@@ -50,6 +50,7 @@ func TestDevIssuerRoleMap(t *testing.T) {
 func TestConfigRoundTrip(t *testing.T) {
 	cfg := Config{
 		URL:      "http://localhost:8080",
+		Listen:   "0.0.0.0:8443",
 		Postgres: Postgres{Host: "localhost", Port: 5432, DBName: "abnch", User: "postgres", Password: "pw", SSLMode: "disable", TimeZone: "UTC"},
 		OAuth:    OAuth{Issuers: []Issuer{DevIssuer("http://localhost:8080")}},
 	}

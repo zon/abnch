@@ -44,6 +44,7 @@ type OIDC struct {
 // Config is the local service configuration.
 type Config struct {
 	URL      string   `yaml:"url"`
+	Listen   string   `yaml:"listen,omitempty"`
 	Postgres Postgres `yaml:"postgres"`
 	OAuth    OAuth    `yaml:"oauth"`
 	OIDC     OIDC     `yaml:"oidc,omitempty"`

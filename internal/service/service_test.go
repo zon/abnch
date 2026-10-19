@@ -100,6 +100,38 @@ func TestRunRejectsInvalidServiceURL(t *testing.T) {
 	}
 }
 
+// TestServiceAddrUsesListenWhenSet checks a listen address wins over the host
+// and port in url.
+func TestServiceAddrUsesListenWhenSet(t *testing.T) {
+	cfg := devconfig.Config{
+		URL:      "http://bench.example.com:9000",
+		Listen:   "0.0.0.0:8443",
+		Postgres: testPostgres(),
+	}
+
+	addr, err := serviceAddr(cfg, "config.yaml")
+	if err != nil {
+		t.Fatalf("serviceAddr = %v, want no error", err)
+	}
+	if addr != "0.0.0.0:8443" {
+		t.Errorf("addr = %q, want the configured listen address", addr)
+	}
+}
+
+// TestServiceAddrFallsBackToURL checks a config without a listen address binds
+// the host and port in url.
+func TestServiceAddrFallsBackToURL(t *testing.T) {
+	cfg := devconfig.Config{URL: "http://localhost:8080", Postgres: testPostgres()}
+
+	addr, err := serviceAddr(cfg, "config.yaml")
+	if err != nil {
+		t.Fatalf("serviceAddr = %v, want no error", err)
+	}
+	if addr != "localhost:8080" {
+		t.Errorf("addr = %q, want the host and port in url", addr)
+	}
+}
+
 func TestRunRejectsIncompletePostgres(t *testing.T) {
 	path := writeConfig(t, "url: http://127.0.0.1:8080\npostgres:\n"+
 		"  host: \"\"\n"+
@@ -280,6 +312,14 @@ func startService(t *testing.T, opts Options) string {
 // ends.
 func startServiceWith(t *testing.T, port int, opts Options) string {
 	t.Helper()
+	return startServiceOn(t, fmt.Sprintf("127.0.0.1:%d", port), opts)
+}
+
+// startServiceOn runs the service on the listen address its config names and
+// returns its base URL. It stops the service and checks it returns cleanly when
+// the test ends.
+func startServiceOn(t *testing.T, listen string, opts Options) string {
+	t.Helper()
 	if opts.Opener == nil {
 		opts.Opener = func(context.Context, devconfig.Postgres) (Store, error) { return &fakeDB{}, nil }
 	}
@@ -291,7 +331,7 @@ func startServiceWith(t *testing.T, port int, opts Options) string {
 	done := make(chan error, 1)
 	go func() { done <- Run(ctx, opts) }()
 
-	base := fmt.Sprintf("http://127.0.0.1:%d/", port)
+	base := fmt.Sprintf("http://%s/", listen)
 	waitForService(t, base)
 
 	t.Cleanup(func() {
