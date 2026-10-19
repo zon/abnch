@@ -26,6 +26,10 @@ import (
 // chart runs by default.
 const serviceImage = "ghcr.io/zon/abnch/abnchd"
 
+// testIssuerName is the external issuer the tests name, since the chart renders
+// no issuer of its own.
+const testIssuerName = "test-issuer"
+
 // objectMeta is the subset of object metadata the tests read.
 type objectMeta struct {
 	Name   string            `yaml:"name"`
@@ -42,9 +46,9 @@ type manifest struct {
 	Spec       manifestSpec      `yaml:"spec"`
 }
 
-// manifestSpec holds the Deployment, Service, Certificate, and Issuer spec
-// fields in one struct, since a manifest carries one kind's fields and the
-// parser ignores the rest.
+// manifestSpec holds the Deployment, Service, and Certificate spec fields in
+// one struct, since a manifest carries one kind's fields and the parser ignores
+// the rest.
 type manifestSpec struct {
 	Template   *podTemplate   `yaml:"template"`
 	Ports      []servicePort  `yaml:"ports"`
@@ -53,8 +57,6 @@ type manifestSpec struct {
 	DNSNames   []string       `yaml:"dnsNames"`
 	IssuerRef  issuerRef      `yaml:"issuerRef"`
 	IsCA       bool           `yaml:"isCA"`
-	SelfSigned *emptySpec     `yaml:"selfSigned"`
-	CA         *caSpec        `yaml:"ca"`
 }
 
 // issuerRef names the issuer that signs a Certificate.
@@ -62,14 +64,6 @@ type issuerRef struct {
 	Name  string `yaml:"name"`
 	Kind  string `yaml:"kind"`
 	Group string `yaml:"group"`
-}
-
-// emptySpec marks an Issuer mode that carries no fields.
-type emptySpec struct{}
-
-// caSpec names the Secret holding the CA certificate an Issuer signs with.
-type caSpec struct {
-	SecretName string `yaml:"secretName"`
 }
 
 // podTemplate is a Deployment's pod template.
@@ -355,51 +349,38 @@ func TestContainerExposesHTTPSPort(t *testing.T) {
 	}
 }
 
-// TestChartRendersCertificateSignedByPrivateCA checks that the chart makes a
-// service Certificate, the CA Certificate that signs it, and the self-signed and
-// CA-backed Issuers that form the chain, so a default install issues a
-// certificate from its own private CA.
-func TestChartRendersCertificateSignedByPrivateCA(t *testing.T) {
+// TestChartRendersOnlyServiceCertificate checks that the chart renders the
+// service Certificate and no Issuer or CA resources, so a deployment signs the
+// certificate with an issuer it already runs.
+func TestChartRendersOnlyServiceCertificate(t *testing.T) {
 	manifests := renderChart(t)
 
 	certs, issuers := certificateAndIssuerManifests(manifests)
-	caCert, ok := findManifest(certs, func(m manifest) bool { return m.Spec.IsCA })
-	if !ok {
-		t.Fatalf("chart renders no CA Certificate:\n%s", renderManifests(manifests))
+	if len(issuers) != 0 {
+		t.Errorf("chart renders %d Issuers, want an external issuer:\n%s", len(issuers), renderManifests(manifests))
 	}
-	serviceCert, ok := findManifest(certs, func(m manifest) bool { return !m.Spec.IsCA })
-	if !ok {
-		t.Fatalf("chart renders no service Certificate:\n%s", renderManifests(manifests))
+	if len(certs) != 1 {
+		t.Fatalf("chart renders %d Certificates, want the service Certificate only:\n%s",
+			len(certs), renderManifests(manifests))
 	}
-	selfSigned, ok := findManifest(issuers, func(m manifest) bool { return m.Spec.SelfSigned != nil })
-	if !ok {
-		t.Fatalf("chart renders no self-signed Issuer:\n%s", renderManifests(manifests))
+	cert := certs[0]
+	if cert.Spec.IsCA {
+		t.Error("chart renders a CA Certificate")
 	}
-	caIssuer, ok := findManifest(issuers, func(m manifest) bool { return m.Spec.CA != nil })
-	if !ok {
-		t.Fatalf("chart renders no CA-backed Issuer:\n%s", renderManifests(manifests))
+	if got, want := cert.Spec.IssuerRef.Name, testIssuerName; got != want {
+		t.Errorf("service Certificate issuer = %q, want the external issuer %q", got, want)
 	}
-
-	if got, want := caCert.Spec.IssuerRef.Name, selfSigned.Metadata.Name; got != want {
-		t.Errorf("CA Certificate issuer = %q, want the self-signed Issuer %q", got, want)
-	}
-	if got, want := serviceCert.Spec.IssuerRef.Name, caIssuer.Metadata.Name; got != want {
-		t.Errorf("service Certificate issuer = %q, want the CA-backed Issuer %q", got, want)
-	}
-	if got, want := caIssuer.Spec.CA.SecretName, caCert.Spec.SecretName; got != want {
-		t.Errorf("CA Issuer reads Secret %q, want the CA Certificate Secret %q", got, want)
-	}
-	if serviceCert.Spec.SecretName == "" {
+	if cert.Spec.SecretName == "" {
 		t.Error("service Certificate writes no Secret")
 	}
-	if len(serviceCert.Spec.DNSNames) == 0 {
+	if len(cert.Spec.DNSNames) == 0 {
 		t.Error("service Certificate covers no DNS name")
 	}
 }
 
 // TestChartRequiresCertManager checks that the chart relies on cert-manager
-// installed in the cluster: its default render includes Certificate and Issuer
-// resources under the cert-manager API, and it carries no cert-manager subchart.
+// installed in the cluster: it renders its Certificate under the cert-manager
+// API and carries no cert-manager subchart.
 func TestChartRequiresCertManager(t *testing.T) {
 	var chart struct {
 		Dependencies []struct {
@@ -415,41 +396,36 @@ func TestChartRequiresCertManager(t *testing.T) {
 		}
 	}
 
-	certs, issuers := certificateAndIssuerManifests(renderChart(t))
+	certs, _ := certificateAndIssuerManifests(renderChart(t))
 	if len(certs) == 0 {
-		t.Error("default values render no Certificate")
+		t.Error("chart renders no Certificate")
 	}
-	if len(issuers) == 0 {
-		t.Error("default values render no Issuer")
-	}
-	for _, m := range append(certs, issuers...) {
+	for _, m := range certs {
 		if got, want := m.APIVersion, "cert-manager.io/v1"; got != want {
 			t.Errorf("%s %s apiVersion = %q, want %q", m.Kind, m.Metadata.Name, got, want)
 		}
 	}
 }
 
-// TestChartUsesExistingIssuer checks that disabling the chart's issuer and naming
-// an existing issuer makes the service Certificate reference it and renders no
-// private CA resources.
-func TestChartUsesExistingIssuer(t *testing.T) {
+// TestChartUsesExternalIssuer checks that naming an external issuer makes the
+// service Certificate reference it and renders no Issuer resources.
+func TestChartUsesExternalIssuer(t *testing.T) {
 	manifests := renderChart(t,
-		"--set", "tls.createIssuer=false",
 		"--set", "tls.issuerRef.name=existing-issuer",
 		"--set", "tls.issuerRef.kind=ClusterIssuer",
 	)
 
 	certs, issuers := certificateAndIssuerManifests(manifests)
 	if len(issuers) != 0 {
-		t.Errorf("chart renders %d Issuers with an existing issuer:\n%s", len(issuers), renderManifests(manifests))
+		t.Errorf("chart renders %d Issuers with an external issuer:\n%s", len(issuers), renderManifests(manifests))
 	}
 	if len(certs) != 1 {
-		t.Fatalf("chart renders %d Certificates with an existing issuer, want the service Certificate only:\n%s",
+		t.Fatalf("chart renders %d Certificates with an external issuer, want the service Certificate only:\n%s",
 			len(certs), renderManifests(manifests))
 	}
 	cert := certs[0]
 	if cert.Spec.IsCA {
-		t.Error("chart renders a CA Certificate with an existing issuer")
+		t.Error("chart renders a CA Certificate with an external issuer")
 	}
 	if got, want := cert.Spec.IssuerRef.Name, "existing-issuer"; got != want {
 		t.Errorf("Certificate issuer = %q, want %q", got, want)
@@ -462,11 +438,10 @@ func TestChartUsesExistingIssuer(t *testing.T) {
 	}
 }
 
-// TestChartRequiresIssuerNameWithExistingIssuer checks that disabling the chart's
-// issuer without naming the existing issuer fails the render with an error that
-// names the required issuer setting.
-func TestChartRequiresIssuerNameWithExistingIssuer(t *testing.T) {
-	out, err := renderChartOutput(t, "--set", "tls.createIssuer=false")
+// TestChartRequiresIssuerName checks that rendering without an external issuer
+// name fails with an error that names the required issuer setting.
+func TestChartRequiresIssuerName(t *testing.T) {
+	out, err := renderChartOutput(t)
 	if err == nil {
 		t.Fatalf("helm template accepted a missing issuer name:\n%s", out)
 	}
@@ -921,14 +896,14 @@ func configMountPath(volumes []volume, mounts []volumeMount, configMap, configPa
 	return "", false
 }
 
-// TestChartLints checks that helm accepts the chart with its default values.
+// TestChartLints checks that helm accepts the chart with an external issuer.
 func TestChartLints(t *testing.T) {
 	helm, err := exec.LookPath("helm")
 	if err != nil {
 		t.Skip("helm is not installed")
 	}
 
-	out, err := exec.Command(helm, "lint", chartDir(t)).CombinedOutput()
+	out, err := exec.Command(helm, "lint", chartDir(t), "--set", "tls.issuerRef.name="+testIssuerName).CombinedOutput()
 	if err != nil {
 		t.Fatalf("helm lint: %v\n%s", err, out)
 	}
@@ -941,13 +916,13 @@ func TestChartLints(t *testing.T) {
 var dns1123Subdomain = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`)
 
 // TestChartRendersValidManifests checks that the chart renders valid Kubernetes
-// manifests with its default values: every document names a kind and API version
+// manifests with an external issuer: every document names a kind and API version
 // the cluster serves, carries a DNS-1123 name, and holds the fields its kind
 // requires.
 func TestChartRendersValidManifests(t *testing.T) {
 	manifests := renderChart(t)
 	if len(manifests) == 0 {
-		t.Fatal("chart renders no manifests with its default values")
+		t.Fatal("chart renders no manifests")
 	}
 
 	kinds := map[string]string{
@@ -955,7 +930,6 @@ func TestChartRendersValidManifests(t *testing.T) {
 		"Service":     "v1",
 		"ConfigMap":   "v1",
 		"Certificate": "cert-manager.io/v1",
-		"Issuer":      "cert-manager.io/v1",
 	}
 	seen := map[string]bool{}
 	for _, m := range manifests {
@@ -984,14 +958,12 @@ func TestChartRendersValidManifests(t *testing.T) {
 			}
 		case "Certificate":
 			checkValidCertificate(t, m)
-		case "Issuer":
-			checkValidIssuer(t, m)
 		}
 	}
 
 	for kind := range kinds {
 		if !seen[kind] {
-			t.Errorf("chart renders no %s with its default values", kind)
+			t.Errorf("chart renders no %s", kind)
 		}
 	}
 }
@@ -1048,17 +1020,6 @@ func checkValidCertificate(t *testing.T, m manifest) {
 	}
 }
 
-// checkValidIssuer checks that an Issuer names the mode it signs with.
-func checkValidIssuer(t *testing.T, m manifest) {
-	t.Helper()
-	if m.Spec.SelfSigned == nil && m.Spec.CA == nil {
-		t.Errorf("Issuer %s names neither a self-signed nor a CA signer", m.Metadata.Name)
-	}
-	if m.Spec.CA != nil && m.Spec.CA.SecretName == "" {
-		t.Errorf("Issuer %s names no CA Secret", m.Metadata.Name)
-	}
-}
-
 // containerPortName returns the name of a container's first port.
 func containerPortName(c container) string {
 	if len(c.Ports) == 0 {
@@ -1068,14 +1029,25 @@ func containerPortName(c container) string {
 }
 
 // renderChart renders the chart with `helm template`, skipping when helm is not
-// installed, and returns the parsed manifests.
+// installed, and returns the parsed manifests. It names the external issuer
+// unless the caller does, since the chart renders no issuer of its own.
 func renderChart(t *testing.T, args ...string) []manifest {
 	t.Helper()
+	if !namesIssuer(args) {
+		args = append(args, "--set", "tls.issuerRef.name="+testIssuerName)
+	}
 	out, err := renderChartOutput(t, args...)
 	if err != nil {
 		t.Fatalf("helm template: %v\n%s", err, out)
 	}
 	return parseManifests(t, out)
+}
+
+// namesIssuer reports whether the render arguments set the external issuer name.
+func namesIssuer(args []string) bool {
+	return slices.ContainsFunc(args, func(arg string) bool {
+		return strings.Contains(arg, "tls.issuerRef.name")
+	})
 }
 
 // renderChartOutput runs `helm template` with the given arguments and returns

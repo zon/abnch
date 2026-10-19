@@ -13,12 +13,11 @@ service:
   type: ClusterIP
   port: 443
 
-# The service certificate. The chart creates a private CA and signs the service
-# certificate with it by default. Set createIssuer to false and name an existing
-# issuer to use that issuer instead. dnsNames defaults to the Service's cluster
-# DNS name when empty.
+# The service certificate. The chart signs it with an existing cert-manager
+# issuer, which issuerRef names. The chart renders no issuer of its own and fails
+# when issuerRef.name is empty. dnsNames defaults to the Service's cluster DNS
+# name when empty.
 tls:
-  createIssuer: true
   issuerRef:
     name: ""
     kind: Issuer

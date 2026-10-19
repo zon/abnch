@@ -36,26 +36,6 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 /etc/abnchd/config.yaml
 {{- end }}
 
-{{/* The Issuer that signs the chart's CA Certificate. */}}
-{{- define "abnchd.selfSignedIssuerName" -}}
-{{- printf "%s-selfsigned" (include "abnchd.fullname" .) | trunc 63 | trimSuffix "-" }}
-{{- end }}
-
-{{/* The chart's CA Certificate. */}}
-{{- define "abnchd.caCertificateName" -}}
-{{- printf "%s-ca" (include "abnchd.fullname" .) | trunc 63 | trimSuffix "-" }}
-{{- end }}
-
-{{/* The Secret holding the chart's CA Certificate. */}}
-{{- define "abnchd.caSecretName" -}}
-{{- printf "%s-ca" (include "abnchd.fullname" .) | trunc 63 | trimSuffix "-" }}
-{{- end }}
-
-{{/* The Issuer backed by the chart's CA Certificate. */}}
-{{- define "abnchd.caIssuerName" -}}
-{{- printf "%s-ca-issuer" (include "abnchd.fullname" .) | trunc 63 | trimSuffix "-" }}
-{{- end }}
-
 {{/* The service Certificate and the Secret holding its key pair. */}}
 {{- define "abnchd.certificateName" -}}
 {{- printf "%s-tls" (include "abnchd.fullname" .) | trunc 63 | trimSuffix "-" }}

@@ -74,28 +74,22 @@ The chart SHALL configure `abnchd` to serve HTTPS and SHALL expose only the HTTP
 
 ### Requirement: Certificate Resources
 
-The chart SHALL require cert-manager and SHALL NOT install it. It SHALL render a cert-manager Certificate for the service and an Issuer that signs it. By default the chart SHALL create a private CA and sign the service certificate with it. Values SHALL let a deployment use an existing issuer instead.
+The chart SHALL require cert-manager and SHALL NOT install it. It SHALL render a cert-manager Certificate for the service signed by an existing issuer. The chart SHALL NOT render an Issuer or a CA. Values SHALL name the issuer in `tls.issuerRef`, and the chart SHALL fail to render when `tls.issuerRef.name` is empty.
 
 The service certificate SHALL cover `tls.dnsNames`. When the value is empty, the certificate SHALL cover the Service's cluster DNS name.
 
-#### Scenario: Default certificate
+#### Scenario: External issuer
 
-- GIVEN the chart's default values
+- GIVEN values that name an existing issuer
 - WHEN the chart renders
 - THEN it renders a Certificate for the service
-- AND it renders the Issuer resources that sign it
+- AND the Certificate references that issuer
+- AND the chart renders no Issuer or CA resources
 - AND the Certificate covers the Service's cluster DNS name
-
-#### Scenario: Existing issuer
-
-- GIVEN values that disable the chart's issuer and name an existing issuer
-- WHEN the chart renders
-- THEN the Certificate references that issuer
-- AND the chart renders no private CA resources
 
 #### Scenario: Missing issuer
 
-- GIVEN values that disable the chart's issuer and name no issuer
+- GIVEN values that name no issuer
 - WHEN the chart renders
 - THEN it fails
 - AND it reports that an issuer name is required
@@ -129,18 +123,18 @@ The chart SHALL run the service image tagged with the repo version. The image re
 
 ### Requirement: Chart Validity
 
-The chart SHALL lint clean and SHALL render valid Kubernetes manifests with its default values.
+The chart SHALL lint clean and SHALL render valid Kubernetes manifests with an external issuer named in its values.
 
 #### Scenario: Lint the chart
 
-- GIVEN the repo's chart
+- GIVEN the repo's chart and values that name an external issuer
 - WHEN `helm lint` runs
 - THEN it reports no error
 
 #### Scenario: Render the chart
 
-- GIVEN the repo's chart
-- WHEN the chart renders with its default values
+- GIVEN the repo's chart and values that name an external issuer
+- WHEN the chart renders
 - THEN it produces valid Kubernetes manifests
 
 ### Requirement: Chart Delivery

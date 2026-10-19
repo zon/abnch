@@ -1,5 +1,5 @@
-{{- if and (not .Values.tls.createIssuer) (not .Values.tls.issuerRef.name) }}
-{{- fail "tls.issuerRef.name is required when tls.createIssuer is false" }}
+{{- if not .Values.tls.issuerRef.name }}
+{{- fail "tls.issuerRef.name is required" }}
 {{- end }}
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -19,12 +19,6 @@ spec:
     - {{ printf "%s.%s.svc.cluster.local" (include "abnchd.fullname" .) .Release.Namespace | quote }}
     {{- end }}
   issuerRef:
-    {{- if .Values.tls.createIssuer }}
-    name: {{ include "abnchd.caIssuerName" . }}
-    kind: Issuer
-    group: cert-manager.io
-    {{- else }}
     name: {{ .Values.tls.issuerRef.name }}
     kind: {{ .Values.tls.issuerRef.kind | default "Issuer" }}
     group: {{ .Values.tls.issuerRef.group | default "cert-manager.io" }}
-    {{- end }}
