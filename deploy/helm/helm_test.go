@@ -397,6 +397,38 @@ func TestChartRendersCertificateSignedByPrivateCA(t *testing.T) {
 	}
 }
 
+// TestChartRequiresCertManager checks that the chart relies on cert-manager
+// installed in the cluster: its default render includes Certificate and Issuer
+// resources under the cert-manager API, and it carries no cert-manager subchart.
+func TestChartRequiresCertManager(t *testing.T) {
+	var chart struct {
+		Dependencies []struct {
+			Name string `yaml:"name"`
+		} `yaml:"dependencies"`
+	}
+	if err := yaml.Unmarshal([]byte(readFile(t, filepath.Join(chartDir(t), "Chart.yaml"))), &chart); err != nil {
+		t.Fatalf("parse Chart.yaml: %v", err)
+	}
+	for _, dep := range chart.Dependencies {
+		if dep.Name == "cert-manager" {
+			t.Error("chart bundles cert-manager as a subchart, want the cluster to provide it")
+		}
+	}
+
+	certs, issuers := certificateAndIssuerManifests(renderChart(t))
+	if len(certs) == 0 {
+		t.Error("default values render no Certificate")
+	}
+	if len(issuers) == 0 {
+		t.Error("default values render no Issuer")
+	}
+	for _, m := range append(certs, issuers...) {
+		if got, want := m.APIVersion, "cert-manager.io/v1"; got != want {
+			t.Errorf("%s %s apiVersion = %q, want %q", m.Kind, m.Metadata.Name, got, want)
+		}
+	}
+}
+
 // TestChartUsesExistingIssuer checks that disabling the chart's issuer and naming
 // an existing issuer makes the service Certificate reference it and renders no
 // private CA resources.
