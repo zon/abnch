@@ -149,6 +149,58 @@ func TestWorkflowPublishesNoChartAfterFailedScan(t *testing.T) {
 	}
 }
 
+// TestWorkflowSkipsChartAlreadyPublished checks that the workflow asks the
+// registry for abnchd at the repo version and pushes the chart only when it is
+// absent, so a published chart version never changes.
+func TestWorkflowSkipsChartAlreadyPublished(t *testing.T) {
+	_, steps := deliveryWorkflow(t)
+
+	publish, ok := indexOf(steps, publishesChart)
+	if !ok {
+		t.Fatalf("no step publishes the chart:\n%s", renderSteps(steps))
+	}
+	lines := strings.Split(steps[publish].Run, "\n")
+
+	condition, end, ok := skipWhenChartPresent(lines)
+	if !ok {
+		t.Fatalf("publish step does not skip the chart when the registry already holds it:\n%s", steps[publish].Run)
+	}
+	chart := chartRegistry + "/abnchd"
+	if !strings.Contains(condition, chart) {
+		t.Errorf("skip condition does not check %s:\n%s", chart, condition)
+	}
+	if !strings.Contains(condition, "steps.version.outputs.value") {
+		t.Errorf("skip condition does not check the repo version:\n%s", condition)
+	}
+
+	push := lineContaining(lines, "helm push")
+	if push < 0 {
+		t.Fatalf("no step pushes the chart:\n%s", steps[publish].Run)
+	}
+	if push < end {
+		t.Errorf("publish step pushes the chart at line %d, before the registry check ends at line %d:\n%s",
+			push, end, steps[publish].Run)
+	}
+}
+
+// skipWhenChartPresent returns the condition and closing line of the check that
+// skips the publish when the registry already holds the chart.
+func skipWhenChartPresent(lines []string) (string, int, bool) {
+	for i, line := range lines {
+		condition := strings.TrimSpace(line)
+		if !strings.HasPrefix(condition, "if ") || !strings.Contains(condition, "helm show chart") {
+			continue
+		}
+		for j := i + 1; j < len(lines); j++ {
+			if strings.TrimSpace(lines[j]) != "fi" {
+				continue
+			}
+			return condition, j, strings.Contains(strings.Join(lines[i+1:j], "\n"), "exit 0")
+		}
+	}
+	return "", -1, false
+}
+
 // deliveryWorkflow returns the steps of the job that builds the service image.
 func deliveryWorkflow(t *testing.T) (workflow, []workflowStep) {
 	t.Helper()
@@ -223,6 +275,16 @@ func ignoresFailure(s workflowStep) bool {
 	}
 	condition := strings.ReplaceAll(s.If, " ", "")
 	return strings.Contains(condition, "always()") || strings.Contains(condition, "failure()")
+}
+
+// lineContaining returns the first line containing substr.
+func lineContaining(lines []string, substr string) int {
+	for i, line := range lines {
+		if strings.Contains(line, substr) {
+			return i
+		}
+	}
+	return -1
 }
 
 // indexOf returns the position of the first step matching pred.

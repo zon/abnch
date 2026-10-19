@@ -49,4 +49,8 @@ jobs:
           helm lint deploy/helm/abnchd
           helm package deploy/helm/abnchd --version "${{ steps.version.outputs.value }}" --destination dist
           echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          if helm show chart oci://ghcr.io/zon/abnch/charts/abnchd --version "${{ steps.version.outputs.value }}" > /dev/null 2>&1; then
+            echo "abnchd ${{ steps.version.outputs.value }} is already published; skipping the chart push."
+            exit 0
+          fi
           helm push "dist/abnchd-${{ steps.version.outputs.value }}.tgz" oci://ghcr.io/zon/abnch/charts
