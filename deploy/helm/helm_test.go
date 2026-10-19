@@ -40,12 +40,34 @@ type manifest struct {
 	Spec       manifestSpec      `yaml:"spec"`
 }
 
-// manifestSpec holds the Deployment and Service spec fields in one struct, since
-// a manifest carries one kind's fields and the parser ignores the rest.
+// manifestSpec holds the Deployment, Service, Certificate, and Issuer spec
+// fields in one struct, since a manifest carries one kind's fields and the
+// parser ignores the rest.
 type manifestSpec struct {
-	Template *podTemplate   `yaml:"template"`
-	Ports    []servicePort  `yaml:"ports"`
-	Selector map[string]any `yaml:"selector"`
+	Template   *podTemplate   `yaml:"template"`
+	Ports      []servicePort  `yaml:"ports"`
+	Selector   map[string]any `yaml:"selector"`
+	SecretName string         `yaml:"secretName"`
+	DNSNames   []string       `yaml:"dnsNames"`
+	IssuerRef  issuerRef      `yaml:"issuerRef"`
+	IsCA       bool           `yaml:"isCA"`
+	SelfSigned *emptySpec     `yaml:"selfSigned"`
+	CA         *caSpec        `yaml:"ca"`
+}
+
+// issuerRef names the issuer that signs a Certificate.
+type issuerRef struct {
+	Name  string `yaml:"name"`
+	Kind  string `yaml:"kind"`
+	Group string `yaml:"group"`
+}
+
+// emptySpec marks an Issuer mode that carries no fields.
+type emptySpec struct{}
+
+// caSpec names the Secret holding the CA certificate an Issuer signs with.
+type caSpec struct {
+	SecretName string `yaml:"secretName"`
 }
 
 // podTemplate is a Deployment's pod template.
@@ -281,6 +303,106 @@ func TestServiceSelectsDeploymentPods(t *testing.T) {
 	if target := containerPortName(dep.Spec.Template.Spec.Containers[0]); target != "" && target != ports[0].TargetPort {
 		t.Errorf("Service targetPort = %v, want the container port %q", ports[0].TargetPort, target)
 	}
+}
+
+// TestChartRendersCertificateSignedByPrivateCA checks that the chart makes a
+// service Certificate, the CA Certificate that signs it, and the self-signed and
+// CA-backed Issuers that form the chain, so a default install issues a
+// certificate from its own private CA.
+func TestChartRendersCertificateSignedByPrivateCA(t *testing.T) {
+	manifests := renderChart(t)
+
+	certs, issuers := certificateAndIssuerManifests(manifests)
+	caCert, ok := findManifest(certs, func(m manifest) bool { return m.Spec.IsCA })
+	if !ok {
+		t.Fatalf("chart renders no CA Certificate:\n%s", renderManifests(manifests))
+	}
+	serviceCert, ok := findManifest(certs, func(m manifest) bool { return !m.Spec.IsCA })
+	if !ok {
+		t.Fatalf("chart renders no service Certificate:\n%s", renderManifests(manifests))
+	}
+	selfSigned, ok := findManifest(issuers, func(m manifest) bool { return m.Spec.SelfSigned != nil })
+	if !ok {
+		t.Fatalf("chart renders no self-signed Issuer:\n%s", renderManifests(manifests))
+	}
+	caIssuer, ok := findManifest(issuers, func(m manifest) bool { return m.Spec.CA != nil })
+	if !ok {
+		t.Fatalf("chart renders no CA-backed Issuer:\n%s", renderManifests(manifests))
+	}
+
+	if got, want := caCert.Spec.IssuerRef.Name, selfSigned.Metadata.Name; got != want {
+		t.Errorf("CA Certificate issuer = %q, want the self-signed Issuer %q", got, want)
+	}
+	if got, want := serviceCert.Spec.IssuerRef.Name, caIssuer.Metadata.Name; got != want {
+		t.Errorf("service Certificate issuer = %q, want the CA-backed Issuer %q", got, want)
+	}
+	if got, want := caIssuer.Spec.CA.SecretName, caCert.Spec.SecretName; got != want {
+		t.Errorf("CA Issuer reads Secret %q, want the CA Certificate Secret %q", got, want)
+	}
+	if serviceCert.Spec.SecretName == "" {
+		t.Error("service Certificate writes no Secret")
+	}
+	if len(serviceCert.Spec.DNSNames) == 0 {
+		t.Error("service Certificate covers no DNS name")
+	}
+}
+
+// TestChartUsesExistingIssuer checks that disabling the chart's issuer and naming
+// an existing issuer makes the service Certificate reference it and renders no
+// private CA resources.
+func TestChartUsesExistingIssuer(t *testing.T) {
+	manifests := renderChart(t,
+		"--set", "tls.createIssuer=false",
+		"--set", "tls.issuerRef.name=existing-issuer",
+		"--set", "tls.issuerRef.kind=ClusterIssuer",
+	)
+
+	certs, issuers := certificateAndIssuerManifests(manifests)
+	if len(issuers) != 0 {
+		t.Errorf("chart renders %d Issuers with an existing issuer:\n%s", len(issuers), renderManifests(manifests))
+	}
+	if len(certs) != 1 {
+		t.Fatalf("chart renders %d Certificates with an existing issuer, want the service Certificate only:\n%s",
+			len(certs), renderManifests(manifests))
+	}
+	cert := certs[0]
+	if cert.Spec.IsCA {
+		t.Error("chart renders a CA Certificate with an existing issuer")
+	}
+	if got, want := cert.Spec.IssuerRef.Name, "existing-issuer"; got != want {
+		t.Errorf("Certificate issuer = %q, want %q", got, want)
+	}
+	if got, want := cert.Spec.IssuerRef.Kind, "ClusterIssuer"; got != want {
+		t.Errorf("Certificate issuer kind = %q, want %q", got, want)
+	}
+	if got, want := cert.Spec.IssuerRef.Group, "cert-manager.io"; got != want {
+		t.Errorf("Certificate issuer group = %q, want %q", got, want)
+	}
+}
+
+// certificateAndIssuerManifests returns the Certificates and Issuers the chart
+// renders.
+func certificateAndIssuerManifests(manifests []manifest) ([]manifest, []manifest) {
+	var certs, issuers []manifest
+	for _, m := range manifests {
+		switch m.Kind {
+		case "Certificate":
+			certs = append(certs, m)
+		case "Issuer":
+			issuers = append(issuers, m)
+		}
+	}
+	return certs, issuers
+}
+
+// findManifest returns the first manifest matching pred.
+func findManifest(manifests []manifest, pred func(manifest) bool) (manifest, bool) {
+	for _, m := range manifests {
+		if pred(m) {
+			return m, true
+		}
+	}
+	return manifest{}, false
 }
 
 // TestChartRendersServiceConfig checks that the chart renders its values into a
@@ -598,9 +720,11 @@ func TestChartRendersValidManifests(t *testing.T) {
 	}
 
 	kinds := map[string]string{
-		"Deployment": "apps/v1",
-		"Service":    "v1",
-		"ConfigMap":  "v1",
+		"Deployment":  "apps/v1",
+		"Service":     "v1",
+		"ConfigMap":   "v1",
+		"Certificate": "cert-manager.io/v1",
+		"Issuer":      "cert-manager.io/v1",
 	}
 	seen := map[string]bool{}
 	for _, m := range manifests {
@@ -627,6 +751,10 @@ func TestChartRendersValidManifests(t *testing.T) {
 			if len(m.Data) == 0 {
 				t.Errorf("ConfigMap %s holds no data", m.Metadata.Name)
 			}
+		case "Certificate":
+			checkValidCertificate(t, m)
+		case "Issuer":
+			checkValidIssuer(t, m)
 		}
 	}
 
@@ -672,6 +800,31 @@ func checkValidService(t *testing.T, m manifest) {
 		if p.Port < 1 || p.Port > 65535 {
 			t.Errorf("Service %s port = %d, want 1-65535", m.Metadata.Name, p.Port)
 		}
+	}
+}
+
+// checkValidCertificate checks the fields a Certificate requires to issue.
+func checkValidCertificate(t *testing.T, m manifest) {
+	t.Helper()
+	if m.Spec.SecretName == "" {
+		t.Errorf("Certificate %s writes no Secret", m.Metadata.Name)
+	}
+	if m.Spec.IssuerRef.Name == "" {
+		t.Errorf("Certificate %s names no issuer", m.Metadata.Name)
+	}
+	if !m.Spec.IsCA && len(m.Spec.DNSNames) == 0 {
+		t.Errorf("Certificate %s covers no DNS name", m.Metadata.Name)
+	}
+}
+
+// checkValidIssuer checks that an Issuer names the mode it signs with.
+func checkValidIssuer(t *testing.T, m manifest) {
+	t.Helper()
+	if m.Spec.SelfSigned == nil && m.Spec.CA == nil {
+		t.Errorf("Issuer %s names neither a self-signed nor a CA signer", m.Metadata.Name)
+	}
+	if m.Spec.CA != nil && m.Spec.CA.SecretName == "" {
+		t.Errorf("Issuer %s names no CA Secret", m.Metadata.Name)
 	}
 }
 

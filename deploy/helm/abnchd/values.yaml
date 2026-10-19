@@ -13,6 +13,18 @@ service:
   type: ClusterIP
   port: 80
 
+# The service certificate. The chart creates a private CA and signs the service
+# certificate with it by default. Set createIssuer to false and name an existing
+# issuer to use that issuer instead. dnsNames defaults to the Service's cluster
+# DNS name when empty.
+tls:
+  createIssuer: true
+  issuerRef:
+    name: ""
+    kind: Issuer
+    group: cert-manager.io
+  dnsNames: []
+
 # The Kubernetes Secret that holds the service's secret config values, and the
 # keys within it that hold them. The chart carries the secret's name and keys,
 # never the values. The name defaults to the release's object name.
