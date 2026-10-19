@@ -118,14 +118,30 @@ func TestSetConfigFailsWithoutURLInExistingConfig(t *testing.T) {
 
 func TestSetConfigKeepsExistingURLWhenNotGiven(t *testing.T) {
 	workDir := t.TempDir()
-	writeCLIConfig(t, workDir, "url: https://bench.example.com\n")
+	body := "# Service config\n" +
+		"url: https://bench.example.com  # primary\n" +
+		"models:\n" +
+		"  sonnet:\n    provider: anthropic\n    name: claude-sonnet\n" +
+		"tasks:\n" +
+		"  fix-bug:\n    model: sonnet\n"
+	writeCLIConfig(t, workDir, body)
 	d := commandDeps(t, workDir)
 
 	code, _, errOut := exitCode(t, []string{"set", "config"}, d)
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 with an existing url: %s", code, errOut)
 	}
+	if errOut != "" {
+		t.Errorf("stderr = %q, want nothing on success", errOut)
+	}
 
+	after, err := os.ReadFile(configPath(workDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != body {
+		t.Errorf("config = %q, want it unchanged as %q", after, body)
+	}
 	cfg, err := loadConfig(workDir)
 	if err != nil {
 		t.Fatal(err)

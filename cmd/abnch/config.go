@@ -59,19 +59,25 @@ func configPath(workDir string) string {
 // setConfig creates or updates the CLI config's service URL. It keeps the
 // existing URL when --url is not given and fails when neither provides one.
 func setConfig(d deps, c setConfigCmd) error {
-	url := c.URL
-	if url == "" {
-		cfg, err := loadConfig(d.workDir)
-		if err != nil {
-			return fmt.Errorf("failed to read %s: %w", configPath(d.workDir), err)
-		}
-		url = cfg.URL
+	if c.URL == "" {
+		return keepConfigURL(d)
 	}
-	if url == "" {
-		return errors.New("no service url: pass --url")
-	}
-	if err := setConfigURL(d.workDir, url); err != nil {
+	if err := setConfigURL(d.workDir, c.URL); err != nil {
 		return err
+	}
+	fmt.Fprintln(d.out, "Set config")
+	return nil
+}
+
+// keepConfigURL succeeds when the CLI config already has a service URL and
+// fails when it does not. It leaves the config untouched.
+func keepConfigURL(d deps) error {
+	cfg, err := loadConfig(d.workDir)
+	if err != nil {
+		return fmt.Errorf("failed to read %s: %w", configPath(d.workDir), err)
+	}
+	if cfg.URL == "" {
+		return errors.New("no service url: pass --url")
 	}
 	fmt.Fprintln(d.out, "Set config")
 	return nil
