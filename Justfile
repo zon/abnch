@@ -1,6 +1,10 @@
 engine := "podman"
 image := "abnchd:local"
 
+# Install the CLI and the developer CLI with `go install`
+install:
+	@go install ./cmd/abnch ./cmd/abnchctl
+
 # Set up a local service: write the local auth config, dev key, CLI config, and
 # CLI credential. Write the Postgres details by hand first.
 config port="8080":
