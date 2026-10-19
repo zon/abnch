@@ -1,0 +1,10 @@
+- "`abnch set config --url <url>` creates `.abnch/config.yaml` under the working directory with that url when no config exists. It creates the `.abnch` directory when missing and exits zero."
+- "`abnch set config --url <url>` updates the config's url and preserves its models and tasks."
+- "`abnch set config` without `--url` and without a url in the config exits non-zero, names `--url` in its error, and writes no config."
+- "`abnch set config` without `--url` when the config already has a url exits zero and keeps that url."
+- "`abnch get config` prints the config as YAML with its url, models, and tasks and exits zero."
+- "`abnch get config` with no config prints nothing and exits zero."
+- "`abnch set model`, `abnch set task --model`, `abnch set agent`, and `abnch set grader` keep the config's url."
+- "A command that needs the service URL and finds none fails with an error naming `abnch set config --url <url>`."
+- Apply a semver minor bump to the app version.
+- Bump the Helm chart version and appVersion to the repo version.
