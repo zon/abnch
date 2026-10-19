@@ -43,3 +43,10 @@ jobs:
           echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
           podman push "$IMAGE:${{ steps.version.outputs.value }}"
           podman push "$IMAGE:${{ github.sha }}"
+
+      - name: Publish the chart
+        run: |
+          helm lint deploy/helm/abnchd
+          helm package deploy/helm/abnchd --version "${{ steps.version.outputs.value }}" --destination dist
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm push "dist/abnchd-${{ steps.version.outputs.value }}.tgz" oci://ghcr.io/zon/abnch/charts
