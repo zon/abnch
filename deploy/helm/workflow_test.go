@@ -66,23 +66,36 @@ func TestWorkflowPublishesChartAfterImage(t *testing.T) {
 	}
 }
 
-// TestWorkflowPublishesChartAtRepoVersion checks that the workflow publishes
-// abnchd to the chart registry at the repo version.
+// TestWorkflowPublishesChartAtRepoVersion checks that the workflow reads the
+// repo version, then packages and publishes abnchd to the chart registry at
+// that version.
 func TestWorkflowPublishesChartAtRepoVersion(t *testing.T) {
 	_, steps := deliveryWorkflow(t)
 
+	read, ok := indexOf(steps, readsRepoVersion)
+	if !ok {
+		t.Fatalf("no step reads %s:\n%s", filepath.Join("internal", "version", "VERSION"), renderSteps(steps))
+	}
 	pack, ok := indexOf(steps, packagesChart)
 	if !ok {
 		t.Fatalf("no step packages the chart:\n%s", renderSteps(steps))
 	}
-	if !strings.Contains(steps[pack].Run, "steps.version.outputs.value") {
-		t.Errorf("package step does not package the chart at the repo version:\n%s", steps[pack].Run)
-	}
-
 	publish, ok := indexOf(steps, publishesChart)
 	if !ok {
 		t.Fatalf("no step publishes the chart:\n%s", renderSteps(steps))
 	}
+	if read > pack || read > publish {
+		t.Errorf("pipeline reads the repo version at %d, packages at %d, publishes at %d, want the version first",
+			read, pack, publish)
+	}
+
+	if !strings.Contains(steps[pack].Run, "steps.version.outputs.value") {
+		t.Errorf("package step does not package the chart at the repo version:\n%s", steps[pack].Run)
+	}
+	if !strings.Contains(steps[pack].Run, "--destination dist") {
+		t.Errorf("package step does not write the chart package to dist:\n%s", steps[pack].Run)
+	}
+
 	run := steps[publish].Run
 	if !strings.Contains(run, chartRegistry) {
 		t.Errorf("publish step does not push to %s:\n%s", chartRegistry, run)
@@ -260,6 +273,11 @@ func lintsChart(s workflowStep) bool {
 // packagesChart reports whether a step packages the chart.
 func packagesChart(s workflowStep) bool {
 	return strings.Contains(s.Run, "helm package") && strings.Contains(s.Run, chartPath)
+}
+
+// readsRepoVersion reports whether a step reads the repo version.
+func readsRepoVersion(s workflowStep) bool {
+	return strings.Contains(s.Run, filepath.Join("internal", "version", "VERSION"))
 }
 
 // publishesChart reports whether a step publishes the chart.
