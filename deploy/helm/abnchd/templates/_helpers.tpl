@@ -35,3 +35,12 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "abnchd.configPath" -}}
 /etc/abnchd/config.yaml
 {{- end }}
+
+{{/* The service Certificate and the Secret holding its key pair. */}}
+{{- define "abnchd.certificateName" -}}
+{{- printf "%s-tls" (include "abnchd.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "abnchd.tlsSecretName" -}}
+{{- include "abnchd.certificateName" . }}
+{{- end }}

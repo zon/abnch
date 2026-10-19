@@ -32,14 +32,20 @@ spec:
                   name: {{ include "abnchd.secretName" . }}
                   key: {{ .Values.secrets.oidcClientSecretKey }}
           ports:
-            - name: http
-              containerPort: 8080
+            - name: https
+              containerPort: 8443
               protocol: TCP
           volumeMounts:
             - name: config
               mountPath: /etc/abnchd
               readOnly: true
+            - name: tls
+              mountPath: /etc/abnchd/tls
+              readOnly: true
       volumes:
         - name: config
           configMap:
             name: {{ include "abnchd.configMapName" . }}
+        - name: tls
+          secret:
+            secretName: {{ include "abnchd.tlsSecretName" . }}

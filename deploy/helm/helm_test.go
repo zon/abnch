@@ -3,6 +3,7 @@ package helm
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -23,6 +25,10 @@ import (
 // serviceImage is the registry path the delivery workflow publishes to and the
 // chart runs by default.
 const serviceImage = "ghcr.io/zon/abnch/abnchd"
+
+// testIssuerName is the external issuer the tests name, since the chart renders
+// no issuer of its own.
+const testIssuerName = "test-issuer"
 
 // objectMeta is the subset of object metadata the tests read.
 type objectMeta struct {
@@ -40,12 +46,24 @@ type manifest struct {
 	Spec       manifestSpec      `yaml:"spec"`
 }
 
-// manifestSpec holds the Deployment and Service spec fields in one struct, since
-// a manifest carries one kind's fields and the parser ignores the rest.
+// manifestSpec holds the Deployment, Service, and Certificate spec fields in
+// one struct, since a manifest carries one kind's fields and the parser ignores
+// the rest.
 type manifestSpec struct {
-	Template *podTemplate   `yaml:"template"`
-	Ports    []servicePort  `yaml:"ports"`
-	Selector map[string]any `yaml:"selector"`
+	Template   *podTemplate   `yaml:"template"`
+	Ports      []servicePort  `yaml:"ports"`
+	Selector   map[string]any `yaml:"selector"`
+	SecretName string         `yaml:"secretName"`
+	DNSNames   []string       `yaml:"dnsNames"`
+	IssuerRef  issuerRef      `yaml:"issuerRef"`
+	IsCA       bool           `yaml:"isCA"`
+}
+
+// issuerRef names the issuer that signs a Certificate.
+type issuerRef struct {
+	Name  string `yaml:"name"`
+	Kind  string `yaml:"kind"`
+	Group string `yaml:"group"`
 }
 
 // podTemplate is a Deployment's pod template.
@@ -87,10 +105,11 @@ type secretKeyRef struct {
 	Key  string `yaml:"key"`
 }
 
-// volume is a pod volume and the ConfigMap it reads.
+// volume is a pod volume and the ConfigMap or Secret it reads.
 type volume struct {
 	Name      string        `yaml:"name"`
 	ConfigMap *configMapRef `yaml:"configMap"`
+	Secret    *secretVolume `yaml:"secret"`
 }
 
 // configMapRef names the ConfigMap a volume reads.
@@ -98,10 +117,16 @@ type configMapRef struct {
 	Name string `yaml:"name"`
 }
 
+// secretVolume names the Secret a volume reads.
+type secretVolume struct {
+	SecretName string `yaml:"secretName"`
+}
+
 // volumeMount attaches a volume at a container path.
 type volumeMount struct {
 	Name      string `yaml:"name"`
 	MountPath string `yaml:"mountPath"`
+	ReadOnly  bool   `yaml:"readOnly"`
 }
 
 // containerPort is one port a container exposes.
@@ -283,6 +308,264 @@ func TestServiceSelectsDeploymentPods(t *testing.T) {
 	}
 }
 
+// TestServiceForwardsHTTPSPort checks that the Service exposes only port 443
+// and forwards it to the container's named HTTPS port, so the chart serves no
+// plaintext port.
+func TestServiceForwardsHTTPSPort(t *testing.T) {
+	svc, ok := findKind(renderChart(t), "Service")
+	if !ok {
+		t.Fatal("chart renders no Service")
+	}
+
+	ports := svc.Spec.Ports
+	if len(ports) != 1 {
+		t.Fatalf("Service forwards %d ports, want only HTTPS:\n%+v", len(ports), ports)
+	}
+	if got, want := ports[0].Port, 443; got != want {
+		t.Errorf("Service port = %d, want %d", got, want)
+	}
+	if got, want := ports[0].TargetPort, "https"; got != want {
+		t.Errorf("Service targetPort = %v, want the container port %q", got, want)
+	}
+}
+
+// TestContainerExposesHTTPSPort checks that the container exposes only the
+// HTTPS port, named https on 8443, and no plaintext port.
+func TestContainerExposesHTTPSPort(t *testing.T) {
+	dep, ok := findKind(renderChart(t), "Deployment")
+	if !ok {
+		t.Fatal("chart renders no Deployment")
+	}
+
+	ports := dep.Spec.Template.Spec.Containers[0].Ports
+	if len(ports) != 1 {
+		t.Fatalf("container exposes %d ports, want only HTTPS:\n%+v", len(ports), ports)
+	}
+	if got, want := ports[0].Name, "https"; got != want {
+		t.Errorf("container port name = %q, want %q", got, want)
+	}
+	if got, want := ports[0].ContainerPort, 8443; got != want {
+		t.Errorf("container port = %d, want %d", got, want)
+	}
+}
+
+// TestChartRendersOnlyServiceCertificate checks that the chart renders the
+// service Certificate and no Issuer or CA resources, so a deployment signs the
+// certificate with an issuer it already runs.
+func TestChartRendersOnlyServiceCertificate(t *testing.T) {
+	manifests := renderChart(t)
+
+	certs, issuers := certificateAndIssuerManifests(manifests)
+	if len(issuers) != 0 {
+		t.Errorf("chart renders %d Issuers, want an external issuer:\n%s", len(issuers), renderManifests(manifests))
+	}
+	if len(certs) != 1 {
+		t.Fatalf("chart renders %d Certificates, want the service Certificate only:\n%s",
+			len(certs), renderManifests(manifests))
+	}
+	cert := certs[0]
+	if cert.Spec.IsCA {
+		t.Error("chart renders a CA Certificate")
+	}
+	if got, want := cert.Spec.IssuerRef.Name, testIssuerName; got != want {
+		t.Errorf("service Certificate issuer = %q, want the external issuer %q", got, want)
+	}
+	if cert.Spec.SecretName == "" {
+		t.Error("service Certificate writes no Secret")
+	}
+	if len(cert.Spec.DNSNames) == 0 {
+		t.Error("service Certificate covers no DNS name")
+	}
+}
+
+// TestChartRequiresCertManager checks that the chart relies on cert-manager
+// installed in the cluster: it renders its Certificate under the cert-manager
+// API and carries no cert-manager subchart.
+func TestChartRequiresCertManager(t *testing.T) {
+	var chart struct {
+		Dependencies []struct {
+			Name string `yaml:"name"`
+		} `yaml:"dependencies"`
+	}
+	if err := yaml.Unmarshal([]byte(readFile(t, filepath.Join(chartDir(t), "Chart.yaml"))), &chart); err != nil {
+		t.Fatalf("parse Chart.yaml: %v", err)
+	}
+	for _, dep := range chart.Dependencies {
+		if dep.Name == "cert-manager" {
+			t.Error("chart bundles cert-manager as a subchart, want the cluster to provide it")
+		}
+	}
+
+	certs, _ := certificateAndIssuerManifests(renderChart(t))
+	if len(certs) == 0 {
+		t.Error("chart renders no Certificate")
+	}
+	for _, m := range certs {
+		if got, want := m.APIVersion, "cert-manager.io/v1"; got != want {
+			t.Errorf("%s %s apiVersion = %q, want %q", m.Kind, m.Metadata.Name, got, want)
+		}
+	}
+}
+
+// TestChartUsesExternalIssuer checks that naming an external issuer makes the
+// service Certificate reference it and renders no Issuer resources.
+func TestChartUsesExternalIssuer(t *testing.T) {
+	manifests := renderChart(t,
+		"--set", "tls.issuerRef.name=existing-issuer",
+		"--set", "tls.issuerRef.kind=ClusterIssuer",
+	)
+
+	certs, issuers := certificateAndIssuerManifests(manifests)
+	if len(issuers) != 0 {
+		t.Errorf("chart renders %d Issuers with an external issuer:\n%s", len(issuers), renderManifests(manifests))
+	}
+	if len(certs) != 1 {
+		t.Fatalf("chart renders %d Certificates with an external issuer, want the service Certificate only:\n%s",
+			len(certs), renderManifests(manifests))
+	}
+	cert := certs[0]
+	if cert.Spec.IsCA {
+		t.Error("chart renders a CA Certificate with an external issuer")
+	}
+	if got, want := cert.Spec.IssuerRef.Name, "existing-issuer"; got != want {
+		t.Errorf("Certificate issuer = %q, want %q", got, want)
+	}
+	if got, want := cert.Spec.IssuerRef.Kind, "ClusterIssuer"; got != want {
+		t.Errorf("Certificate issuer kind = %q, want %q", got, want)
+	}
+	if got, want := cert.Spec.IssuerRef.Group, "cert-manager.io"; got != want {
+		t.Errorf("Certificate issuer group = %q, want %q", got, want)
+	}
+}
+
+// TestChartRequiresIssuerName checks that rendering without an external issuer
+// name fails with an error that names the required issuer setting.
+func TestChartRequiresIssuerName(t *testing.T) {
+	out, err := renderChartOutput(t)
+	if err == nil {
+		t.Fatalf("helm template accepted a missing issuer name:\n%s", out)
+	}
+	if !strings.Contains(string(out), "tls.issuerRef.name") {
+		t.Errorf("helm template error does not name tls.issuerRef.name:\n%s", out)
+	}
+}
+
+// TestServiceCertificateCoversConfiguredDNSNames checks that the service
+// Certificate covers the names in tls.dnsNames, so a deployment can serve the
+// public host names it configures.
+func TestServiceCertificateCoversConfiguredDNSNames(t *testing.T) {
+	manifests := renderChart(t,
+		"--set", "tls.dnsNames[0]=abnch.example.com",
+		"--set", "tls.dnsNames[1]=api.example.com",
+	)
+
+	cert := serviceCertificate(t, manifests)
+	want := []string{"abnch.example.com", "api.example.com"}
+	if !slices.Equal(cert.Spec.DNSNames, want) {
+		t.Errorf("service Certificate covers %v, want %v", cert.Spec.DNSNames, want)
+	}
+}
+
+// TestServiceCertificateDefaultsToServiceClusterDNSName checks that an empty
+// tls.dnsNames covers the Service's cluster DNS name, so a default install
+// issues a certificate for the Service it exposes.
+func TestServiceCertificateDefaultsToServiceClusterDNSName(t *testing.T) {
+	const namespace = "abnch-test"
+	manifests := renderChart(t, "--namespace", namespace)
+
+	svc, ok := findKind(manifests, "Service")
+	if !ok {
+		t.Fatalf("chart renders no Service:\n%s", renderManifests(manifests))
+	}
+	cert := serviceCertificate(t, manifests)
+
+	for _, want := range []string{
+		fmt.Sprintf("%s.%s.svc", svc.Metadata.Name, namespace),
+		fmt.Sprintf("%s.%s.svc.cluster.local", svc.Metadata.Name, namespace),
+	} {
+		if !slices.Contains(cert.Spec.DNSNames, want) {
+			t.Errorf("service Certificate covers %v, want it to include the Service's cluster DNS name %q",
+				cert.Spec.DNSNames, want)
+		}
+	}
+}
+
+// TestServiceCertificateSecretIsMounted checks that the service Certificate
+// writes the Secret the Deployment mounts, so the certificate files reach the
+// service.
+func TestServiceCertificateSecretIsMounted(t *testing.T) {
+	manifests := renderChart(t)
+	cert := serviceCertificate(t, manifests)
+
+	dep, ok := findKind(manifests, "Deployment")
+	if !ok {
+		t.Fatalf("chart renders no Deployment:\n%s", renderManifests(manifests))
+	}
+	c := dep.Spec.Template.Spec.Containers[0]
+
+	volumeName := ""
+	for _, v := range dep.Spec.Template.Spec.Volumes {
+		if v.Secret != nil && v.Secret.SecretName == cert.Spec.SecretName {
+			volumeName = v.Name
+		}
+	}
+	if volumeName == "" {
+		t.Fatalf("Deployment mounts no Secret %q written by the service Certificate:\n%+v",
+			cert.Spec.SecretName, dep.Spec.Template.Spec.Volumes)
+	}
+
+	for _, m := range c.VolumeMounts {
+		if m.Name != volumeName {
+			continue
+		}
+		if m.MountPath != "/etc/abnchd/tls" {
+			t.Errorf("certificate Secret mounts at %q, want /etc/abnchd/tls", m.MountPath)
+		}
+		if !m.ReadOnly {
+			t.Error("certificate Secret mounts read-write, want read-only")
+		}
+		return
+	}
+	t.Errorf("container mounts no volume %q for the certificate Secret:\n%+v", volumeName, c.VolumeMounts)
+}
+
+// serviceCertificate returns the rendered Certificate for the service, which is
+// the Certificate that is not a CA.
+func serviceCertificate(t *testing.T, manifests []manifest) manifest {
+	t.Helper()
+	certs, _ := certificateAndIssuerManifests(manifests)
+	cert, ok := findManifest(certs, func(m manifest) bool { return !m.Spec.IsCA })
+	if !ok {
+		t.Fatalf("chart renders no service Certificate:\n%s", renderManifests(manifests))
+	}
+	return cert
+}
+
+// certificateAndIssuerManifests returns the Certificates and Issuers the chart
+// renders.
+func certificateAndIssuerManifests(manifests []manifest) ([]manifest, []manifest) {
+	var certs, issuers []manifest
+	for _, m := range manifests {
+		switch m.Kind {
+		case "Certificate":
+			certs = append(certs, m)
+		case "Issuer":
+			issuers = append(issuers, m)
+		}
+	}
+	return certs, issuers
+}
+
+// findManifest returns the first manifest matching pred.
+func findManifest(manifests []manifest, pred func(manifest) bool) (manifest, bool) {
+	for _, m := range manifests {
+		if pred(m) {
+			return m, true
+		}
+	}
+	return manifest{}, false
+}
+
 // TestChartRendersServiceConfig checks that the chart renders its values into a
 // service config the service reads: the url, Postgres connection, and the OIDC
 // and workload auth settings all come through.
@@ -340,6 +623,51 @@ func TestChartRendersServiceConfig(t *testing.T) {
 		iss.RoleClaim != "sub" || iss.RoleMap["build"] != "Service" {
 		t.Errorf("oauth issuer = %+v, want the chart values", iss)
 	}
+}
+
+// TestChartConfiguresHTTPS checks that the rendered config serves HTTPS with
+// the certificate files the Deployment mounts, so a default install serves the
+// service over TLS.
+func TestChartConfiguresHTTPS(t *testing.T) {
+	manifests := renderChart(t)
+	cfg := renderedConfig(t, manifests)
+
+	if !strings.HasPrefix(cfg.URL, "https://") {
+		t.Errorf("url = %q, want an https url", cfg.URL)
+	}
+	if got, want := cfg.Listen, "0.0.0.0:8443"; got != want {
+		t.Errorf("listen = %q, want %q", got, want)
+	}
+	if cfg.TLS == nil {
+		t.Fatalf("config has no tls block:\n%s", renderManifests(manifests))
+	}
+	if got, want := cfg.TLS.CertFile, "/etc/abnchd/tls/tls.crt"; got != want {
+		t.Errorf("tls.certFile = %q, want %q", got, want)
+	}
+	if got, want := cfg.TLS.KeyFile, "/etc/abnchd/tls/tls.key"; got != want {
+		t.Errorf("tls.keyFile = %q, want %q", got, want)
+	}
+
+	dep, ok := findKind(manifests, "Deployment")
+	if !ok {
+		t.Fatalf("chart renders no Deployment:\n%s", renderManifests(manifests))
+	}
+	c := dep.Spec.Template.Spec.Containers[0]
+	for _, file := range []string{cfg.TLS.CertFile, cfg.TLS.KeyFile} {
+		if !mountedAt(c.VolumeMounts, path.Dir(file), "/etc/abnchd/tls") {
+			t.Errorf("tls file %q is not under the certificate mount:\n%+v", file, c.VolumeMounts)
+		}
+	}
+}
+
+// mountedAt reports whether a volume mount covers dir and sits at wantPath.
+func mountedAt(mounts []volumeMount, dir, wantPath string) bool {
+	for _, m := range mounts {
+		if m.MountPath == wantPath && (dir == m.MountPath || strings.HasPrefix(dir, m.MountPath+"/")) {
+			return true
+		}
+	}
+	return false
 }
 
 // TestChartValuesHoldNoSecretValues checks that the chart values carry the
@@ -568,14 +896,14 @@ func configMountPath(volumes []volume, mounts []volumeMount, configMap, configPa
 	return "", false
 }
 
-// TestChartLints checks that helm accepts the chart with its default values.
+// TestChartLints checks that helm accepts the chart with an external issuer.
 func TestChartLints(t *testing.T) {
 	helm, err := exec.LookPath("helm")
 	if err != nil {
 		t.Skip("helm is not installed")
 	}
 
-	out, err := exec.Command(helm, "lint", chartDir(t)).CombinedOutput()
+	out, err := exec.Command(helm, "lint", chartDir(t), "--set", "tls.issuerRef.name="+testIssuerName).CombinedOutput()
 	if err != nil {
 		t.Fatalf("helm lint: %v\n%s", err, out)
 	}
@@ -588,19 +916,20 @@ func TestChartLints(t *testing.T) {
 var dns1123Subdomain = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`)
 
 // TestChartRendersValidManifests checks that the chart renders valid Kubernetes
-// manifests with its default values: every document names a kind and API version
+// manifests with an external issuer: every document names a kind and API version
 // the cluster serves, carries a DNS-1123 name, and holds the fields its kind
 // requires.
 func TestChartRendersValidManifests(t *testing.T) {
 	manifests := renderChart(t)
 	if len(manifests) == 0 {
-		t.Fatal("chart renders no manifests with its default values")
+		t.Fatal("chart renders no manifests")
 	}
 
 	kinds := map[string]string{
-		"Deployment": "apps/v1",
-		"Service":    "v1",
-		"ConfigMap":  "v1",
+		"Deployment":  "apps/v1",
+		"Service":     "v1",
+		"ConfigMap":   "v1",
+		"Certificate": "cert-manager.io/v1",
 	}
 	seen := map[string]bool{}
 	for _, m := range manifests {
@@ -627,12 +956,14 @@ func TestChartRendersValidManifests(t *testing.T) {
 			if len(m.Data) == 0 {
 				t.Errorf("ConfigMap %s holds no data", m.Metadata.Name)
 			}
+		case "Certificate":
+			checkValidCertificate(t, m)
 		}
 	}
 
 	for kind := range kinds {
 		if !seen[kind] {
-			t.Errorf("chart renders no %s with its default values", kind)
+			t.Errorf("chart renders no %s", kind)
 		}
 	}
 }
@@ -675,6 +1006,20 @@ func checkValidService(t *testing.T, m manifest) {
 	}
 }
 
+// checkValidCertificate checks the fields a Certificate requires to issue.
+func checkValidCertificate(t *testing.T, m manifest) {
+	t.Helper()
+	if m.Spec.SecretName == "" {
+		t.Errorf("Certificate %s writes no Secret", m.Metadata.Name)
+	}
+	if m.Spec.IssuerRef.Name == "" {
+		t.Errorf("Certificate %s names no issuer", m.Metadata.Name)
+	}
+	if !m.Spec.IsCA && len(m.Spec.DNSNames) == 0 {
+		t.Errorf("Certificate %s covers no DNS name", m.Metadata.Name)
+	}
+}
+
 // containerPortName returns the name of a container's first port.
 func containerPortName(c container) string {
 	if len(c.Ports) == 0 {
@@ -684,8 +1029,30 @@ func containerPortName(c container) string {
 }
 
 // renderChart renders the chart with `helm template`, skipping when helm is not
-// installed, and returns the parsed manifests.
+// installed, and returns the parsed manifests. It names the external issuer
+// unless the caller does, since the chart renders no issuer of its own.
 func renderChart(t *testing.T, args ...string) []manifest {
+	t.Helper()
+	if !namesIssuer(args) {
+		args = append(args, "--set", "tls.issuerRef.name="+testIssuerName)
+	}
+	out, err := renderChartOutput(t, args...)
+	if err != nil {
+		t.Fatalf("helm template: %v\n%s", err, out)
+	}
+	return parseManifests(t, out)
+}
+
+// namesIssuer reports whether the render arguments set the external issuer name.
+func namesIssuer(args []string) bool {
+	return slices.ContainsFunc(args, func(arg string) bool {
+		return strings.Contains(arg, "tls.issuerRef.name")
+	})
+}
+
+// renderChartOutput runs `helm template` with the given arguments and returns
+// its output, skipping when helm is not installed.
+func renderChartOutput(t *testing.T, args ...string) ([]byte, error) {
 	t.Helper()
 	helm, err := exec.LookPath("helm")
 	if err != nil {
@@ -693,11 +1060,7 @@ func renderChart(t *testing.T, args ...string) []manifest {
 	}
 
 	cmd := exec.Command(helm, append([]string{"template", "abnchd", chartDir(t)}, args...)...)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("helm template: %v\n%s", err, out)
-	}
-	return parseManifests(t, out)
+	return cmd.CombinedOutput()
 }
 
 // parseManifests decodes a stream of YAML documents, ignoring empty ones.

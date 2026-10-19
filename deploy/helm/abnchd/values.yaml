@@ -8,10 +8,21 @@ image:
 
 replicaCount: 1
 
-# The Service that reaches the service pods.
+# The Service that reaches the service pods. It exposes only the HTTPS port.
 service:
   type: ClusterIP
-  port: 80
+  port: 443
+
+# The service certificate. The chart signs it with an existing cert-manager
+# issuer, which issuerRef names. The chart renders no issuer of its own and fails
+# when issuerRef.name is empty. dnsNames defaults to the Service's cluster DNS
+# name when empty.
+tls:
+  issuerRef:
+    name: ""
+    kind: Issuer
+    group: cert-manager.io
+  dnsNames: []
 
 # The Kubernetes Secret that holds the service's secret config values, and the
 # keys within it that hold them. The chart carries the secret's name and keys,
@@ -21,12 +32,16 @@ secrets:
   postgresPasswordKey: postgres-password
   oidcClientSecretKey: oidc-client-secret
 
-# The service config the chart renders and abnchd reads. The service's base URL
-# also names the host and port it listens on, so a pod binds every interface on
-# the container port. The Postgres password and OIDC client secret come from the
-# Secret above, not from these values.
+# The service config the chart renders and abnchd reads. The service binds
+# listen, while url is its public base URL. The certificate and key are the
+# files the mounted Certificate Secret holds. The Postgres password and OIDC
+# client secret come from the Secret above, not from these values.
 config:
-  url: http://0.0.0.0:8080
+  url: https://0.0.0.0:8443
+  listen: 0.0.0.0:8443
+  tls:
+    certFile: /etc/abnchd/tls/tls.crt
+    keyFile: /etc/abnchd/tls/tls.key
   postgres:
     host: ""
     port: 5432

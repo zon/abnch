@@ -2,6 +2,7 @@ package devconfig
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"go.yaml.in/yaml/v3"
@@ -50,6 +51,7 @@ func TestDevIssuerRoleMap(t *testing.T) {
 func TestConfigRoundTrip(t *testing.T) {
 	cfg := Config{
 		URL:      "http://localhost:8080",
+		Listen:   "0.0.0.0:8443",
 		Postgres: Postgres{Host: "localhost", Port: 5432, DBName: "abnch", User: "postgres", Password: "pw", SSLMode: "disable", TimeZone: "UTC"},
 		OAuth:    OAuth{Issuers: []Issuer{DevIssuer("http://localhost:8080")}},
 	}
@@ -63,6 +65,39 @@ func TestConfigRoundTrip(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, cfg) {
 		t.Errorf("round trip = %#v, want %#v", got, cfg)
+	}
+}
+
+func TestConfigRoundTripKeepsTLS(t *testing.T) {
+	cfg := Config{
+		URL:      "https://bench.example.com",
+		Postgres: Postgres{Host: "localhost", Port: 5432, DBName: "abnch", User: "postgres", Password: "pw", SSLMode: "disable", TimeZone: "UTC"},
+		TLS:      &TLS{CertFile: "/etc/abnchd/tls/tls.crt", KeyFile: "/etc/abnchd/tls/tls.key"},
+	}
+	data, err := cfg.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := UnmarshalConfig(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got.TLS, cfg.TLS) {
+		t.Errorf("tls round trip = %#v, want %#v", got.TLS, cfg.TLS)
+	}
+}
+
+func TestConfigWithoutTLSDropsTheBlock(t *testing.T) {
+	cfg := Config{
+		URL:      "http://localhost:8080",
+		Postgres: Postgres{Host: "localhost", Port: 5432, DBName: "abnch", User: "postgres", Password: "pw", SSLMode: "disable", TimeZone: "UTC"},
+	}
+	data, err := cfg.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "tls") {
+		t.Errorf("config without tls rendered a tls block:\n%s", data)
 	}
 }
 

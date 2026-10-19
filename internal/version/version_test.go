@@ -45,6 +45,24 @@ func TestVersionAdvancedForChartDelivery(t *testing.T) {
 	}
 }
 
+// TestVersionAdvancedForHTTPS checks the version carries the HTTPS milestone's
+// major bump, so a later change cannot silently revert it below the release
+// that serves HTTPS by default.
+func TestVersionAdvancedForHTTPS(t *testing.T) {
+	got := parseVersion(t, Version)
+	want := [3]int{1, 0, 0}
+
+	for i := range want {
+		if got[i] == want[i] {
+			continue
+		}
+		if got[i] < want[i] {
+			t.Errorf("Version = %q, want at least 1.0.0", Version)
+		}
+		return
+	}
+}
+
 func parseVersion(t *testing.T, value string) [3]int {
 	t.Helper()
 

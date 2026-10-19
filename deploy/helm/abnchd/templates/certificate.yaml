@@ -1,0 +1,24 @@
+{{- if not .Values.tls.issuerRef.name }}
+{{- fail "tls.issuerRef.name is required" }}
+{{- end }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "abnchd.certificateName" . }}
+  labels:
+    {{- include "abnchd.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "abnchd.tlsSecretName" . }}
+  dnsNames:
+    {{- if .Values.tls.dnsNames }}
+    {{- range .Values.tls.dnsNames }}
+    - {{ . | quote }}
+    {{- end }}
+    {{- else }}
+    - {{ printf "%s.%s.svc" (include "abnchd.fullname" .) .Release.Namespace | quote }}
+    - {{ printf "%s.%s.svc.cluster.local" (include "abnchd.fullname" .) .Release.Namespace | quote }}
+    {{- end }}
+  issuerRef:
+    name: {{ .Values.tls.issuerRef.name }}
+    kind: {{ .Values.tls.issuerRef.kind | default "Issuer" }}
+    group: {{ .Values.tls.issuerRef.group | default "cert-manager.io" }}

@@ -8,7 +8,7 @@ The repo ships its apps as container images that follow the [Container Standard]
 
 ## Transport Security
 
-The service serves HTTPS and terminates TLS itself. A deployment issues the certificate with cert-manager. The Helm chart renders the cert-manager resources, mounts the certificate Secret, and configures `abnchd` to serve it. See [HTTPS Design](https.md).
+The service serves HTTPS and terminates TLS itself. A deployment issues the certificate with cert-manager. The Helm chart renders the service Certificate, signs it with an issuer the deployment provides, mounts the certificate Secret, and configures `abnchd` to serve it. See [HTTPS Design](https.md).
 
 The cluster must have cert-manager installed before the chart. The chart does not install it.
 

@@ -88,6 +88,36 @@ func TestRunServesDevIssuer(t *testing.T) {
 	}
 }
 
+// TestRunUsesURLForSelfReferences checks the service binds its listen address
+// while its self-references keep using url.
+func TestRunUsesURLForSelfReferences(t *testing.T) {
+	listen := fmt.Sprintf("127.0.0.1:%d", freePort(t))
+	url := fmt.Sprintf("http://127.0.0.1:%d", freePort(t))
+	cfg := devconfig.Config{
+		URL:      url,
+		Listen:   listen,
+		Postgres: testPostgres(),
+		OAuth:    devconfig.OAuth{Issuers: []devconfig.Issuer{devconfig.DevIssuer(url)}},
+	}
+	data, err := cfg.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := writeConfig(t, string(data))
+	if err := devconfig.EnsureDevKey(devconfig.KeyPath(path)); err != nil {
+		t.Fatal(err)
+	}
+	base := startServiceOn(t, listen, Options{ConfigPath: path})
+
+	var doc struct {
+		Issuer string `json:"issuer"`
+	}
+	getJSON(t, base+"dev/.well-known/openid-configuration", &doc)
+	if doc.Issuer != url+"/dev" {
+		t.Errorf("issuer = %q, want the url-based %q", doc.Issuer, url+"/dev")
+	}
+}
+
 // TestRunHidesUntrustedDevIssuer checks the service serves no dev issuer when
 // its config does not trust one.
 func TestRunHidesUntrustedDevIssuer(t *testing.T) {

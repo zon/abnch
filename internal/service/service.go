@@ -1,7 +1,9 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -9,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/zon/abnch/internal/auth"
@@ -149,6 +152,11 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 
+	tlsConfig, err := serverTLSConfig(cfg.TLS)
+	if err != nil {
+		return fmt.Errorf("config file %s: %w", opts.ConfigPath, err)
+	}
+
 	db, err := opener(ctx, cfg.Postgres)
 	if err != nil {
 		return err
@@ -175,7 +183,7 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 
-	return serve(ctx, addr, handler, out)
+	return serve(ctx, addr, handler, tlsConfig, out)
 }
 
 // serviceHandler builds the service's routes: the local dev issuer it hosts,
@@ -303,6 +311,12 @@ func serviceAddr(cfg devconfig.Config, path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("config file %s: %w", path, err)
 	}
+	if err := checkTLS(cfg.URL, cfg.TLS); err != nil {
+		return "", fmt.Errorf("config file %s: %w", path, err)
+	}
+	if cfg.Listen != "" {
+		addr = cfg.Listen
+	}
 
 	if err := devconfig.CheckPostgres(cfg.Postgres); err != nil {
 		return "", fmt.Errorf("config file %s: %w", path, err)
@@ -333,13 +347,151 @@ func listenAddr(rawURL string) (string, error) {
 	return u.Host, nil
 }
 
-// serve hosts the handler on addr until ctx is canceled.
-func serve(ctx context.Context, addr string, handler http.Handler, out io.Writer) error {
+// checkTLS confirms the service url scheme agrees with the tls block. An https
+// url needs a tls block, and an http url must not have one.
+func checkTLS(rawURL string, tls *devconfig.TLS) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("service url %q is not valid: %w", rawURL, err)
+	}
+	switch {
+	case u.Scheme == "https" && tls == nil:
+		return fmt.Errorf("service url %q uses https but the config has no tls block", rawURL)
+	case u.Scheme == "http" && tls != nil:
+		return fmt.Errorf("service url %q uses http but the config has a tls block", rawURL)
+	}
+	return nil
+}
+
+// serverTLSConfig returns the TLS configuration for the certificate and key
+// the service config names, or nil when the config names no tls block.
+func serverTLSConfig(cfg *devconfig.TLS) (*tls.Config, error) {
+	if cfg == nil {
+		return nil, nil
+	}
+
+	pair, err := readTLSKeyPair(cfg.CertFile, cfg.KeyFile)
+	if err != nil {
+		return nil, err
+	}
+	reloader := &certificateReloader{
+		certFile: cfg.CertFile,
+		keyFile:  cfg.KeyFile,
+		current:  pair,
+	}
+	return &tls.Config{
+		GetCertificate: reloader.certificate,
+		MinVersion:     tls.VersionTLS12,
+	}, nil
+}
+
+// tlsKeyPair is a loaded certificate and key with the PEM data it came from.
+type tlsKeyPair struct {
+	cert    tls.Certificate
+	certPEM []byte
+	keyPEM  []byte
+}
+
+// readTLSKeyPair reads the certificate and key files and parses them into a
+// pair.
+func readTLSKeyPair(certFile, keyFile string) (*tlsKeyPair, error) {
+	certPEM, keyPEM, err := readTLSFiles(certFile, keyFile)
+	if err != nil {
+		return nil, err
+	}
+	cert, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		return nil, fmt.Errorf("tls certificate %q and key %q are not a valid pair: %w", certFile, keyFile, err)
+	}
+	return &tlsKeyPair{cert: cert, certPEM: certPEM, keyPEM: keyPEM}, nil
+}
+
+// readTLSFiles reads the certificate and key files, naming the file that is
+// missing or unreadable.
+func readTLSFiles(certFile, keyFile string) (certPEM, keyPEM []byte, err error) {
+	certPEM, err = os.ReadFile(certFile)
+	if err != nil {
+		return nil, nil, fmt.Errorf("tls certificate file %q is missing or unreadable: %w", certFile, err)
+	}
+	keyPEM, err = os.ReadFile(keyFile)
+	if err != nil {
+		return nil, nil, fmt.Errorf("tls key file %q is missing or unreadable: %w", keyFile, err)
+	}
+	return certPEM, keyPEM, nil
+}
+
+// certificateReloader serves the certificate and key at its paths, reloading
+// them when they change.
+type certificateReloader struct {
+	certFile string
+	keyFile  string
+	mu       sync.Mutex
+	current  *tlsKeyPair
+}
+
+// certificate returns the pair for a new TLS connection, reloading it when the
+// files hold a different certificate or key. A failed reload keeps the last
+// valid pair.
+func (r *certificateReloader) certificate(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	certPEM, keyPEM, err := readTLSFiles(r.certFile, r.keyFile)
+	if err != nil {
+		return &r.current.cert, nil
+	}
+	if bytes.Equal(certPEM, r.current.certPEM) && bytes.Equal(keyPEM, r.current.keyPEM) {
+		return &r.current.cert, nil
+	}
+
+	pair, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		return &r.current.cert, nil
+	}
+	r.current = &tlsKeyPair{cert: pair, certPEM: certPEM, keyPEM: keyPEM}
+	return &r.current.cert, nil
+}
+
+// tlsListener wraps accepted connections in TLS, so a plaintext request fails
+// the handshake instead of reading as an HTTP request.
+type tlsListener struct {
+	net.Listener
+	config *tls.Config
+}
+
+func (l *tlsListener) Accept() (net.Conn, error) {
+	conn, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return &tlsConn{Conn: tls.Server(conn, l.config)}, nil
+}
+
+// tlsConn hands the service the TLS connection state. It wraps handshake errors
+// so the HTTP server closes the connection without answering a plaintext
+// request.
+type tlsConn struct {
+	*tls.Conn
+}
+
+func (c *tlsConn) HandshakeContext(ctx context.Context) error {
+	if err := c.Conn.HandshakeContext(ctx); err != nil {
+		return fmt.Errorf("tls handshake: %w", err)
+	}
+	return nil
+}
+
+// serve hosts the handler on addr until ctx is canceled. A non-nil tlsConfig
+// makes it serve HTTPS on that address and nowhere else.
+func serve(ctx context.Context, addr string, handler http.Handler, tlsConfig *tls.Config, out io.Writer) error {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("failed to listen on %s: %w", addr, err)
 	}
 	fmt.Fprintf(out, "abnchd listening on %s\n", ln.Addr())
+	if tlsConfig != nil {
+		ln = &tlsListener{Listener: ln, config: tlsConfig}
+	}
 
 	srv := &http.Server{Handler: handler}
 	errCh := make(chan error, 1)

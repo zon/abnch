@@ -24,19 +24,10 @@ cert-manager renews a certificate by writing a new value to the certificate's Se
 
 ## Helm Chart
 
-The chart requires cert-manager. It creates the service Certificate and, by default, a private CA that signs it. The Deployment mounts the Certificate Secret and starts abnchd over HTTPS.
-
-The chart creates these cert-manager resources by default:
-
-* a self-signed Issuer
-* a CA Certificate
-* an Issuer backed by the CA
-* the service Certificate
-
-A deployment with its own issuer sets `tls.createIssuer` to false and names the issuer in `tls.issuerRef`. The chart fails to render when that name is missing.
+The chart requires cert-manager but renders no issuer of its own. It creates the service Certificate and signs it with an external issuer that the values name in `tls.issuerRef`. The chart fails to render when that name is missing. The Deployment mounts the Certificate Secret and starts abnchd over HTTPS.
 
 The service Certificate covers `tls.dnsNames`. The default is the Service's cluster DNS name. A deployment that serves clients outside the cluster sets the public host names in `tls.dnsNames` and the same host in `config.url`.
 
-The CA Certificate's Secret holds the CA certificate. A deployment distributes it to clients that must trust the private CA.
+A deployment that uses a private CA distributes the CA certificate to clients that must trust it.
 
 The Service forwards its HTTPS port to the container's HTTPS port. The chart sets `config.listen` to `0.0.0.0:8443` and `config.url` to the deployment's public URL.
