@@ -577,6 +577,51 @@ func TestChartRendersServiceConfig(t *testing.T) {
 	}
 }
 
+// TestChartConfiguresHTTPS checks that the rendered config serves HTTPS with
+// the certificate files the Deployment mounts, so a default install serves the
+// service over TLS.
+func TestChartConfiguresHTTPS(t *testing.T) {
+	manifests := renderChart(t)
+	cfg := renderedConfig(t, manifests)
+
+	if !strings.HasPrefix(cfg.URL, "https://") {
+		t.Errorf("url = %q, want an https url", cfg.URL)
+	}
+	if got, want := cfg.Listen, "0.0.0.0:8443"; got != want {
+		t.Errorf("listen = %q, want %q", got, want)
+	}
+	if cfg.TLS == nil {
+		t.Fatalf("config has no tls block:\n%s", renderManifests(manifests))
+	}
+	if got, want := cfg.TLS.CertFile, "/etc/abnchd/tls/tls.crt"; got != want {
+		t.Errorf("tls.certFile = %q, want %q", got, want)
+	}
+	if got, want := cfg.TLS.KeyFile, "/etc/abnchd/tls/tls.key"; got != want {
+		t.Errorf("tls.keyFile = %q, want %q", got, want)
+	}
+
+	dep, ok := findKind(manifests, "Deployment")
+	if !ok {
+		t.Fatalf("chart renders no Deployment:\n%s", renderManifests(manifests))
+	}
+	c := dep.Spec.Template.Spec.Containers[0]
+	for _, file := range []string{cfg.TLS.CertFile, cfg.TLS.KeyFile} {
+		if !mountedAt(c.VolumeMounts, path.Dir(file), "/etc/abnchd/tls") {
+			t.Errorf("tls file %q is not under the certificate mount:\n%+v", file, c.VolumeMounts)
+		}
+	}
+}
+
+// mountedAt reports whether a volume mount covers dir and sits at wantPath.
+func mountedAt(mounts []volumeMount, dir, wantPath string) bool {
+	for _, m := range mounts {
+		if m.MountPath == wantPath && (dir == m.MountPath || strings.HasPrefix(dir, m.MountPath+"/")) {
+			return true
+		}
+	}
+	return false
+}
+
 // TestChartValuesHoldNoSecretValues checks that the chart values carry the
 // secret's name and keys rather than the Postgres password and OIDC client
 // secret themselves.
