@@ -3,6 +3,7 @@ package helm
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -109,10 +111,11 @@ type secretKeyRef struct {
 	Key  string `yaml:"key"`
 }
 
-// volume is a pod volume and the ConfigMap it reads.
+// volume is a pod volume and the ConfigMap or Secret it reads.
 type volume struct {
 	Name      string        `yaml:"name"`
 	ConfigMap *configMapRef `yaml:"configMap"`
+	Secret    *secretVolume `yaml:"secret"`
 }
 
 // configMapRef names the ConfigMap a volume reads.
@@ -120,10 +123,16 @@ type configMapRef struct {
 	Name string `yaml:"name"`
 }
 
+// secretVolume names the Secret a volume reads.
+type secretVolume struct {
+	SecretName string `yaml:"secretName"`
+}
+
 // volumeMount attaches a volume at a container path.
 type volumeMount struct {
 	Name      string `yaml:"name"`
 	MountPath string `yaml:"mountPath"`
+	ReadOnly  bool   `yaml:"readOnly"`
 }
 
 // containerPort is one port a container exposes.
@@ -391,6 +400,97 @@ func TestChartRequiresIssuerNameWithExistingIssuer(t *testing.T) {
 	if !strings.Contains(string(out), "tls.issuerRef.name") {
 		t.Errorf("helm template error does not name tls.issuerRef.name:\n%s", out)
 	}
+}
+
+// TestServiceCertificateCoversConfiguredDNSNames checks that the service
+// Certificate covers the names in tls.dnsNames, so a deployment can serve the
+// public host names it configures.
+func TestServiceCertificateCoversConfiguredDNSNames(t *testing.T) {
+	manifests := renderChart(t,
+		"--set", "tls.dnsNames[0]=abnch.example.com",
+		"--set", "tls.dnsNames[1]=api.example.com",
+	)
+
+	cert := serviceCertificate(t, manifests)
+	want := []string{"abnch.example.com", "api.example.com"}
+	if !slices.Equal(cert.Spec.DNSNames, want) {
+		t.Errorf("service Certificate covers %v, want %v", cert.Spec.DNSNames, want)
+	}
+}
+
+// TestServiceCertificateDefaultsToServiceClusterDNSName checks that an empty
+// tls.dnsNames covers the Service's cluster DNS name, so a default install
+// issues a certificate for the Service it exposes.
+func TestServiceCertificateDefaultsToServiceClusterDNSName(t *testing.T) {
+	const namespace = "abnch-test"
+	manifests := renderChart(t, "--namespace", namespace)
+
+	svc, ok := findKind(manifests, "Service")
+	if !ok {
+		t.Fatalf("chart renders no Service:\n%s", renderManifests(manifests))
+	}
+	cert := serviceCertificate(t, manifests)
+
+	for _, want := range []string{
+		fmt.Sprintf("%s.%s.svc", svc.Metadata.Name, namespace),
+		fmt.Sprintf("%s.%s.svc.cluster.local", svc.Metadata.Name, namespace),
+	} {
+		if !slices.Contains(cert.Spec.DNSNames, want) {
+			t.Errorf("service Certificate covers %v, want it to include the Service's cluster DNS name %q",
+				cert.Spec.DNSNames, want)
+		}
+	}
+}
+
+// TestServiceCertificateSecretIsMounted checks that the service Certificate
+// writes the Secret the Deployment mounts, so the certificate files reach the
+// service.
+func TestServiceCertificateSecretIsMounted(t *testing.T) {
+	manifests := renderChart(t)
+	cert := serviceCertificate(t, manifests)
+
+	dep, ok := findKind(manifests, "Deployment")
+	if !ok {
+		t.Fatalf("chart renders no Deployment:\n%s", renderManifests(manifests))
+	}
+	c := dep.Spec.Template.Spec.Containers[0]
+
+	volumeName := ""
+	for _, v := range dep.Spec.Template.Spec.Volumes {
+		if v.Secret != nil && v.Secret.SecretName == cert.Spec.SecretName {
+			volumeName = v.Name
+		}
+	}
+	if volumeName == "" {
+		t.Fatalf("Deployment mounts no Secret %q written by the service Certificate:\n%+v",
+			cert.Spec.SecretName, dep.Spec.Template.Spec.Volumes)
+	}
+
+	for _, m := range c.VolumeMounts {
+		if m.Name != volumeName {
+			continue
+		}
+		if m.MountPath != "/etc/abnchd/tls" {
+			t.Errorf("certificate Secret mounts at %q, want /etc/abnchd/tls", m.MountPath)
+		}
+		if !m.ReadOnly {
+			t.Error("certificate Secret mounts read-write, want read-only")
+		}
+		return
+	}
+	t.Errorf("container mounts no volume %q for the certificate Secret:\n%+v", volumeName, c.VolumeMounts)
+}
+
+// serviceCertificate returns the rendered Certificate for the service, which is
+// the Certificate that is not a CA.
+func serviceCertificate(t *testing.T, manifests []manifest) manifest {
+	t.Helper()
+	certs, _ := certificateAndIssuerManifests(manifests)
+	cert, ok := findManifest(certs, func(m manifest) bool { return !m.Spec.IsCA })
+	if !ok {
+		t.Fatalf("chart renders no service Certificate:\n%s", renderManifests(manifests))
+	}
+	return cert
 }
 
 // certificateAndIssuerManifests returns the Certificates and Issuers the chart

@@ -39,7 +39,13 @@ spec:
             - name: config
               mountPath: /etc/abnchd
               readOnly: true
+            - name: tls
+              mountPath: /etc/abnchd/tls
+              readOnly: true
       volumes:
         - name: config
           configMap:
             name: {{ include "abnchd.configMapName" . }}
+        - name: tls
+          secret:
+            secretName: {{ include "abnchd.tlsSecretName" . }}
