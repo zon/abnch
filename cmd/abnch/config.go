@@ -56,6 +56,83 @@ func configPath(workDir string) string {
 	return filepath.Join(workDir, configDir, configName)
 }
 
+// getConfig writes the CLI config under the working directory as YAML. A
+// missing config writes nothing.
+func getConfig(d deps) error {
+	path := configPath(d.workDir)
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to read %s: %w", path, err)
+	}
+
+	cfg, err := loadConfig(d.workDir)
+	if err != nil {
+		return fmt.Errorf("failed to read %s: %w", path, err)
+	}
+	return writeYAML(d.out, cfg)
+}
+
+// setConfig creates or updates the CLI config's service URL. It keeps the
+// existing URL when --url is not given and fails when neither provides one.
+func setConfig(d deps, c setConfigCmd) error {
+	if c.URL == "" {
+		return keepConfigURL(d)
+	}
+	if err := setConfigURL(d.workDir, c.URL); err != nil {
+		return err
+	}
+	fmt.Fprintln(d.out, "Set config")
+	return nil
+}
+
+// keepConfigURL succeeds when the CLI config already has a service URL and
+// fails when it does not. It leaves the config untouched.
+func keepConfigURL(d deps) error {
+	cfg, err := loadConfig(d.workDir)
+	if err != nil {
+		return fmt.Errorf("failed to read %s: %w", configPath(d.workDir), err)
+	}
+	if cfg.URL == "" {
+		return missingServiceURLError()
+	}
+	fmt.Fprintln(d.out, "Set config")
+	return nil
+}
+
+// missingServiceURLError tells the user how to set the service URL.
+func missingServiceURLError() error {
+	return errors.New("no service url: run `abnch set config --url <url>`")
+}
+
+// setConfigURL records the service URL in the CLI config under workDir. It
+// edits the existing YAML document, so every other key survives. A missing
+// config is created.
+func setConfigURL(workDir, url string) error {
+	return editConfig(workDir, func(data []byte) ([]byte, error) {
+		return updateConfigURL(data, url)
+	})
+}
+
+// updateConfigURL returns the config document with url set, preserving every
+// other key and comment.
+func updateConfigURL(data []byte, url string) ([]byte, error) {
+	var doc yaml.Node
+	if len(data) > 0 {
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			return nil, err
+		}
+	}
+
+	root, err := rootMapping(&doc)
+	if err != nil {
+		return nil, err
+	}
+	setMappingValue(root, "url", scalarNode(url))
+	return marshalNode(&doc)
+}
+
 // setTaskModel records the task's default model in the CLI config under workDir.
 // It edits the existing YAML document, so every other key survives. A missing
 // config is created.
@@ -383,7 +460,7 @@ func resolveServiceURL(flagURL, workDir string) (string, error) {
 		return "", fmt.Errorf("failed to read %s: %w", configPath(workDir), err)
 	}
 	if cfg.URL == "" {
-		return "", errors.New("no service url: pass --url or set url in " + configDir + "/" + configName)
+		return "", missingServiceURLError()
 	}
 	return cfg.URL, nil
 }
