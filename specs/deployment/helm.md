@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Install the service into a Kubernetes cluster. The chart supplies the [Service Config](../../docs/design/app/abnchd-config.md) through its values and runs the service image the [Container spec](container.md) delivers, tagged with the [shared version](../version.md). The [Deployment Design](../../docs/design/deployment.md) describes the chart and the secrets a deployment supplies.
+Install the service into a Kubernetes cluster. The chart supplies the [Service Config](../../docs/design/app/abnchd-config.md) through its values and runs the service image the [Container spec](container.md) delivers, tagged with the [shared version](../version.md). The delivery pipeline publishes the chart to a registry so a cluster deployment installs it by name and version. The [Deployment Design](../../docs/design/deployment.md) describes the chart, where it is published, and the secrets a deployment supplies.
 
 ## Requirements
 
@@ -85,3 +85,33 @@ The chart SHALL lint clean and SHALL render valid Kubernetes manifests with its 
 - GIVEN the repo's chart
 - WHEN the chart renders with its default values
 - THEN it produces valid Kubernetes manifests
+
+### Requirement: Chart Delivery
+
+The delivery pipeline SHALL publish the chart to the container registry as an OCI artifact at the [shared version](../version.md), after it pushes the service image at that version. A published chart version SHALL NOT change. A consumer SHALL install the chart from the registry without credentials.
+
+#### Scenario: Publish the chart
+
+- GIVEN a change to the repo
+- WHEN the pipeline pushes the service image at the repo version
+- THEN it publishes the chart at the repo version
+- AND the chart runs that image by default
+
+#### Scenario: Version already published
+
+- GIVEN the registry holds the chart at the repo version
+- WHEN the pipeline runs again at that version
+- THEN it publishes nothing
+- AND the published chart is unchanged
+
+#### Scenario: Image not pushed
+
+- GIVEN a change whose image scan fails
+- WHEN the pipeline runs
+- THEN it publishes no chart
+
+#### Scenario: Install from the registry
+
+- GIVEN a cluster with no registry credentials
+- WHEN a caller installs the chart by registry, name, and version
+- THEN the cluster runs the service at that version
