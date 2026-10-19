@@ -126,6 +126,25 @@ func TestGetConfigWithoutConfigPrintsNothing(t *testing.T) {
 	}
 }
 
+func TestGetConfigWithoutConfigFilePrintsNothing(t *testing.T) {
+	workDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workDir, configDir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	d := commandDeps(t, workDir)
+
+	code, out, errOut := exitCode(t, []string{"get", "config"}, d)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 without a config file: %s", code, errOut)
+	}
+	if out != "" {
+		t.Errorf("stdout = %q, want nothing without a config file", out)
+	}
+	if errOut != "" {
+		t.Errorf("stderr = %q, want nothing without a config file", errOut)
+	}
+}
+
 func TestSetConfigFailsWithoutURL(t *testing.T) {
 	workDir := t.TempDir()
 	d := commandDeps(t, workDir)
