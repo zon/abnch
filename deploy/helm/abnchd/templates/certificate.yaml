@@ -1,3 +1,6 @@
+{{- if and (not .Values.tls.createIssuer) (not .Values.tls.issuerRef.name) }}
+{{- fail "tls.issuerRef.name is required when tls.createIssuer is false" }}
+{{- end }}
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:

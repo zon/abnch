@@ -380,6 +380,19 @@ func TestChartUsesExistingIssuer(t *testing.T) {
 	}
 }
 
+// TestChartRequiresIssuerNameWithExistingIssuer checks that disabling the chart's
+// issuer without naming the existing issuer fails the render with an error that
+// names the required issuer setting.
+func TestChartRequiresIssuerNameWithExistingIssuer(t *testing.T) {
+	out, err := renderChartOutput(t, "--set", "tls.createIssuer=false")
+	if err == nil {
+		t.Fatalf("helm template accepted a missing issuer name:\n%s", out)
+	}
+	if !strings.Contains(string(out), "tls.issuerRef.name") {
+		t.Errorf("helm template error does not name tls.issuerRef.name:\n%s", out)
+	}
+}
+
 // certificateAndIssuerManifests returns the Certificates and Issuers the chart
 // renders.
 func certificateAndIssuerManifests(manifests []manifest) ([]manifest, []manifest) {
@@ -840,17 +853,24 @@ func containerPortName(c container) string {
 // installed, and returns the parsed manifests.
 func renderChart(t *testing.T, args ...string) []manifest {
 	t.Helper()
+	out, err := renderChartOutput(t, args...)
+	if err != nil {
+		t.Fatalf("helm template: %v\n%s", err, out)
+	}
+	return parseManifests(t, out)
+}
+
+// renderChartOutput runs `helm template` with the given arguments and returns
+// its output, skipping when helm is not installed.
+func renderChartOutput(t *testing.T, args ...string) ([]byte, error) {
+	t.Helper()
 	helm, err := exec.LookPath("helm")
 	if err != nil {
 		t.Skip("helm is not installed")
 	}
 
 	cmd := exec.Command(helm, append([]string{"template", "abnchd", chartDir(t)}, args...)...)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("helm template: %v\n%s", err, out)
-	}
-	return parseManifests(t, out)
+	return cmd.CombinedOutput()
 }
 
 // parseManifests decodes a stream of YAML documents, ignoring empty ones.
