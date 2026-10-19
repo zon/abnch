@@ -132,6 +132,72 @@ func TestServiceAddrFallsBackToURL(t *testing.T) {
 	}
 }
 
+// TestRunRejectsHTTPSURLWithoutTLS checks a config whose url uses https must
+// name a tls block, so the service never publishes an https url it serves over
+// plaintext.
+func TestRunRejectsHTTPSURLWithoutTLS(t *testing.T) {
+	path := writeConfig(t, "url: https://127.0.0.1:8443\n"+postgresYAML)
+
+	err := Run(context.Background(), Options{ConfigPath: path, Opener: unusedOpener(t)})
+	if err == nil {
+		t.Fatal("Run = nil, want an error for an https url without a tls block")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "tls") {
+		t.Errorf("error = %q, want it to name the missing tls block", err)
+	}
+}
+
+// TestRunRejectsHTTPURLWithTLS checks a config whose url uses http must not name
+// a tls block.
+func TestRunRejectsHTTPURLWithTLS(t *testing.T) {
+	path := writeConfig(t, "url: http://127.0.0.1:8080\n"+
+		"tls:\n"+
+		"  certFile: cert.pem\n"+
+		"  keyFile: key.pem\n"+
+		postgresYAML)
+
+	err := Run(context.Background(), Options{ConfigPath: path, Opener: unusedOpener(t)})
+	if err == nil {
+		t.Fatal("Run = nil, want an error for an http url with a tls block")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "tls") {
+		t.Errorf("error = %q, want it to name the unexpected tls block", err)
+	}
+}
+
+// TestServiceAddrAcceptsHTTPSWithTLS checks the url and tls block agree.
+func TestServiceAddrAcceptsHTTPSWithTLS(t *testing.T) {
+	cfg := devconfig.Config{
+		URL:      "https://bench.example.com",
+		Postgres: testPostgres(),
+		TLS:      &devconfig.TLS{CertFile: "cert.pem", KeyFile: "key.pem"},
+	}
+
+	addr, err := serviceAddr(cfg, "config.yaml")
+	if err != nil {
+		t.Fatalf("serviceAddr = %v, want no error", err)
+	}
+	if addr != "bench.example.com:443" {
+		t.Errorf("addr = %q, want the host and port in url", addr)
+	}
+}
+
+// TestRunServesHTTPWithoutTLSBlock checks a config with no tls block serves
+// plaintext HTTP.
+func TestRunServesHTTPWithoutTLSBlock(t *testing.T) {
+	base := startService(t, Options{})
+
+	resp, err := http.Get(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.TLS != nil {
+		t.Error("response used TLS for a config with no tls block")
+	}
+	assertServiceError(t, resp, http.StatusUnauthorized)
+}
+
 func TestRunRejectsIncompletePostgres(t *testing.T) {
 	path := writeConfig(t, "url: http://127.0.0.1:8080\npostgres:\n"+
 		"  host: \"\"\n"+

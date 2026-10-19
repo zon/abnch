@@ -41,10 +41,17 @@ type OIDC struct {
 	RoleMap      map[string]string `yaml:"roleMap"`
 }
 
+// TLS names the certificate and key the service serves.
+type TLS struct {
+	CertFile string `yaml:"certFile"`
+	KeyFile  string `yaml:"keyFile"`
+}
+
 // Config is the local service configuration.
 type Config struct {
 	URL      string   `yaml:"url"`
 	Listen   string   `yaml:"listen,omitempty"`
+	TLS      *TLS     `yaml:"tls,omitempty"`
 	Postgres Postgres `yaml:"postgres"`
 	OAuth    OAuth    `yaml:"oauth"`
 	OIDC     OIDC     `yaml:"oidc,omitempty"`

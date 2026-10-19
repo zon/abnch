@@ -303,6 +303,9 @@ func serviceAddr(cfg devconfig.Config, path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("config file %s: %w", path, err)
 	}
+	if err := checkTLS(cfg.URL, cfg.TLS); err != nil {
+		return "", fmt.Errorf("config file %s: %w", path, err)
+	}
 	if cfg.Listen != "" {
 		addr = cfg.Listen
 	}
@@ -334,6 +337,22 @@ func listenAddr(rawURL string) (string, error) {
 		return net.JoinHostPort(u.Hostname(), port), nil
 	}
 	return u.Host, nil
+}
+
+// checkTLS confirms the service url scheme agrees with the tls block. An https
+// url needs a tls block, and an http url must not have one.
+func checkTLS(rawURL string, tls *devconfig.TLS) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("service url %q is not valid: %w", rawURL, err)
+	}
+	switch {
+	case u.Scheme == "https" && tls == nil:
+		return fmt.Errorf("service url %q uses https but the config has no tls block", rawURL)
+	case u.Scheme == "http" && tls != nil:
+		return fmt.Errorf("service url %q uses http but the config has a tls block", rawURL)
+	}
+	return nil
 }
 
 // serve hosts the handler on addr until ctx is canceled.
