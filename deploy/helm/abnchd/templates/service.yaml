@@ -9,7 +9,7 @@ spec:
   selector:
     {{- include "abnchd.selectorLabels" . | nindent 4 }}
   ports:
-    - name: http
+    - name: https
       port: {{ .Values.service.port }}
-      targetPort: http
+      targetPort: https
       protocol: TCP

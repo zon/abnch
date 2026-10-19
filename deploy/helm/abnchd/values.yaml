@@ -8,10 +8,10 @@ image:
 
 replicaCount: 1
 
-# The Service that reaches the service pods.
+# The Service that reaches the service pods. It exposes only the HTTPS port.
 service:
   type: ClusterIP
-  port: 80
+  port: 443
 
 # The service certificate. The chart creates a private CA and signs the service
 # certificate with it by default. Set createIssuer to false and name an existing

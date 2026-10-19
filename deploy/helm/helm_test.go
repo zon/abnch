@@ -314,6 +314,47 @@ func TestServiceSelectsDeploymentPods(t *testing.T) {
 	}
 }
 
+// TestServiceForwardsHTTPSPort checks that the Service exposes only port 443
+// and forwards it to the container's named HTTPS port, so the chart serves no
+// plaintext port.
+func TestServiceForwardsHTTPSPort(t *testing.T) {
+	svc, ok := findKind(renderChart(t), "Service")
+	if !ok {
+		t.Fatal("chart renders no Service")
+	}
+
+	ports := svc.Spec.Ports
+	if len(ports) != 1 {
+		t.Fatalf("Service forwards %d ports, want only HTTPS:\n%+v", len(ports), ports)
+	}
+	if got, want := ports[0].Port, 443; got != want {
+		t.Errorf("Service port = %d, want %d", got, want)
+	}
+	if got, want := ports[0].TargetPort, "https"; got != want {
+		t.Errorf("Service targetPort = %v, want the container port %q", got, want)
+	}
+}
+
+// TestContainerExposesHTTPSPort checks that the container exposes only the
+// HTTPS port, named https on 8443, and no plaintext port.
+func TestContainerExposesHTTPSPort(t *testing.T) {
+	dep, ok := findKind(renderChart(t), "Deployment")
+	if !ok {
+		t.Fatal("chart renders no Deployment")
+	}
+
+	ports := dep.Spec.Template.Spec.Containers[0].Ports
+	if len(ports) != 1 {
+		t.Fatalf("container exposes %d ports, want only HTTPS:\n%+v", len(ports), ports)
+	}
+	if got, want := ports[0].Name, "https"; got != want {
+		t.Errorf("container port name = %q, want %q", got, want)
+	}
+	if got, want := ports[0].ContainerPort, 8443; got != want {
+		t.Errorf("container port = %d, want %d", got, want)
+	}
+}
+
 // TestChartRendersCertificateSignedByPrivateCA checks that the chart makes a
 // service Certificate, the CA Certificate that signs it, and the self-signed and
 // CA-backed Issuers that form the chain, so a default install issues a

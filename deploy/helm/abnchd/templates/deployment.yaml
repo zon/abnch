@@ -32,8 +32,8 @@ spec:
                   name: {{ include "abnchd.secretName" . }}
                   key: {{ .Values.secrets.oidcClientSecretKey }}
           ports:
-            - name: http
-              containerPort: 8080
+            - name: https
+              containerPort: 8443
               protocol: TCP
           volumeMounts:
             - name: config
