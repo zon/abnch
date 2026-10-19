@@ -9,5 +9,6 @@ Use the latest stable version of each dependency when feasible.
 * [Postgres](https://www.postgresql.org/)
 * [Argo Workflows](https://argo-workflows.readthedocs.io/en/latest/go-sdk-guide/)
 * [Helm](https://helm.sh/)
+* [cert-manager](https://cert-manager.io/)
 * [Just](https://just.systems/)
 * [Air](https://github.com/air-verse/air)

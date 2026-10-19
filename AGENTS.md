@@ -29,6 +29,7 @@ Read [Service Config](docs/design/app/abnchd-config.md) when setting up a local 
 * [CLI](docs/design/app/abnch.md) - The `abnch` command line interface
 * [CLI Config](docs/design/app/abnch-config.md) - The `.abnch/config.yaml` file
 * [Deployment](docs/design/deployment.md) - Deployment access, secrets, and the Helm chart
+* [HTTPS](docs/design/https.md) - TLS at abnchd and cert-manager in the Helm chart
 * [Dev Config](docs/design/dev-config.md) - Local service config, collected by `just config`
 * [Dev Tooling](docs/design/app/abnchctl.md) - The `abnchctl` developer CLI
 * [Schema](docs/design/schema.md) - Repos, tasks, tests, data, models, agents, results, graders, and scores

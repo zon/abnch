@@ -4,11 +4,31 @@ The [service app](abnchd.md) reads its configuration from a YAML file. A deploym
 
 ## Service URL
 
-`url` is the service's own base URL. The service listens on its host and port, and uses the URL wherever it addresses itself: the OIDC redirect, and the dev issuer's OIDC configuration and JWKS.
+`url` is the service's public base URL. The service uses the URL wherever it addresses itself: the OIDC redirect, and the dev issuer's OIDC configuration and JWKS.
 
 ```yaml
-url: string - service base URL, for example `http://localhost:8080`
+url: string - service public base URL, for example `https://bench.example.com`
 ```
+
+## Listen Address
+
+`listen` is the TCP address the service binds. It defaults to the host and port in `url`, so a local config can omit it. A deployment sets it to the pod's bind address, so the public URL can name the service's external host.
+
+```yaml
+listen: string - bind address, for example `0.0.0.0:8443`
+```
+
+## TLS
+
+`tls` names the certificate and key the service serves. The service serves HTTPS when the block is set. An `https` URL requires it. An `http` URL with it is invalid.
+
+```yaml
+tls:
+  certFile: string - PEM certificate path
+  keyFile: string - PEM private key path
+```
+
+A deployment gets the files from a cert-manager Secret. See [HTTPS Design](../https.md).
 
 ## Postgres
 
@@ -73,7 +93,7 @@ A deployment supplies the Postgres password and the OIDC client secret from a Ku
 
 ## Local Development
 
-A local run reads a config that `just config` writes. Use the [dev tooling](abnchctl.md) to set it up:
+A local run reads a config that `just config` writes. It serves HTTP on loopback and names no TLS block. Use the [dev tooling](abnchctl.md) to set it up:
 
 * Write the Postgres connection details into `.abnchd/config.yaml` by hand or with an agent.
 * Run `abnchctl set local-auth` to configure local auth. It writes the dev issuer, the local credential, and the CLI config url.

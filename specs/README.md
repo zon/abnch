@@ -5,6 +5,7 @@ Behavior contracts for the Agent Benchmark system.
 ## Service
 
 - [Auth](service/auth.md) — authenticating callers to the service API and granting them roles
+- [HTTPS](service/https.md) — serving the service API over TLS from a certificate the deployment supplies
 - [Repo](service/repo.md) — managing repos over the service API, and the conventions other resources share
 - [Task](service/task.md) — managing tasks within a repo over the service API
 - [Test](service/test.md) — managing tests within a task over the service API
