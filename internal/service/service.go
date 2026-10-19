@@ -368,9 +368,17 @@ func serverTLSConfig(cfg *devconfig.TLS) (*tls.Config, error) {
 		return nil, nil
 	}
 
-	pair, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
+	certPEM, err := os.ReadFile(cfg.CertFile)
 	if err != nil {
-		return nil, fmt.Errorf("tls certificate %q and key %q are missing, unreadable, or not a valid pair: %w", cfg.CertFile, cfg.KeyFile, err)
+		return nil, fmt.Errorf("tls certificate file %q is missing or unreadable: %w", cfg.CertFile, err)
+	}
+	keyPEM, err := os.ReadFile(cfg.KeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("tls key file %q is missing or unreadable: %w", cfg.KeyFile, err)
+	}
+	pair, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		return nil, fmt.Errorf("tls certificate %q and key %q are not a valid pair: %w", cfg.CertFile, cfg.KeyFile, err)
 	}
 	return &tls.Config{
 		Certificates: []tls.Certificate{pair},

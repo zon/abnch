@@ -186,6 +186,97 @@ func TestRunRejectsTLSBelow12(t *testing.T) {
 	}
 }
 
+// runWithTLSFiles starts the service from a config naming the given certificate
+// and key files and returns its startup error.
+func runWithTLSFiles(t *testing.T, certFile, keyFile string) error {
+	t.Helper()
+
+	port := freePort(t)
+	cfg := devconfig.Config{
+		URL:      fmt.Sprintf("https://127.0.0.1:%d", port),
+		TLS:      &devconfig.TLS{CertFile: certFile, KeyFile: keyFile},
+		Postgres: testPostgres(),
+	}
+	data, err := cfg.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return Run(context.Background(), Options{
+		ConfigPath: writeConfig(t, string(data)),
+		Opener:     unusedOpener(t),
+		Out:        io.Discard,
+	})
+}
+
+// TestRunRejectsMissingCertificateFile checks a config naming a certificate
+// file that does not exist fails to start and reports that file.
+func TestRunRejectsMissingCertificateFile(t *testing.T) {
+	cert := newTestCertificate(t)
+	missing := filepath.Join(t.TempDir(), "missing.crt")
+
+	err := runWithTLSFiles(t, missing, cert.keyFile)
+	if err == nil {
+		t.Fatal("Run = nil, want an error for a missing certificate file")
+	}
+	if !strings.Contains(err.Error(), missing) {
+		t.Errorf("error = %q, want it to name the missing certificate file", err)
+	}
+}
+
+// TestRunRejectsMissingKeyFile checks a config naming a key file that does not
+// exist fails to start and reports that file.
+func TestRunRejectsMissingKeyFile(t *testing.T) {
+	cert := newTestCertificate(t)
+	missing := filepath.Join(t.TempDir(), "missing.key")
+
+	err := runWithTLSFiles(t, cert.certFile, missing)
+	if err == nil {
+		t.Fatal("Run = nil, want an error for a missing key file")
+	}
+	if !strings.Contains(err.Error(), missing) {
+		t.Errorf("error = %q, want it to name the missing key file", err)
+	}
+}
+
+// TestRunRejectsUnreadableCertificateFile checks a config naming a certificate
+// path that cannot be read as a file fails to start and reports that file.
+func TestRunRejectsUnreadableCertificateFile(t *testing.T) {
+	cert := newTestCertificate(t)
+	unreadable := filepath.Join(t.TempDir(), "unreadable.crt")
+	if err := os.Mkdir(unreadable, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	err := runWithTLSFiles(t, unreadable, cert.keyFile)
+	if err == nil {
+		t.Fatal("Run = nil, want an error for an unreadable certificate file")
+	}
+	if !strings.Contains(err.Error(), unreadable) {
+		t.Errorf("error = %q, want it to name the unreadable certificate file", err)
+	}
+}
+
+// TestRunRejectsMismatchedCertificateAndKey checks a certificate and key that
+// do not pair fail startup and the error reports the invalid pair.
+func TestRunRejectsMismatchedCertificateAndKey(t *testing.T) {
+	cert := newTestCertificate(t)
+	other := newTestCertificate(t)
+
+	err := runWithTLSFiles(t, cert.certFile, other.keyFile)
+	if err == nil {
+		t.Fatal("Run = nil, want an error for a certificate and key that do not pair")
+	}
+	for _, path := range []string{cert.certFile, other.keyFile} {
+		if !strings.Contains(err.Error(), path) {
+			t.Errorf("error = %q, want it to name %q", err, path)
+		}
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "pair") {
+		t.Errorf("error = %q, want it to report the invalid pair", err)
+	}
+}
+
 // waitForServiceWith waits until the client reaches the service at url.
 func waitForServiceWith(t *testing.T, client *http.Client, url string) {
 	t.Helper()
