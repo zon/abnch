@@ -95,10 +95,15 @@ func keepConfigURL(d deps) error {
 		return fmt.Errorf("failed to read %s: %w", configPath(d.workDir), err)
 	}
 	if cfg.URL == "" {
-		return errors.New("no service url: pass --url")
+		return missingServiceURLError()
 	}
 	fmt.Fprintln(d.out, "Set config")
 	return nil
+}
+
+// missingServiceURLError tells the user how to set the service URL.
+func missingServiceURLError() error {
+	return errors.New("no service url: run `abnch set config --url <url>`")
 }
 
 // setConfigURL records the service URL in the CLI config under workDir. It
@@ -455,7 +460,7 @@ func resolveServiceURL(flagURL, workDir string) (string, error) {
 		return "", fmt.Errorf("failed to read %s: %w", configPath(workDir), err)
 	}
 	if cfg.URL == "" {
-		return "", errors.New("no service url: pass --url or set url in " + configDir + "/" + configName)
+		return "", missingServiceURLError()
 	}
 	return cfg.URL, nil
 }

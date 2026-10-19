@@ -190,6 +190,46 @@ func TestSetConfigFailsWithoutURLInExistingConfig(t *testing.T) {
 	}
 }
 
+func TestCommandsWithoutServiceURLNameSetConfig(t *testing.T) {
+	commands := []struct {
+		name string
+		args []string
+	}{
+		{"get tasks", []string{"get", "tasks"}},
+		{"login", []string{"login"}},
+		{"logout", []string{"logout"}},
+	}
+	setups := []struct {
+		name    string
+		prepare func(t *testing.T, workDir string)
+	}{
+		{"no config", func(*testing.T, string) {}},
+		{"config without url", func(t *testing.T, workDir string) {
+			writeCLIConfig(t, workDir, "models: {}\n")
+		}},
+	}
+	for _, setup := range setups {
+		for _, command := range commands {
+			t.Run(setup.name+"/"+command.name, func(t *testing.T) {
+				workDir := t.TempDir()
+				setup.prepare(t, workDir)
+				d := commandDeps(t, workDir)
+
+				code, out, errOut := exitCode(t, command.args, d)
+				if code == 0 {
+					t.Error("exit = 0, want a non-zero exit without a service url")
+				}
+				if out != "" {
+					t.Errorf("stdout = %q, want nothing without a service url", out)
+				}
+				if !strings.Contains(errOut, "abnch set config --url <url>") {
+					t.Errorf("stderr = %q, want it to name abnch set config --url <url>", errOut)
+				}
+			})
+		}
+	}
+}
+
 func TestSetCommandsKeepConfigURL(t *testing.T) {
 	const url = "https://bench.example.com"
 	commands := []struct {
