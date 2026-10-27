@@ -36,3 +36,7 @@ Read [Service Config](docs/design/app/abnchd-config.md) when setting up a local 
 * [Run](docs/design/run.md) - How a run executes an agent and records a result
 * [Service App](docs/design/app/abnchd.md) - The `abnchd` service application
 * [Service Config](docs/design/app/abnchd-config.md) - The service configuration file, including OIDC integration
+
+## Versioning
+
+When bumping the version, update `internal/version/VERSION`.
