@@ -39,6 +39,6 @@ Read [Service Config](docs/design/app/abnchd-config.md) when setting up a local 
 
 ## Versioning
 
-* Bump `internal/version/VERSION` after changing Go code
+* Bump `internal/version/VERSION` after changing Go or container code
 * `appVersion` in `deploy/helm/abnchd/Chart.yaml` should match `internal/version/VERSION`
 * Bump `version` in `deploy/helm/abnchd/Chart.yaml` after changing Helm chart code
