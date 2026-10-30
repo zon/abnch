@@ -12,7 +12,7 @@ Run a task's agent against a test's data and read the results. A run executes lo
 
 The CLI SHALL read the agent from the config, resolve the model, build the agent once, then run it once per datum.
 
-The command SHALL accept `--model`, `--local`, `--limit`, and `--shuffle`. `--model` overrides the task's default model. `--limit` caps the number of data run. `--shuffle` randomizes the data order. `--local` selects a local run, which is the only mode.
+The command SHALL accept `--model`, `--limit`, and `--shuffle`. `--model` overrides the task's default model. `--limit` caps the number of data run. `--shuffle` randomizes the data order.
 
 The command SHALL fail when the task has no agent, when no model is set, or when the test is missing.
 

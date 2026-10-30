@@ -12,7 +12,7 @@ Score a result with a task's grader and read scores. A grade run executes locall
 
 The CLI SHALL read the result from the service, read the task's grader from the config, resolve the model, build the grader once, run it against the result, and record the score.
 
-The command SHALL accept `--model` and `--local`. `--model` overrides the task's default model. `--local` selects a local run, which is the only mode.
+The command SHALL accept `--model`. `--model` overrides the task's default model.
 
 The command SHALL fail when the task has no grader, when no model is set, or when the result is missing.
 

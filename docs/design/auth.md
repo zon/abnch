@@ -27,9 +27,7 @@ The CLI is a client on the same machine. `just config` generates its local crede
 * Service
   * Can get tasks
   * Can get tests and data
-  * Can run agent workflows
   * Can post results
-  * Can run grader workflows
   * Can post scores
 * Agent
   * Stateless
@@ -47,5 +45,5 @@ Humans map to Reader or Admin. Workloads map to Service, Agent, or Grader.
 For example:
 
 * An agent tester service account maps to Service
-* An agent workflow maps to Agent
-* A grader workflow maps to Grader
+* An agent workload maps to Agent
+* A grader workload maps to Grader

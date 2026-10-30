@@ -55,7 +55,7 @@ Passed by API calls to agent and grader runs.
 
 ## Agent
 
-External code that can produce a task result. Runs in an Argo Workflow from a cloned Git repo. Agents are expected to be commands that read model config and data from stdin and write a boundary marker followed by a JSON result to stdout.
+External code that can produce a task result. Agents are expected to be commands that read model config and data from stdin and write a boundary marker followed by a JSON result to stdout.
 
 * Commit
 * Version
@@ -79,7 +79,7 @@ The JSON produced by an agent.
 
 ## Grader
 
-External code that can score a result. Runs in an Argo Workflow from a cloned Git repo. Graders are expected to be commands that read model config, data, and a result from stdin and write a boundary marker followed by a JSON score to stdout.
+External code that can score a result. Graders are expected to be commands that read model config, data, and a result from stdin and write a boundary marker followed by a JSON score to stdout.
 
 * Commit
 * Version

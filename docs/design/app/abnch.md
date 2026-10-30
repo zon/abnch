@@ -6,7 +6,7 @@ Commands that reach the service authenticate a caller. The caller signs in with 
 
 Sessions live in a user-level `~/.abnch/credentials.yaml` file, keyed by service URL, outside any repo. A command that needs a session and finds none, or finds an expired one, fails and tells the user to run `abnch login`.
 
-A service running locally trusts a dev issuer. `just config` writes a local CLI credential, which the CLI reads like a session. A runtime the CLI starts gets a Service token. `--local` chooses where agent or grader code runs, not how the caller authenticates. See the [Dev Config Design](dev-config.md).
+A service running locally trusts a dev issuer. `just config` writes a local CLI credential, which the CLI reads like a session. A runtime the CLI starts gets a Service token. Agent and grader code runs on the caller's machine. See the [Dev Config Design](dev-config.md).
 
 ## `abnch login`
 
@@ -132,7 +132,6 @@ Adds test data. Expects stdin or `--file` containing valid JSON.
 Run a test.
 
 * --model: string - override default model
-* --local: bool - run locally instead of using a workflow
 * --limit: int - cap data iterations
 * --shuffle: bool - randomly sort iterations
 
@@ -141,7 +140,6 @@ Run a test.
 Score a result.
 
 * --model: string - override default model
-* --local: bool - run locally instead of using a workflow
 
 ## `abnch get results` | `abnch get result`
 

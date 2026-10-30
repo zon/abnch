@@ -44,6 +44,4 @@ The abnch marker is a line carrying exactly `__abnch__`. Text before it is the r
 
 ## Local Runs
 
-`abnch run --local` runs an agent on the caller's machine. The CLI builds the agent once, runs it once per datum, measures each run's duration, and records the working directory's Git branch as the result's local branch.
-
-A deployment runs agents as Kubernetes workflows instead. See [Deployment Design](deployment.md).
+`abnch run` runs an agent on the caller's machine. The CLI builds the agent once, runs it once per datum, measures each run's duration, and records the working directory's Git branch as the result's local branch.

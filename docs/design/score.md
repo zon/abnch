@@ -45,4 +45,4 @@ The marker is the same marker a [run](run.md) uses. Text before it is the grade 
 
 ## Local Runs
 
-`abnch score --local` runs a grader on the caller's machine. The CLI builds the grader once, runs it against the result, measures the run's duration, and records the score. A deployment runs graders as Kubernetes workflows instead. See [Deployment Design](deployment.md).
+`abnch score` runs a grader on the caller's machine. The CLI builds the grader once, runs it against the result, measures the run's duration, and records the score.
