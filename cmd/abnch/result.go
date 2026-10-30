@@ -8,8 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -107,45 +105,7 @@ func splitResultPath(path string) (task, test, datum string, err error) {
 // readResultInput reads and parses the result input from the file the command
 // names, or from stdin when no file is given. The input may be YAML or JSON.
 func readResultInput(d deps, file string) (resultInput, error) {
-	data, err := readResultInputBytes(d, file)
-	if err != nil {
-		return resultInput{}, err
-	}
-	var input resultInput
-	if json.Valid(data) {
-		err = json.Unmarshal(data, &input)
-	} else {
-		err = yaml.Unmarshal(data, &input)
-	}
-	if err != nil {
-		return resultInput{}, fmt.Errorf("invalid result input: %w", err)
-	}
-	return input, nil
-}
-
-// readResultInputBytes reads the raw result input from the file the command
-// names, or from stdin when no file is given. A relative file resolves under the
-// working directory, and a terminal with no file carries no input.
-func readResultInputBytes(d deps, file string) ([]byte, error) {
-	if file != "" {
-		path := file
-		if !filepath.IsAbs(path) {
-			path = filepath.Join(d.workDir, path)
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read %s: %w", file, err)
-		}
-		return data, nil
-	}
-	if !pipedInput(d.in) {
-		return nil, errors.New("no result input: provide a value on stdin or with --file")
-	}
-	data, err := io.ReadAll(d.in)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read the result input: %w", err)
-	}
-	return data, nil
+	return readInput[resultInput](d, file, "result")
 }
 
 // resultRequestFromInput builds the result write body from the input and the

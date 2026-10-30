@@ -6,12 +6,19 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// configGrader is a grader entry in the CLI config. A command that is not set
-// is omitted when the entry is printed.
+// configGrader is a grader entry in the CLI config. It records the grader that
+// scored a result and, for the older score commands, the commands that run it.
+// A value that is not set is omitted when the entry is printed.
 type configGrader struct {
-	VersionCmd string `yaml:"versionCmd,omitempty"`
-	BuildCmd   string `yaml:"buildCmd,omitempty"`
-	RunCmd     string `yaml:"runCmd"`
+	Name        string `yaml:"name,omitempty" json:"name,omitempty"`
+	Stub        string `yaml:"stub,omitempty" json:"stub,omitempty"`
+	Commit      string `yaml:"commit,omitempty" json:"commit,omitempty"`
+	Branch      string `yaml:"branch,omitempty" json:"branch,omitempty"`
+	Version     string `yaml:"version,omitempty" json:"version,omitempty"`
+	Uncommitted bool   `yaml:"uncommitted" json:"uncommitted"`
+	VersionCmd  string `yaml:"versionCmd,omitempty" json:"-"`
+	BuildCmd    string `yaml:"buildCmd,omitempty" json:"-"`
+	RunCmd      string `yaml:"runCmd,omitempty" json:"-"`
 }
 
 // setGrader records the task's grader in the CLI config under the working

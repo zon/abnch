@@ -36,8 +36,13 @@ func (f *fakeService) serveAddScore(w http.ResponseWriter, org, repo string, bod
 		httpx.WriteError(w, http.StatusNotFound, "test not found")
 		return
 	}
-	if _, ok := f.results[org+"/"+repo+"/"+req.Result]; !ok {
+	result, ok := f.results[org+"/"+repo+"/"+req.Result]
+	if !ok {
 		httpx.WriteError(w, http.StatusNotFound, "result not found")
+		return
+	}
+	if result.Task != req.Task || result.Test != req.Test {
+		httpx.WriteError(w, http.StatusUnprocessableEntity, "score task and test must match its result")
 		return
 	}
 
@@ -46,6 +51,16 @@ func (f *fakeService) serveAddScore(w http.ResponseWriter, org, repo string, bod
 		Dictionary: req.Dictionary, Logs: req.Logs,
 		InputTokens: req.InputTokens, OutputTokens: req.OutputTokens,
 		TokenCost: req.TokenCost, Duration: req.Duration,
+	}
+	if req.Model != nil {
+		score.Model = store.Model{Name: req.Model.Name, Provider: req.Model.Provider, Variant: req.Model.Variant}
+	}
+	if req.Grader != nil {
+		score.Grader = store.Grader{
+			Org: org, Repo: repo, Task: req.Task, Test: req.Test,
+			Name: req.Grader.Name, Stub: req.Grader.Stub, Commit: req.Grader.Commit,
+			Branch: req.Grader.Branch, Version: req.Grader.Version, Uncommitted: req.Grader.Uncommitted,
+		}
 	}
 	ref := store.ScoreRef(score)
 	score.Ref = ref

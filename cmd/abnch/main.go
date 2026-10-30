@@ -71,6 +71,7 @@ func (c runCmd) Run(deps deps) error {
 type addCmd struct {
 	Data   addDataCmd   `cmd:"" help:"Add a datum to a test in the inferred repo."`
 	Result addResultCmd `cmd:"" help:"Add a result for a datum in the inferred repo."`
+	Score  addScoreCmd  `cmd:"" help:"Add a score for a result in the inferred repo."`
 }
 
 // addDataCmd adds a datum to a test under a task in the inferred repo.
@@ -93,6 +94,17 @@ type addResultCmd struct {
 // Run adds the result for the datum in the inferred repo.
 func (c addResultCmd) Run(deps deps) error {
 	return addResult(deps, c)
+}
+
+// addScoreCmd adds a score for a result in the inferred repo.
+type addScoreCmd struct {
+	Ref  string `arg:"" help:"Result ref."`
+	File string `help:"Path to a YAML or JSON file holding the score input." optional:""`
+}
+
+// Run adds the score for the result in the inferred repo.
+func (c addScoreCmd) Run(deps deps) error {
+	return addScore(deps, c)
 }
 
 // getCmd groups the commands that read resources.

@@ -178,6 +178,15 @@ func setTaskAgentRecord(workDir, stub string, agent configAgent) error {
 	})
 }
 
+// setTaskGraderRecord records the grader a score used for the task in the CLI
+// config under workDir. It edits the existing YAML document, so every other key
+// survives. A missing config is created.
+func setTaskGraderRecord(workDir, stub string, grader configGrader) error {
+	return editConfig(workDir, func(data []byte) ([]byte, error) {
+		return updateTaskGraderRecord(data, stub, grader)
+	})
+}
+
 // setTaskGrader records the task's grader in the CLI config under workDir. It
 // edits the existing YAML document, so every other key survives. A missing
 // config is created. It fails when the merged grader has no run command.
@@ -381,6 +390,48 @@ func updateTaskAgentRecord(data []byte, stub string, agent configAgent) ([]byte,
 		setMappingValue(entry, "version", scalarNode(agent.Version))
 	}
 	setMappingValue(entry, "uncommitted", boolNode(agent.Uncommitted))
+	return marshalNode(&doc)
+}
+
+// updateTaskGraderRecord returns the config document with tasks.<stub>.grader
+// set to the grader a score used, preserving every other key and comment. Every
+// record field is written, so the entry holds the whole record rather than a
+// merge with an earlier one. The grader commands stay put.
+func updateTaskGraderRecord(data []byte, stub string, grader configGrader) ([]byte, error) {
+	var doc yaml.Node
+	if len(data) > 0 {
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			return nil, err
+		}
+	}
+
+	root, err := rootMapping(&doc)
+	if err != nil {
+		return nil, err
+	}
+	tasks, err := childMapping(root, "tasks")
+	if err != nil {
+		return nil, err
+	}
+	task, err := childMapping(tasks, stub)
+	if err != nil {
+		return nil, err
+	}
+	entry, err := childMapping(task, "grader")
+	if err != nil {
+		return nil, err
+	}
+
+	setMappingValue(entry, "name", scalarNode(grader.Name))
+	setMappingValue(entry, "stub", scalarNode(grader.Stub))
+	setMappingValue(entry, "commit", scalarNode(grader.Commit))
+	setMappingValue(entry, "branch", scalarNode(grader.Branch))
+	if grader.Version == "" {
+		removeMappingValue(entry, "version")
+	} else {
+		setMappingValue(entry, "version", scalarNode(grader.Version))
+	}
+	setMappingValue(entry, "uncommitted", boolNode(grader.Uncommitted))
 	return marshalNode(&doc)
 }
 
