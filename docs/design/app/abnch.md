@@ -42,22 +42,6 @@ Create or updates an `.abnch/config.yaml` file in the repo under the working dir
 
 Outputs the effective config as YAML.
 
-## `abnch get models` | `abnch get model`
-
-Lists models in the config.
-
-## `abnch get model <stub>`
-
-Outputs a model as YAML.
-
-## `abnch get agent <task stub>`
-
-Outputs the task's agent config as YAML.
-
-## `abnch get grader <task stub>`
-
-Outputs the task's grader config as YAML.
-
 ## `abnch set task <stub>`
 
 Create or updates a task. Can recieve options or a YAML file with matching properties as stdin. The repo property is inferred from the working dir.
@@ -131,6 +115,14 @@ tokenCost: number
 duration: number - seconds
 ```
 
+## `abnch get results` | `abnch get result`
+
+Lists results.
+
+## `abnch get result <result ref>`
+
+Outputs a result as JSON.
+
 ## `abnch add score <result ref>`
 
 Adds a score for a result. Expects stdin or `--file` containing a score input as YAML or JSON. See [Score Design](score.md).
@@ -159,14 +151,6 @@ tokenCost: number
 duration: number - seconds
 ```
 
-## `abnch get results` | `abnch get result`
-
-Lists results.
-
-## `abnch get result <result ref>`
-
-Outputs a result as JSON.
-
 ## `abnch get scores` | `abnch get score`
 
 Lists scores.
@@ -174,3 +158,19 @@ Lists scores.
 ## `abnch get score <score ref>`
 
 Outputs a score as JSON.
+
+## `abnch get models` | `abnch get model`
+
+Lists models in the config.
+
+## `abnch get model <stub>`
+
+Outputs a model as YAML.
+
+## `abnch get agent <task stub>`
+
+Outputs the task's agent config as YAML.
+
+## `abnch get grader <task stub>`
+
+Outputs the task's grader config as YAML.
