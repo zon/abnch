@@ -259,7 +259,7 @@ func TestAddScoreKeepsOtherConfig(t *testing.T) {
 	d, _ := addDataDeps(t, workDir, fake.url, scoreInputYAML)
 	writeCLIConfig(t, workDir, "url: "+fake.url+"\n"+
 		"models:\n  haiku:\n    provider: anthropic\n    name: claude-haiku\n"+
-		"tasks:\n  other:\n    model: haiku\n    grader:\n      runCmd: ./other.sh\n")
+		"tasks:\n  other:\n    grader:\n      name: other-grader\n      stub: other\n      commit: 123abc\n      branch: main\n")
 
 	if err := runAdd([]string{"score", result}, d); err != nil {
 		t.Fatalf("add score = %v, want no error", err)
@@ -275,33 +275,41 @@ func TestAddScoreKeepsOtherConfig(t *testing.T) {
 	if cfg.Models["haiku"].Name != "claude-haiku" {
 		t.Errorf("models = %+v, want the existing model kept", cfg.Models)
 	}
-	if cfg.Tasks["other"].Model != "haiku" || cfg.Tasks["other"].Grader == nil || cfg.Tasks["other"].Grader.RunCmd != "./other.sh" {
+	if cfg.Tasks["other"].Grader == nil || cfg.Tasks["other"].Grader.Commit != "123abc" {
 		t.Errorf("tasks = %+v, want the existing task kept", cfg.Tasks)
 	}
 }
 
-func TestAddScoreKeepsTheTaskGraderCommands(t *testing.T) {
+func TestAddScoreKeepsOtherGraderKeys(t *testing.T) {
 	workDir := t.TempDir()
 	addRemote(t, workDir, "git@github.com:acme/widgets.git")
 	fake := newFakeService(t)
 	result := seedScoreResult(t, fake, `{"prompt":"hi"}`, `{"answer":"hi"}`)
 	d, _ := addDataDeps(t, workDir, fake.url, scoreInputYAML)
 	writeCLIConfig(t, workDir, "url: "+fake.url+"\n"+
-		"tasks:\n  fix-bug:\n    grader:\n      buildCmd: ./build.sh\n      runCmd: ./grade.sh\n")
+		"tasks:\n  fix-bug:\n    grader:\n      label: judge-one\n      note: keep-me\n")
 
 	if err := runAdd([]string{"score", result}, d); err != nil {
 		t.Fatalf("add score = %v, want no error", err)
 	}
 
-	cfg, err := loadConfig(workDir)
+	data, err := os.ReadFile(configPath(workDir))
 	if err != nil {
 		t.Fatal(err)
 	}
-	grader := cfg.Tasks["fix-bug"].Grader
-	if grader == nil || grader.BuildCmd != "./build.sh" || grader.RunCmd != "./grade.sh" {
-		t.Errorf("grader = %+v, want the existing commands kept", grader)
+	var raw struct {
+		Tasks map[string]struct {
+			Grader map[string]any `yaml:"grader"`
+		} `yaml:"tasks"`
 	}
-	if grader.Name != "unit-grader" || grader.Commit != "def456" {
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	grader := raw.Tasks["fix-bug"].Grader
+	if grader["label"] != "judge-one" || grader["note"] != "keep-me" {
+		t.Errorf("grader = %+v, want the existing keys kept", grader)
+	}
+	if grader["name"] != "unit-grader" || grader["commit"] != "def456" {
 		t.Errorf("grader = %+v, want the record written", grader)
 	}
 }

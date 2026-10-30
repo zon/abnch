@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,6 +13,28 @@ import (
 
 	"go.yaml.in/yaml/v3"
 )
+
+// resultRef is a result's ref as the service API returns it.
+type resultRef struct {
+	Ref string `json:"ref"`
+}
+
+// resultRequest is the JSON body a result write carries. Model and Agent are the
+// records that produced the result, and JSON is the result itself; the rest are
+// its logs and run metrics.
+type resultRequest struct {
+	Task         string          `json:"task"`
+	Test         string          `json:"test"`
+	Data         string          `json:"data"`
+	Model        *configModel    `json:"model,omitempty"`
+	Agent        *configAgent    `json:"agent,omitempty"`
+	JSON         json.RawMessage `json:"json"`
+	Logs         string          `json:"logs"`
+	InputTokens  int             `json:"inputTokens"`
+	OutputTokens int             `json:"outputTokens"`
+	TokenCost    float64         `json:"tokenCost"`
+	Duration     float64         `json:"duration"`
+}
 
 // resultInput is the YAML or JSON input an add result command reads. Model and
 // Agent are the records the service creates or reuses; JSON is the result the
@@ -144,6 +167,39 @@ func recordResultProvenance(workDir, task string, model configModel, agent confi
 		return err
 	}
 	return setTaskAgentRecord(workDir, task, agent)
+}
+
+// postResult posts a result write and returns the result's ref. The service
+// returns the existing ref when the same result is already stored, so both a
+// create and an existing result succeed. A not-found response maps to the
+// missing repo, task, test, or datum.
+func postResult(ctx context.Context, client *serviceClient, org, repo string, body resultRequest) (string, error) {
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return "", err
+	}
+	resp, err := client.do(ctx, http.MethodPost, resultsPath(org, repo), bytes.NewReader(payload))
+	if err != nil {
+		return "", err
+	}
+	switch resp.StatusCode {
+	case http.StatusOK, http.StatusCreated:
+		defer resp.Body.Close()
+		var ref resultRef
+		if err := json.NewDecoder(resp.Body).Decode(&ref); err != nil {
+			return "", fmt.Errorf("failed to read the result ref: %w", err)
+		}
+		return ref.Ref, nil
+	case http.StatusNotFound:
+		return "", dataNotFoundError(resp, org, repo, body.Task, body.Test, body.Data)
+	default:
+		return "", serviceError(resp)
+	}
+}
+
+// resultsPath returns the API path for a repo's results.
+func resultsPath(org, repo string) string {
+	return repoPath(org, repo) + "/results"
 }
 
 // resultMissingMessage is the message the service reports for a result it does

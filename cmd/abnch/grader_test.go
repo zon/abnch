@@ -7,43 +7,37 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// configGraderFile is a grader entry in the CLI config as a test reads it.
-type configGraderFile struct {
-	VersionCmd string `yaml:"versionCmd"`
-	BuildCmd   string `yaml:"buildCmd"`
-	RunCmd     string `yaml:"runCmd"`
-}
-
 func TestGetGraderPrintsGraderAsYAML(t *testing.T) {
 	workDir := t.TempDir()
 	writeCLIConfig(t, workDir,
 		"url: https://bench.example.com\n"+
-			"tasks:\n  fix-bug:\n    grader:\n      versionCmd: ./version.sh\n      buildCmd: ./build.sh\n      runCmd: ./run.sh\n")
+			"tasks:\n  fix-bug:\n    grader:\n      name: llm-judge\n      stub: judge\n      commit: def456\n      branch: main\n      version: 2.0.0\n      uncommitted: true\n")
 	d, out := getConfigDeps(t, workDir)
 
 	if err := runGet([]string{"grader", "fix-bug"}, d); err != nil {
 		t.Fatalf("get grader = %v, want no error", err)
 	}
 
-	var got configGraderFile
+	var got configGrader
 	if err := yaml.Unmarshal(out.Bytes(), &got); err != nil {
 		t.Fatalf("output is not YAML: %v\n%s", err, out.String())
 	}
-	if got.VersionCmd != "./version.sh" || got.BuildCmd != "./build.sh" || got.RunCmd != "./run.sh" {
-		t.Errorf("grader = %+v, want the stored commands", got)
+	if got.Name != "llm-judge" || got.Stub != "judge" || got.Commit != "def456" ||
+		got.Branch != "main" || got.Version != "2.0.0" || !got.Uncommitted {
+		t.Errorf("grader = %+v, want the stored record", got)
 	}
 }
 
-func TestGetGraderOmitsAbsentCommands(t *testing.T) {
+func TestGetGraderOmitsAbsentVersion(t *testing.T) {
 	workDir := t.TempDir()
-	writeCLIConfig(t, workDir, "tasks:\n  fix-bug:\n    grader:\n      runCmd: ./run.sh\n")
+	writeCLIConfig(t, workDir, "tasks:\n  fix-bug:\n    grader:\n      name: llm-judge\n      stub: judge\n      commit: def456\n      branch: main\n")
 	d, out := getConfigDeps(t, workDir)
 
 	if err := runGet([]string{"grader", "fix-bug"}, d); err != nil {
 		t.Fatalf("get grader = %v, want no error", err)
 	}
-	if strings.Contains(out.String(), "versionCmd") || strings.Contains(out.String(), "buildCmd") {
-		t.Errorf("output = %q, want the commands that are not set omitted", out.String())
+	if strings.Contains(out.String(), "version:") {
+		t.Errorf("output = %q, want an absent version omitted", out.String())
 	}
 }
 

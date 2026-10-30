@@ -22,8 +22,6 @@ type cli struct {
 	Get     getCmd      `cmd:"" help:"Read resources from the inferred repo."`
 	Set     setCmd      `cmd:"" help:"Create or update resources in the inferred repo."`
 	Add     addCmd      `cmd:"" help:"Add resources to the inferred repo."`
-	Run     runCmd      `cmd:"" help:"Run a task's agent against a test's data."`
-	Score   scoreCmd    `cmd:"" help:"Score a result with the task's grader."`
 }
 
 // errVersion stops parsing after the version prints, so a version request is not
@@ -39,32 +37,6 @@ func (versionFlag) IsBool() bool                     { return true }
 func (versionFlag) BeforeApply(app *kong.Kong, vars kong.Vars) error {
 	fmt.Fprintln(app.Stdout, vars["version"])
 	return errVersion
-}
-
-// scoreCmd scores a result with the task's grader.
-type scoreCmd struct {
-	Ref   string `arg:"" help:"Result ref."`
-	Model string `help:"Override the task's default model." optional:""`
-	Local bool   `help:"Select a local run, the only run mode."`
-}
-
-// Run runs the task's grader against the result and records a score.
-func (c scoreCmd) Run(deps deps) error {
-	return scoreResult(deps, c)
-}
-
-// runCmd runs a task's agent against the data in a test.
-type runCmd struct {
-	Path    string `arg:"" help:"Task, test, and optional datum ref as <task>/<test>[/<ref>]."`
-	Model   string `help:"Override the task's default model." optional:""`
-	Limit   int    `help:"Cap the number of data run." default:"-1"`
-	Shuffle bool   `help:"Randomize the data order."`
-	Local   bool   `help:"Select a local run, the only run mode."`
-}
-
-// Run runs the agent against the test's data and records a result for each.
-func (c runCmd) Run(deps deps) error {
-	return runTask(deps, c)
 }
 
 // addCmd groups the commands that add resources.

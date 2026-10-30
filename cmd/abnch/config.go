@@ -26,7 +26,6 @@ type cliConfig struct {
 
 // configTask is a task entry in the CLI config.
 type configTask struct {
-	Model  string        `yaml:"model"`
 	Agent  *configAgent  `yaml:"agent"`
 	Grader *configGrader `yaml:"grader"`
 }
@@ -259,7 +258,7 @@ func updateTaskAgentRecord(data []byte, stub string, agent configAgent) ([]byte,
 // updateTaskGraderRecord returns the config document with tasks.<stub>.grader
 // set to the grader a score used, preserving every other key and comment. Every
 // record field is written, so the entry holds the whole record rather than a
-// merge with an earlier one. The grader commands stay put.
+// merge with an earlier one. Other grader keys stay put.
 func updateTaskGraderRecord(data []byte, stub string, grader configGrader) ([]byte, error) {
 	var doc yaml.Node
 	if len(data) > 0 {

@@ -5,8 +5,7 @@ import (
 )
 
 // configGrader is a grader entry in the CLI config. It records the grader that
-// scored a result and, for the older score commands, the commands that run it.
-// A value that is not set is omitted when the entry is printed.
+// scored a result. A value that is not set is omitted when the entry is printed.
 type configGrader struct {
 	Name        string `yaml:"name,omitempty" json:"name,omitempty"`
 	Stub        string `yaml:"stub,omitempty" json:"stub,omitempty"`
@@ -14,9 +13,6 @@ type configGrader struct {
 	Branch      string `yaml:"branch,omitempty" json:"branch,omitempty"`
 	Version     string `yaml:"version,omitempty" json:"version,omitempty"`
 	Uncommitted bool   `yaml:"uncommitted" json:"uncommitted"`
-	VersionCmd  string `yaml:"versionCmd,omitempty" json:"-"`
-	BuildCmd    string `yaml:"buildCmd,omitempty" json:"-"`
-	RunCmd      string `yaml:"runCmd,omitempty" json:"-"`
 }
 
 // getGrader writes the grader recorded for the task as YAML. It fails when the

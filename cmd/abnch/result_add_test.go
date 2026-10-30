@@ -266,7 +266,7 @@ func TestAddResultKeepsOtherConfig(t *testing.T) {
 	d, _ := addDataDeps(t, workDir, fake.url, resultInputYAML)
 	writeCLIConfig(t, workDir, "url: "+fake.url+"\n"+
 		"models:\n  haiku:\n    provider: anthropic\n    name: claude-haiku\n"+
-		"tasks:\n  other:\n    model: haiku\n    agent:\n      runCmd: ./other.sh\n")
+		"tasks:\n  other:\n    agent:\n      name: other-agent\n      stub: other\n      commit: 123abc\n      branch: main\n")
 
 	if err := runAdd([]string{"result", "fix-bug/basic/" + datum}, d); err != nil {
 		t.Fatalf("add result = %v, want no error", err)
@@ -282,7 +282,7 @@ func TestAddResultKeepsOtherConfig(t *testing.T) {
 	if cfg.Models["haiku"].Name != "claude-haiku" {
 		t.Errorf("models = %+v, want the existing model kept", cfg.Models)
 	}
-	if cfg.Tasks["other"].Model != "haiku" || cfg.Tasks["other"].Agent == nil || cfg.Tasks["other"].Agent.RunCmd != "./other.sh" {
+	if cfg.Tasks["other"].Agent == nil || cfg.Tasks["other"].Agent.Commit != "123abc" {
 		t.Errorf("tasks = %+v, want the existing task kept", cfg.Tasks)
 	}
 }

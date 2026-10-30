@@ -45,8 +45,8 @@ func TestSetConfigUpdatesURLAndPreservesModelsAndTasks(t *testing.T) {
 		"  sonnet:\n    provider: anthropic\n    name: claude-sonnet\n    variant: high\n"+
 		"  haiku:\n    provider: anthropic\n    name: claude-haiku\n"+
 		"tasks:\n"+
-		"  fix-bug:\n    model: sonnet\n    agent:\n      versionCmd: ./version.sh\n      buildCmd: ./build.sh\n      runCmd: ./run.sh\n"+
-		"  write-docs:\n    model: haiku\n    grader:\n      runCmd: ./grade.sh\n")
+		"  fix-bug:\n    agent:\n      name: claude-code\n      stub: claude\n      commit: abc123\n      branch: main\n"+
+		"  write-docs:\n    grader:\n      name: llm-judge\n      stub: judge\n      commit: def456\n      branch: main\n")
 	before, err := loadConfig(workDir)
 	if err != nil {
 		t.Fatal(err)
@@ -80,7 +80,7 @@ func TestGetConfigPrintsConfigAsYAML(t *testing.T) {
 		"models:\n"+
 		"  sonnet:\n    provider: anthropic\n    name: claude-sonnet\n    variant: high\n"+
 		"tasks:\n"+
-		"  fix-bug:\n    model: sonnet\n    agent:\n      runCmd: ./run.sh\n    grader:\n      runCmd: ./grade.sh\n")
+		"  fix-bug:\n    agent:\n      name: claude-code\n      stub: claude\n      commit: abc123\n      branch: main\n    grader:\n      name: llm-judge\n      stub: judge\n      commit: def456\n      branch: main\n")
 	want, err := loadConfig(workDir)
 	if err != nil {
 		t.Fatal(err)

@@ -7,43 +7,37 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// configAgentFile is an agent entry in the CLI config as a test reads it.
-type configAgentFile struct {
-	VersionCmd string `yaml:"versionCmd"`
-	BuildCmd   string `yaml:"buildCmd"`
-	RunCmd     string `yaml:"runCmd"`
-}
-
 func TestGetAgentPrintsAgentAsYAML(t *testing.T) {
 	workDir := t.TempDir()
 	writeCLIConfig(t, workDir,
 		"url: https://bench.example.com\n"+
-			"tasks:\n  fix-bug:\n    agent:\n      versionCmd: ./version.sh\n      buildCmd: ./build.sh\n      runCmd: ./run.sh\n")
+			"tasks:\n  fix-bug:\n    agent:\n      name: claude-code\n      stub: claude\n      commit: abc123\n      branch: main\n      version: 1.2.3\n      uncommitted: true\n")
 	d, out := getConfigDeps(t, workDir)
 
 	if err := runGet([]string{"agent", "fix-bug"}, d); err != nil {
 		t.Fatalf("get agent = %v, want no error", err)
 	}
 
-	var got configAgentFile
+	var got configAgent
 	if err := yaml.Unmarshal(out.Bytes(), &got); err != nil {
 		t.Fatalf("output is not YAML: %v\n%s", err, out.String())
 	}
-	if got.VersionCmd != "./version.sh" || got.BuildCmd != "./build.sh" || got.RunCmd != "./run.sh" {
-		t.Errorf("agent = %+v, want the stored commands", got)
+	if got.Name != "claude-code" || got.Stub != "claude" || got.Commit != "abc123" ||
+		got.Branch != "main" || got.Version != "1.2.3" || !got.Uncommitted {
+		t.Errorf("agent = %+v, want the stored record", got)
 	}
 }
 
-func TestGetAgentOmitsAbsentCommands(t *testing.T) {
+func TestGetAgentOmitsAbsentVersion(t *testing.T) {
 	workDir := t.TempDir()
-	writeCLIConfig(t, workDir, "tasks:\n  fix-bug:\n    agent:\n      runCmd: ./run.sh\n")
+	writeCLIConfig(t, workDir, "tasks:\n  fix-bug:\n    agent:\n      name: claude-code\n      stub: claude\n      commit: abc123\n      branch: main\n")
 	d, out := getConfigDeps(t, workDir)
 
 	if err := runGet([]string{"agent", "fix-bug"}, d); err != nil {
 		t.Fatalf("get agent = %v, want no error", err)
 	}
-	if strings.Contains(out.String(), "versionCmd") || strings.Contains(out.String(), "buildCmd") {
-		t.Errorf("output = %q, want the commands that are not set omitted", out.String())
+	if strings.Contains(out.String(), "version:") {
+		t.Errorf("output = %q, want an absent version omitted", out.String())
 	}
 }
 
