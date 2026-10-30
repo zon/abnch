@@ -1255,6 +1255,61 @@ func TestSaveResultIdentityIncludesDatum(t *testing.T) {
 	}
 }
 
+// TestSaveResultIdentityIncludesModelAndAgent checks the same JSON for the same
+// datum from a different model or agent is a distinct result under a different
+// ref, while saving the same model and agent values again reuses one result.
+func TestSaveResultIdentityIncludesModelAndAgent(t *testing.T) {
+	s := newTestStore(t)
+	base := Result{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Data: "56ac1b0e4f0d", JSON: `{"answer":"hi"}`,
+		Model: Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"},
+		Agent: Agent{Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main"},
+	}
+
+	ref, err := s.SaveResult(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again, err := s.SaveResult(base); err != nil {
+		t.Fatal(err)
+	} else if again != ref {
+		t.Errorf("SaveResult again = %q, want the ref %q", again, ref)
+	}
+
+	for _, tc := range []struct {
+		name   string
+		change func(Result) Result
+	}{
+		{"different model name", func(r Result) Result { r.Model.Name = "claude-opus"; return r }},
+		{"different model provider", func(r Result) Result { r.Model.Provider = "openai"; return r }},
+		{"different model variant", func(r Result) Result { r.Model.Variant = "low"; return r }},
+		{"different agent stub", func(r Result) Result { r.Agent.Stub = "other"; return r }},
+		{"different agent commit", func(r Result) Result { r.Agent.Commit = "def456"; return r }},
+		{"different agent branch", func(r Result) Result { r.Agent.Branch = "dev"; return r }},
+		{"different agent version", func(r Result) Result { r.Agent.Version = "1.2.3"; return r }},
+		{"uncommitted agent", func(r Result) Result { r.Agent.Uncommitted = true; return r }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := s.SaveResult(tc.change(base))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got == ref {
+				t.Errorf("SaveResult = %q, want a different ref for %s", got, tc.name)
+			}
+		})
+	}
+
+	results, err := s.ListResults("acme", "widgets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := 1 + 8; len(results) != want {
+		t.Errorf("ListResults returned %d results, want %d", len(results), want)
+	}
+}
+
 // TestListResults checks ListResults returns only a repo's results, ordered by
 // ref, without another repo's results.
 func TestListResults(t *testing.T) {
@@ -2473,8 +2528,8 @@ func TestSaveScoreWriteFailureCreatesNoModelOrGrader(t *testing.T) {
 	sc := Score{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
 		Result: "56ac1b0e4f0d", Dictionary: map[string]float64{"correctness": 1},
-		Logs:  "bad\x00logs",
-		Model: Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"},
+		Logs:   "bad\x00logs",
+		Model:  Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"},
 		Grader: Grader{Name: "llm-judge", Stub: "judge", Commit: "def456", Branch: "main"},
 	}
 

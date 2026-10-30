@@ -100,29 +100,54 @@ func TestAddResultCreatesAndReusesModel(t *testing.T) {
 	}
 }
 
-// TestAddResultDifferentModelVariantDifferentRecord checks a result carrying the
-// same model name and provider with another variant links to a different model
-// record.
-func TestAddResultDifferentModelVariantDifferentRecord(t *testing.T) {
-	st := resultStore()
-	base := startServiceWithStore(t, st, auth.RoleAdmin)
-	path := "repos/acme/widgets/results"
+// TestAddResultDifferentModelDifferentResult checks a result carrying a model
+// that differs in an identity field is a distinct result under a different ref
+// and links to a different model record.
+func TestAddResultDifferentModelDifferentResult(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		model string
+	}{
+		{name: "different name", model: `{"name":"claude-opus","provider":"anthropic","variant":"high"}`},
+		{name: "different provider", model: `{"name":"claude-sonnet","provider":"openai","variant":"high"}`},
+		{name: "different variant", model: `{"name":"claude-sonnet","provider":"anthropic","variant":"low"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := resultStore()
+			base := startServiceWithStore(t, st, auth.RoleAdmin)
+			path := "repos/acme/widgets/results"
+			first := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `",` +
+				`"model":{"name":"claude-sonnet","provider":"anthropic","variant":"high"},"json":{"answer":"hi"}}`
+			created := sendResultPost(t, base, path, first)
+			defer created.Body.Close()
+			if created.StatusCode != http.StatusCreated {
+				t.Fatalf("first status = %d, want %d", created.StatusCode, http.StatusCreated)
+			}
+			var firstRef resultRefBody
+			if err := json.NewDecoder(created.Body).Decode(&firstRef); err != nil {
+				t.Fatalf("decode first body: %v", err)
+			}
 
-	for _, variant := range []string{"high", "low"} {
-		body := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `",` +
-			`"model":{"name":"claude-sonnet","provider":"anthropic","variant":"` + variant + `"},"json":{"answer":"hi"}}`
-		resp := sendResultPost(t, base, path, body)
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusCreated {
-			t.Fatalf("variant %s status = %d, want %d", variant, resp.StatusCode, http.StatusCreated)
-		}
-	}
-
-	if len(st.models) != 2 {
-		t.Errorf("store holds %d models, want 2", len(st.models))
-	}
-	if len(st.results) != 2 {
-		t.Errorf("store holds %d results, want 2", len(st.results))
+			body := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `","model":` + tc.model + `,"json":{"answer":"hi"}}`
+			resp := sendResultPost(t, base, path, body)
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusCreated {
+				t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusCreated)
+			}
+			var secondRef resultRefBody
+			if err := json.NewDecoder(resp.Body).Decode(&secondRef); err != nil {
+				t.Fatalf("decode second body: %v", err)
+			}
+			if secondRef.Ref == firstRef.Ref {
+				t.Errorf("second ref = %q, want a different ref for %s", secondRef.Ref, tc.name)
+			}
+			if len(st.models) != 2 {
+				t.Errorf("store holds %d models, want 2", len(st.models))
+			}
+			if len(st.results) != 2 {
+				t.Errorf("store holds %d results, want 2", len(st.results))
+			}
+		})
 	}
 }
 
@@ -366,12 +391,23 @@ func TestAddResultDifferentAgentDifferentRecord(t *testing.T) {
 			if created.StatusCode != http.StatusCreated {
 				t.Fatalf("first status = %d, want %d", created.StatusCode, http.StatusCreated)
 			}
+			var firstRef resultRefBody
+			if err := json.NewDecoder(created.Body).Decode(&firstRef); err != nil {
+				t.Fatalf("decode first body: %v", err)
+			}
 
 			body := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `","agent":` + tc.agent + `,"json":{"answer":"hi"}}`
 			resp := sendResultPost(t, base, path, body)
 			defer resp.Body.Close()
 			if resp.StatusCode != http.StatusCreated {
 				t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusCreated)
+			}
+			var secondRef resultRefBody
+			if err := json.NewDecoder(resp.Body).Decode(&secondRef); err != nil {
+				t.Fatalf("decode second body: %v", err)
+			}
+			if secondRef.Ref == firstRef.Ref {
+				t.Errorf("second ref = %q, want a different ref for %s", secondRef.Ref, tc.name)
 			}
 			if len(st.agents) != 2 {
 				t.Errorf("store holds %d agents, want 2", len(st.agents))
