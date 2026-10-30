@@ -561,20 +561,20 @@ func TestTestValidate(t *testing.T) {
 func TestTestAllowsScore(t *testing.T) {
 	test := Test{Schema: []SchemaKey{{Stub: "correctness", Name: "Correctness"}, {Stub: "style", Name: "Style"}}}
 	for _, tc := range []struct {
-		name       string
-		test       Test
-		dictionary map[string]float64
-		want       bool
+		name string
+		test Test
+		body map[string]float64
+		want bool
 	}{
 		{"every key", test, map[string]float64{"correctness": 1, "style": 0.5}, true},
 		{"partial score", test, map[string]float64{"correctness": 1}, true},
-		{"empty dictionary", test, map[string]float64{}, true},
+		{"empty body", test, map[string]float64{}, true},
 		{"unknown key", test, map[string]float64{"speed": 1}, false},
 		{"unknown key beside a known key", test, map[string]float64{"correctness": 1, "speed": 1}, false},
 		{"empty schema", Test{}, map[string]float64{"correctness": 1}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := tc.test.AllowsScore(tc.dictionary); got != tc.want {
+			if got := tc.test.AllowsScore(tc.body); got != tc.want {
 				t.Errorf("AllowsScore = %v, want %v", got, tc.want)
 			}
 		})
@@ -994,12 +994,12 @@ func TestDatumRef(t *testing.T) {
 }
 
 // TestSaveAndGetResult checks a result round trips through the store with its
-// JSON, logs, token counts, cost, duration, and local branch under its ref.
+// body, logs, token counts, cost, duration, and local branch under its ref.
 func TestSaveAndGetResult(t *testing.T) {
 	s := newTestStore(t)
 	want := Result{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Data: "56ac1b0e4f0d",
-		JSON: `{"answer":"hi"}`, Logs: "resolving the prompt",
+		Body: `{"answer":"hi"}`, Logs: "resolving the prompt",
 		InputTokens: 12, OutputTokens: 3, TokenCost: 0.01, Duration: 1.5,
 		Local: "main",
 	}
@@ -1028,7 +1028,7 @@ func TestSaveResultDefaultsMetricsToZero(t *testing.T) {
 	s := newTestStore(t)
 	r := Result{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
-		Data: "56ac1b0e4f0d", JSON: `{"answer":"hi"}`,
+		Data: "56ac1b0e4f0d", Body: `{"answer":"hi"}`,
 	}
 
 	ref, err := s.SaveResult(r)
@@ -1053,7 +1053,7 @@ func TestSaveResultDefaultsMetricsToZero(t *testing.T) {
 func TestSaveResultRejectsNegativeMetrics(t *testing.T) {
 	valid := Result{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
-		Data: "56ac1b0e4f0d", JSON: `{"answer":"hi"}`,
+		Data: "56ac1b0e4f0d", Body: `{"answer":"hi"}`,
 	}
 	for _, tc := range []struct {
 		name   string
@@ -1104,13 +1104,13 @@ func TestResultValidate(t *testing.T) {
 	}
 }
 
-// TestSaveResultSameIdentitySameRef checks saving the same JSON for the same
+// TestSaveResultSameIdentitySameRef checks saving the same body for the same
 // datum again returns the same ref and leaves one result.
 func TestSaveResultSameIdentitySameRef(t *testing.T) {
 	s := newTestStore(t)
 	r := Result{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
-		Data: "56ac1b0e4f0d", JSON: `{"answer":"hi"}`,
+		Data: "56ac1b0e4f0d", Body: `{"answer":"hi"}`,
 	}
 
 	first, err := s.SaveResult(r)
@@ -1134,16 +1134,16 @@ func TestSaveResultSameIdentitySameRef(t *testing.T) {
 	}
 }
 
-// TestSaveResultDifferentJSONDifferentRef checks different JSON for the same
+// TestSaveResultDifferentBodyDifferentRef checks different body for the same
 // datum gets a different ref and adds a second result.
-func TestSaveResultDifferentJSONDifferentRef(t *testing.T) {
+func TestSaveResultDifferentBodyDifferentRef(t *testing.T) {
 	s := newTestStore(t)
 	coords := Result{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Data: "56ac1b0e4f0d"}
 
 	first := coords
-	first.JSON = `{"answer":"hi"}`
+	first.Body = `{"answer":"hi"}`
 	second := coords
-	second.JSON = `{"answer":"bye"}`
+	second.Body = `{"answer":"bye"}`
 
 	firstRef, err := s.SaveResult(first)
 	if err != nil {
@@ -1166,12 +1166,12 @@ func TestSaveResultDifferentJSONDifferentRef(t *testing.T) {
 	}
 }
 
-// TestSaveResultIdentityIncludesData checks the same JSON for two data in one
+// TestSaveResultIdentityIncludesData checks the same body for two data in one
 // test is two results under different refs, because a result's identity
 // includes its datum.
 func TestSaveResultIdentityIncludesData(t *testing.T) {
 	s := newTestStore(t)
-	coords := Result{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", JSON: `{"answer":"hi"}`}
+	coords := Result{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Body: `{"answer":"hi"}`}
 
 	first := coords
 	first.Data = "56ac1b0e4f0d"
@@ -1200,9 +1200,9 @@ func TestSaveResultIdentityIncludesData(t *testing.T) {
 }
 
 // TestSaveResultIdentityIncludesDatum checks SaveResult returns the ref
-// ResultRef derives from the JSON within the result's datum, that the same JSON
+// ResultRef derives from the body within the result's datum, that the same body
 // for different data is a distinct result under a different ref, and that each
-// datum holds exactly one result for the same JSON.
+// datum holds exactly one result for the same body.
 func TestSaveResultIdentityIncludesDatum(t *testing.T) {
 	s := newTestStore(t)
 	body := `{"answer":"hi"}`
@@ -1216,7 +1216,7 @@ func TestSaveResultIdentityIncludesDatum(t *testing.T) {
 
 	refs := map[string]struct{}{}
 	for _, c := range coords {
-		r := Result{Org: "acme", Repo: c.repo, Task: c.task, Test: c.test, Data: c.data, JSON: body}
+		r := Result{Org: "acme", Repo: c.repo, Task: c.task, Test: c.test, Data: c.data, Body: body}
 		ref, err := s.SaveResult(r)
 		if err != nil {
 			t.Fatal(err)
@@ -1255,14 +1255,14 @@ func TestSaveResultIdentityIncludesDatum(t *testing.T) {
 	}
 }
 
-// TestSaveResultIdentityIncludesModelAndAgent checks the same JSON for the same
+// TestSaveResultIdentityIncludesModelAndAgent checks the same body for the same
 // datum from a different model or agent is a distinct result under a different
 // ref, while saving the same model and agent values again reuses one result.
 func TestSaveResultIdentityIncludesModelAndAgent(t *testing.T) {
 	s := newTestStore(t)
 	base := Result{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
-		Data: "56ac1b0e4f0d", JSON: `{"answer":"hi"}`,
+		Data: "56ac1b0e4f0d", Body: `{"answer":"hi"}`,
 		Model: Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"},
 		Agent: Agent{Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main"},
 	}
@@ -1316,7 +1316,7 @@ func TestListResults(t *testing.T) {
 	s := newTestStore(t)
 	want := map[string]Result{}
 	for _, body := range []string{`{"n":1}`, `{"n":2}`, `{"n":3}`} {
-		r := Result{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Data: "56ac1b0e4f0d", JSON: body}
+		r := Result{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Data: "56ac1b0e4f0d", Body: body}
 		ref, err := s.SaveResult(r)
 		if err != nil {
 			t.Fatal(err)
@@ -1324,7 +1324,7 @@ func TestListResults(t *testing.T) {
 		r.Ref = ref
 		want[ref] = r
 	}
-	other := Result{Org: "acme", Repo: "gadgets", Task: "fix-bug", Test: "basic", Data: "56ac1b0e4f0d", JSON: `{"n":1}`}
+	other := Result{Org: "acme", Repo: "gadgets", Task: "fix-bug", Test: "basic", Data: "56ac1b0e4f0d", Body: `{"n":1}`}
 	if _, err := s.SaveResult(other); err != nil {
 		t.Fatal(err)
 	}
@@ -1357,12 +1357,12 @@ func TestGetResultMissing(t *testing.T) {
 }
 
 // TestResultRef checks a ref is short and URL-safe, is stable for the same
-// result JSON in the same datum from the same model and agent, and changes when
-// the JSON or any part of the datum's, model's, or agent's identity changes.
+// result body in the same datum from the same model and agent, and changes when
+// the body or any part of the datum's, model's, or agent's identity changes.
 func TestResultRef(t *testing.T) {
 	base := Result{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
-		Data: "56ac1b0e4f0d", JSON: `{"answer":"hi"}`,
+		Data: "56ac1b0e4f0d", Body: `{"answer":"hi"}`,
 		Model: Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"},
 		Agent: Agent{Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main"},
 	}
@@ -1378,7 +1378,7 @@ func TestResultRef(t *testing.T) {
 		name   string
 		change func(Result) Result
 	}{
-		{"different JSON", func(r Result) Result { r.JSON = `{"answer":"bye"}`; return r }},
+		{"different body", func(r Result) Result { r.Body = `{"answer":"bye"}`; return r }},
 		{"different datum", func(r Result) Result { r.Data = "ffffffffffff"; return r }},
 		{"different test", func(r Result) Result { r.Test = "other"; return r }},
 		{"different task", func(r Result) Result { r.Task = "other"; return r }},
@@ -1401,13 +1401,13 @@ func TestResultRef(t *testing.T) {
 }
 
 // TestSaveAndGetScore checks a score round trips through the store with its
-// dictionary, logs, token counts, cost, and duration under its ref.
+// body, logs, token counts, cost, and duration under its ref.
 func TestSaveAndGetScore(t *testing.T) {
 	s := newTestStore(t)
 	want := Score{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
 		Result:      "56ac1b0e4f0d",
-		Dictionary:  map[string]float64{"correctness": 1, "style": 0.5},
+		Body:        map[string]float64{"correctness": 1, "style": 0.5},
 		Logs:        "grading the answer",
 		InputTokens: 12, OutputTokens: 3, TokenCost: 0.01, Duration: 1.5,
 	}
@@ -1436,7 +1436,7 @@ func TestSaveScoreDefaultsMetricsToZero(t *testing.T) {
 	s := newTestStore(t)
 	sc := Score{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
-		Result: "56ac1b0e4f0d", Dictionary: map[string]float64{"correctness": 1},
+		Result: "56ac1b0e4f0d", Body: map[string]float64{"correctness": 1},
 	}
 
 	ref, err := s.SaveScore(sc)
@@ -1461,7 +1461,7 @@ func TestSaveScoreDefaultsMetricsToZero(t *testing.T) {
 func TestSaveScoreRejectsNegativeMetrics(t *testing.T) {
 	valid := Score{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
-		Result: "56ac1b0e4f0d", Dictionary: map[string]float64{"correctness": 1},
+		Result: "56ac1b0e4f0d", Body: map[string]float64{"correctness": 1},
 	}
 	for _, tc := range []struct {
 		name   string
@@ -1512,13 +1512,13 @@ func TestScoreValidate(t *testing.T) {
 	}
 }
 
-// TestSaveScoreSameDictionarySameRef checks saving the same dictionary for the
+// TestSaveScoreSameBodySameRef checks saving the same body for the
 // same result again returns the same ref and leaves one score.
-func TestSaveScoreSameDictionarySameRef(t *testing.T) {
+func TestSaveScoreSameBodySameRef(t *testing.T) {
 	s := newTestStore(t)
 	sc := Score{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
-		Result: "56ac1b0e4f0d", Dictionary: map[string]float64{"correctness": 1},
+		Result: "56ac1b0e4f0d", Body: map[string]float64{"correctness": 1},
 	}
 
 	first, err := s.SaveScore(sc)
@@ -1543,7 +1543,7 @@ func TestSaveScoreSameDictionarySameRef(t *testing.T) {
 }
 
 // TestSaveScoreIdentityIgnoresLogsAndMetrics checks the ref comes from the
-// dictionary within its result alone, so the same dictionary for the same
+// body within its result alone, so the same body for the same
 // result stays one score under one ref whatever logs or run metrics accompany
 // it.
 func TestSaveScoreIdentityIgnoresLogsAndMetrics(t *testing.T) {
@@ -1551,7 +1551,7 @@ func TestSaveScoreIdentityIgnoresLogsAndMetrics(t *testing.T) {
 	sc := Score{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
 		Result:      "56ac1b0e4f0d",
-		Dictionary:  map[string]float64{"correctness": 1},
+		Body:        map[string]float64{"correctness": 1},
 		Logs:        "first pass",
 		InputTokens: 12, OutputTokens: 3, TokenCost: 0.01, Duration: 1.5,
 	}
@@ -1576,7 +1576,7 @@ func TestSaveScoreIdentityIgnoresLogsAndMetrics(t *testing.T) {
 		t.Fatal(err)
 	}
 	if again != ref {
-		t.Errorf("SaveScore = %q, want the ref %q for the same dictionary and result", again, ref)
+		t.Errorf("SaveScore = %q, want the ref %q for the same body and result", again, ref)
 	}
 
 	scores, err := s.ListScores("acme", "widgets")
@@ -1588,9 +1588,9 @@ func TestSaveScoreIdentityIgnoresLogsAndMetrics(t *testing.T) {
 	}
 }
 
-// TestSaveScoreDifferentDictionaryDifferentRef checks a different dictionary for
+// TestSaveScoreDifferentBodyDifferentRef checks a different body for
 // the same result gets a different ref and adds a second score.
-func TestSaveScoreDifferentDictionaryDifferentRef(t *testing.T) {
+func TestSaveScoreDifferentBodyDifferentRef(t *testing.T) {
 	s := newTestStore(t)
 	base := Score{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
@@ -1598,9 +1598,9 @@ func TestSaveScoreDifferentDictionaryDifferentRef(t *testing.T) {
 	}
 
 	first := base
-	first.Dictionary = map[string]float64{"correctness": 1}
+	first.Body = map[string]float64{"correctness": 1}
 	second := base
-	second.Dictionary = map[string]float64{"correctness": 0.5}
+	second.Body = map[string]float64{"correctness": 0.5}
 
 	firstRef, err := s.SaveScore(first)
 	if err != nil {
@@ -1624,12 +1624,12 @@ func TestSaveScoreDifferentDictionaryDifferentRef(t *testing.T) {
 }
 
 // TestSaveScoreIdentityIncludesResult checks SaveScore returns the ref ScoreRef
-// derives from the dictionary within its result, that the same dictionary for
+// derives from the body within its result, that the same body for
 // different results stays a distinct score under a different ref, and that each
-// result holds exactly one score for the same dictionary.
+// result holds exactly one score for the same body.
 func TestSaveScoreIdentityIncludesResult(t *testing.T) {
 	s := newTestStore(t)
-	dict := map[string]float64{"correctness": 1}
+	body := map[string]float64{"correctness": 1}
 	coords := []struct{ repo, task, test, result string }{
 		{"widgets", "fix-bug", "basic", "56ac1b0e4f0d"},
 		{"widgets", "fix-bug", "basic", "ffffffffffff"},
@@ -1640,7 +1640,7 @@ func TestSaveScoreIdentityIncludesResult(t *testing.T) {
 
 	refs := map[string]struct{}{}
 	for _, c := range coords {
-		sc := Score{Org: "acme", Repo: c.repo, Task: c.task, Test: c.test, Result: c.result, Dictionary: dict}
+		sc := Score{Org: "acme", Repo: c.repo, Task: c.task, Test: c.test, Result: c.result, Body: body}
 		ref, err := s.SaveScore(sc)
 		if err != nil {
 			t.Fatal(err)
@@ -1679,7 +1679,7 @@ func TestSaveScoreIdentityIncludesResult(t *testing.T) {
 	}
 }
 
-// TestSaveScoreIdentityIncludesModelAndGrader checks the same dictionary for the
+// TestSaveScoreIdentityIncludesModelAndGrader checks the same body for the
 // same result from a different model or grader is a distinct score under a
 // different ref, while saving the same model and grader values again reuses one
 // score.
@@ -1687,7 +1687,7 @@ func TestSaveScoreIdentityIncludesModelAndGrader(t *testing.T) {
 	s := newTestStore(t)
 	base := Score{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
-		Result: "56ac1b0e4f0d", Dictionary: map[string]float64{"correctness": 1},
+		Result: "56ac1b0e4f0d", Body: map[string]float64{"correctness": 1},
 		Model:  Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"},
 		Grader: Grader{Name: "llm-judge", Stub: "judge", Commit: "def456", Branch: "main"},
 	}
@@ -1743,7 +1743,7 @@ func TestListScores(t *testing.T) {
 	for _, d := range []float64{1, 2, 3} {
 		sc := Score{
 			Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
-			Result: "56ac1b0e4f0d", Dictionary: map[string]float64{"n": d},
+			Result: "56ac1b0e4f0d", Body: map[string]float64{"n": d},
 		}
 		ref, err := s.SaveScore(sc)
 		if err != nil {
@@ -1754,7 +1754,7 @@ func TestListScores(t *testing.T) {
 	}
 	other := Score{
 		Org: "acme", Repo: "gadgets", Task: "fix-bug", Test: "basic",
-		Result: "56ac1b0e4f0d", Dictionary: map[string]float64{"n": 1},
+		Result: "56ac1b0e4f0d", Body: map[string]float64{"n": 1},
 	}
 	if _, err := s.SaveScore(other); err != nil {
 		t.Fatal(err)
@@ -2185,7 +2185,7 @@ func TestSaveResultStoresAndReusesModel(t *testing.T) {
 	s := newTestStore(t)
 	base := Result{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
-		Data: "56ac1b0e4f0d", JSON: `{"answer":"hi"}`,
+		Data: "56ac1b0e4f0d", Body: `{"answer":"hi"}`,
 		Model: Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"},
 	}
 
@@ -2235,7 +2235,7 @@ func TestSaveResultRejectsIncompleteModel(t *testing.T) {
 	s := newTestStore(t)
 	r := Result{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
-		Data: "56ac1b0e4f0d", JSON: `{"answer":"hi"}`,
+		Data: "56ac1b0e4f0d", Body: `{"answer":"hi"}`,
 		Model: Model{Provider: "anthropic", Variant: "high"},
 	}
 
@@ -2265,7 +2265,7 @@ func TestSaveResultStoresAndReusesAgent(t *testing.T) {
 	s := newTestStore(t)
 	base := Result{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
-		Data: "56ac1b0e4f0d", JSON: `{"answer":"hi"}`,
+		Data: "56ac1b0e4f0d", Body: `{"answer":"hi"}`,
 		Agent: Agent{Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main"},
 	}
 	want := base.Agent
@@ -2332,7 +2332,7 @@ func TestSaveResultRejectsIncompleteAgent(t *testing.T) {
 	s := newTestStore(t)
 	r := Result{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
-		Data: "56ac1b0e4f0d", JSON: `{"answer":"hi"}`,
+		Data: "56ac1b0e4f0d", Body: `{"answer":"hi"}`,
 		Agent: Agent{Name: "claude-code", Stub: "claude", Commit: "abc123"},
 	}
 
@@ -2361,7 +2361,7 @@ func TestSaveResultWriteFailureCreatesNoModelOrAgent(t *testing.T) {
 	s := newTestStore(t)
 	r := Result{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
-		Data: "56ac1b0e4f0d", JSON: `{"answer":"hi"}`, Logs: "bad\x00logs",
+		Data: "56ac1b0e4f0d", Body: `{"answer":"hi"}`, Logs: "bad\x00logs",
 		Model: Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"},
 		Agent: Agent{Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main"},
 	}
@@ -2399,7 +2399,7 @@ func TestSaveScoreStoresAndReusesModel(t *testing.T) {
 	s := newTestStore(t)
 	base := Score{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
-		Result: "56ac1b0e4f0d", Dictionary: map[string]float64{"correctness": 1},
+		Result: "56ac1b0e4f0d", Body: map[string]float64{"correctness": 1},
 		Model: Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"},
 	}
 
@@ -2449,7 +2449,7 @@ func TestSaveScoreRejectsIncompleteModel(t *testing.T) {
 	s := newTestStore(t)
 	sc := Score{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
-		Result: "56ac1b0e4f0d", Dictionary: map[string]float64{"correctness": 1},
+		Result: "56ac1b0e4f0d", Body: map[string]float64{"correctness": 1},
 		Model: Model{Name: "claude-sonnet", Variant: "high"},
 	}
 
@@ -2479,7 +2479,7 @@ func TestSaveScoreStoresAndReusesGrader(t *testing.T) {
 	s := newTestStore(t)
 	base := Score{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
-		Result: "56ac1b0e4f0d", Dictionary: map[string]float64{"correctness": 1},
+		Result: "56ac1b0e4f0d", Body: map[string]float64{"correctness": 1},
 		Grader: Grader{Name: "llm-judge", Stub: "judge", Commit: "def456", Branch: "main"},
 	}
 	want := base.Grader
@@ -2546,7 +2546,7 @@ func TestSaveScoreRejectsIncompleteGrader(t *testing.T) {
 	s := newTestStore(t)
 	sc := Score{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
-		Result: "56ac1b0e4f0d", Dictionary: map[string]float64{"correctness": 1},
+		Result: "56ac1b0e4f0d", Body: map[string]float64{"correctness": 1},
 		Model:  Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"},
 		Grader: Grader{Name: "llm-judge", Stub: "judge", Commit: "def456"},
 	}
@@ -2583,7 +2583,7 @@ func TestSaveScoreWriteFailureCreatesNoModelOrGrader(t *testing.T) {
 	s := newTestStore(t)
 	sc := Score{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
-		Result: "56ac1b0e4f0d", Dictionary: map[string]float64{"correctness": 1},
+		Result: "56ac1b0e4f0d", Body: map[string]float64{"correctness": 1},
 		Logs:   "bad\x00logs",
 		Model:  Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"},
 		Grader: Grader{Name: "llm-judge", Stub: "judge", Commit: "def456", Branch: "main"},
@@ -2616,12 +2616,12 @@ func TestSaveScoreWriteFailureCreatesNoModelOrGrader(t *testing.T) {
 }
 
 // TestScoreRef checks a ref is short and URL-safe, is stable for the same
-// dictionary within the same result, is independent of dictionary key order,
-// and changes when the dictionary or any part of the result identity changes.
+// body within the same result, is independent of body key order,
+// and changes when the body or any part of the result identity changes.
 func TestScoreRef(t *testing.T) {
 	base := Score{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
-		Result: "56ac1b0e4f0d", Dictionary: map[string]float64{"correctness": 1, "style": 0.5},
+		Result: "56ac1b0e4f0d", Body: map[string]float64{"correctness": 1, "style": 0.5},
 		Grader: Grader{Name: "llm-judge", Stub: "judge", Commit: "def456", Branch: "main"},
 	}
 	ref := ScoreRef(base)
@@ -2633,16 +2633,16 @@ func TestScoreRef(t *testing.T) {
 	}
 
 	reordered := base
-	reordered.Dictionary = map[string]float64{"style": 0.5, "correctness": 1}
+	reordered.Body = map[string]float64{"style": 0.5, "correctness": 1}
 	if got := ScoreRef(reordered); got != ref {
-		t.Errorf("ScoreRef = %q, want the same ref whatever the dictionary key order", got)
+		t.Errorf("ScoreRef = %q, want the same ref whatever the body key order", got)
 	}
 
 	for _, tc := range []struct {
 		name   string
 		change func(Score) Score
 	}{
-		{"different dictionary", func(s Score) Score { s.Dictionary = map[string]float64{"correctness": 0.5, "style": 0.5}; return s }},
+		{"different body", func(s Score) Score { s.Body = map[string]float64{"correctness": 0.5, "style": 0.5}; return s }},
 		{"different result", func(s Score) Score { s.Result = "ffffffffffff"; return s }},
 		{"different test", func(s Score) Score { s.Test = "other"; return s }},
 		{"different task", func(s Score) Score { s.Task = "other"; return s }},

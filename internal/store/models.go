@@ -57,15 +57,15 @@ func uniqueSchemaStubs(schema []SchemaKey) bool {
 	return true
 }
 
-// AllowsScore reports whether every key in the dictionary is a key in the
-// test's score schema. A dictionary may omit a schema key, and an empty
-// dictionary is allowed.
-func (t Test) AllowsScore(dictionary map[string]float64) bool {
+// AllowsScore reports whether every key in the score body is a key in the
+// test's score schema. A body may omit a schema key, and an empty body is
+// allowed.
+func (t Test) AllowsScore(body map[string]float64) bool {
 	keys := make(map[string]struct{}, len(t.Schema))
 	for _, key := range t.Schema {
 		keys[key.Stub] = struct{}{}
 	}
-	for stub := range dictionary {
+	for stub := range body {
 		if _, ok := keys[stub]; !ok {
 			return false
 		}
@@ -183,7 +183,7 @@ type Datum struct {
 	JSON string
 }
 
-// Result is the JSON an agent produced for a datum, with the logs and run
+// Result is the body an agent produced for a datum, with the logs and run
 // metrics that came with it. It is identified by its repo, task stub, test
 // stub, datum ref, and ref, so two results with the same identity are the same
 // result. Local is the local branch that produced it, empty for a remote run.
@@ -196,7 +196,7 @@ type Result struct {
 	Ref          string `gorm:"primaryKey"`
 	Model        Model  `gorm:"embedded"`
 	Agent        Agent  `gorm:"embedded;embeddedPrefix:agent_"`
-	JSON         string
+	Body         string
 	Logs         string
 	InputTokens  int
 	OutputTokens int
@@ -207,7 +207,7 @@ type Result struct {
 
 // Validate reports whether the result's run metrics are zero or greater and its
 // model and agent, when carried, carry their required fields. A result that
-// omits a metric records zero. Its JSON, logs, and local branch may be empty.
+// omits a metric records zero. Its body, logs, and local branch may be empty.
 func (r Result) Validate() error {
 	if r.InputTokens < 0 || r.OutputTokens < 0 || r.TokenCost < 0 || r.Duration < 0 {
 		return ErrInvalidResult
@@ -223,11 +223,10 @@ func (r Result) Validate() error {
 	return nil
 }
 
-// Score is the key-number dictionary a grader produced for a result, with the
-// logs and run metrics that came with it. It is identified by its repo, task
-// stub, test stub, result ref, and ref, so two scores with the same identity
-// are the same score. Dictionary holds a number per key of the result's test
-// score schema.
+// Score is the body a grader produced for a result, with the logs and run
+// metrics that came with it. It is identified by its repo, task stub, test
+// stub, result ref, and ref, so two scores with the same identity are the same
+// score. Body holds a number per key of the result's test score schema.
 type Score struct {
 	Org          string             `gorm:"primaryKey"`
 	Repo         string             `gorm:"primaryKey"`
@@ -237,7 +236,7 @@ type Score struct {
 	Ref          string             `gorm:"primaryKey"`
 	Model        Model              `gorm:"embedded"`
 	Grader       Grader             `gorm:"embedded;embeddedPrefix:grader_"`
-	Dictionary   map[string]float64 `gorm:"serializer:json;type:jsonb"`
+	Body         map[string]float64 `gorm:"serializer:json;type:jsonb"`
 	Logs         string
 	InputTokens  int
 	OutputTokens int
@@ -247,7 +246,7 @@ type Score struct {
 
 // Validate reports whether the score's run metrics are zero or greater and its
 // model and grader, when carried, carry their required fields. A score that
-// omits a metric records zero. Its dictionary, logs, and result may be empty.
+// omits a metric records zero. Its body, logs, and result may be empty.
 func (s Score) Validate() error {
 	if s.InputTokens < 0 || s.OutputTokens < 0 || s.TokenCost < 0 || s.Duration < 0 {
 		return ErrInvalidScore

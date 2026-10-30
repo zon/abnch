@@ -28,7 +28,7 @@ func scoreStore() *fakeDB {
 	}}
 	st.results = []store.Result{{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
-		Data: st.data[0].Ref, Ref: "aaa111", JSON: `{"answer":"hi"}`,
+		Data: st.data[0].Ref, Ref: "aaa111", Body: `{"answer":"hi"}`,
 	}}
 	return st
 }
@@ -38,7 +38,7 @@ func scoreStore() *fakeDB {
 func TestAddScoreStoresScore(t *testing.T) {
 	st := scoreStore()
 	base := startServiceWithStore(t, st, auth.RoleAdmin)
-	body := `{"task":"fix-bug","test":"basic","result":"aaa111","dictionary":{"correctness":1},` +
+	body := `{"task":"fix-bug","test":"basic","result":"aaa111","body":{"correctness":1},` +
 		`"logs":"graded","inputTokens":12,"outputTokens":3,"tokenCost":0.01,"duration":1.5}`
 
 	resp := sendScorePost(t, base, "repos/acme/widgets/scores", body)
@@ -65,8 +65,8 @@ func TestAddScoreStoresScore(t *testing.T) {
 	if stored.Ref != got.Ref {
 		t.Errorf("stored ref = %q, want the returned ref %q", stored.Ref, got.Ref)
 	}
-	if stored.Dictionary["correctness"] != 1 || stored.Logs != "graded" {
-		t.Errorf("stored score = %#v, want the body's dictionary and logs", stored)
+	if stored.Body["correctness"] != 1 || stored.Logs != "graded" {
+		t.Errorf("stored score = %#v, want the body and logs", stored)
 	}
 	if stored.InputTokens != 12 || stored.OutputTokens != 3 || stored.TokenCost != 0.01 || stored.Duration != 1.5 {
 		t.Errorf("stored score = %#v, want the body's metrics", stored)
@@ -79,7 +79,7 @@ func TestAddScoreCreatesAndReusesModel(t *testing.T) {
 	st := scoreStore()
 	base := startServiceWithStore(t, st, auth.RoleAdmin)
 	body := `{"task":"fix-bug","test":"basic","result":"aaa111",` +
-		`"model":{"name":"claude-sonnet","provider":"anthropic","variant":"high"},"dictionary":{"correctness":1}}`
+		`"model":{"name":"claude-sonnet","provider":"anthropic","variant":"high"},"body":{"correctness":1}}`
 	want := store.Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"}
 
 	for i, wantStatus := range []int{http.StatusCreated, http.StatusOK} {
@@ -121,7 +121,7 @@ func TestAddScoreDifferentModelDifferentScore(t *testing.T) {
 			base := startServiceWithStore(t, st, auth.RoleAdmin)
 			path := "repos/acme/widgets/scores"
 			first := `{"task":"fix-bug","test":"basic","result":"aaa111",` +
-				`"model":{"name":"claude-sonnet","provider":"anthropic","variant":"high"},"dictionary":{"correctness":1}}`
+				`"model":{"name":"claude-sonnet","provider":"anthropic","variant":"high"},"body":{"correctness":1}}`
 			created := sendScorePost(t, base, path, first)
 			defer created.Body.Close()
 			if created.StatusCode != http.StatusCreated {
@@ -132,7 +132,7 @@ func TestAddScoreDifferentModelDifferentScore(t *testing.T) {
 				t.Fatalf("decode first body: %v", err)
 			}
 
-			body := `{"task":"fix-bug","test":"basic","result":"aaa111","model":` + tc.model + `,"dictionary":{"correctness":1}}`
+			body := `{"task":"fix-bug","test":"basic","result":"aaa111","model":` + tc.model + `,"body":{"correctness":1}}`
 			resp := sendScorePost(t, base, path, body)
 			defer resp.Body.Close()
 			if resp.StatusCode != http.StatusCreated {
@@ -169,7 +169,7 @@ func TestAddScoreRejectsIncompleteModel(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			st := scoreStore()
 			base := startServiceWithStore(t, st, auth.RoleAdmin)
-			body := `{"task":"fix-bug","test":"basic","result":"aaa111","model":` + tc.model + `,"dictionary":{"correctness":1}}`
+			body := `{"task":"fix-bug","test":"basic","result":"aaa111","model":` + tc.model + `,"body":{"correctness":1}}`
 
 			resp := sendScorePost(t, base, "repos/acme/widgets/scores", body)
 			defer resp.Body.Close()
@@ -193,7 +193,7 @@ func TestAddScoreCreatesAndReusesGrader(t *testing.T) {
 	base := startServiceWithStore(t, st, auth.RoleAdmin)
 	path := "repos/acme/widgets/scores"
 	body := `{"task":"fix-bug","test":"basic","result":"aaa111",` +
-		`"grader":{"name":"llm-judge","stub":"judge","commit":"def456","branch":"main"},"dictionary":{"correctness":1}}`
+		`"grader":{"name":"llm-judge","stub":"judge","commit":"def456","branch":"main"},"body":{"correctness":1}}`
 	want := store.Grader{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
 		Name: "llm-judge", Stub: "judge", Commit: "def456", Branch: "main",
@@ -221,7 +221,7 @@ func TestAddScoreCreatesAndReusesGrader(t *testing.T) {
 	}
 
 	other := `{"task":"fix-bug","test":"basic","result":"aaa111",` +
-		`"grader":{"name":"llm-judge","stub":"judge","commit":"def456","branch":"main"},"dictionary":{"style":1}}`
+		`"grader":{"name":"llm-judge","stub":"judge","commit":"def456","branch":"main"},"body":{"style":1}}`
 	resp := sendScorePost(t, base, path, other)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated {
@@ -245,7 +245,7 @@ func TestAddScoreReturnsModelAndGrader(t *testing.T) {
 	body := `{"task":"fix-bug","test":"basic","result":"aaa111",` +
 		`"model":{"name":"claude-sonnet","provider":"anthropic","variant":"high"},` +
 		`"grader":{"name":"llm-judge","stub":"judge","commit":"def456","branch":"main"},` +
-		`"dictionary":{"correctness":1}}`
+		`"body":{"correctness":1}}`
 	wantModel := store.Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"}
 	wantGrader := store.Grader{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
@@ -318,13 +318,13 @@ func TestAddScoreReusesModelAndGraderAcrossReads(t *testing.T) {
 	}
 
 	var refs []string
-	for _, dictionary := range []string{`{"correctness":1}`, `{"style":1}`} {
+	for _, value := range []string{`{"correctness":1}`, `{"style":1}`} {
 		body := `{"task":"fix-bug","test":"basic","result":"aaa111",` + records +
-			`,"dictionary":` + dictionary + `}`
+			`,"body":` + value + `}`
 		created := sendScorePost(t, base, path, body)
 		defer created.Body.Close()
 		if created.StatusCode != http.StatusCreated {
-			t.Fatalf("dictionary %s status = %d, want %d", dictionary, created.StatusCode, http.StatusCreated)
+			t.Fatalf("body %s status = %d, want %d", value, created.StatusCode, http.StatusCreated)
 		}
 		var added scoreRefBody
 		if err := json.NewDecoder(created.Body).Decode(&added); err != nil {
@@ -372,7 +372,7 @@ func TestAddScoreReusesModelAndGraderAcrossReads(t *testing.T) {
 
 // TestAddScoreDifferentGraderDifferentRecord checks a score carrying a grader
 // that differs in an identity field links to a different grader record, and the
-// same dictionary from a different grader is a different score.
+// same body from a different grader is a different score.
 func TestAddScoreDifferentGraderDifferentRecord(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -389,7 +389,7 @@ func TestAddScoreDifferentGraderDifferentRecord(t *testing.T) {
 			base := startServiceWithStore(t, st, auth.RoleAdmin)
 			path := "repos/acme/widgets/scores"
 			first := `{"task":"fix-bug","test":"basic","result":"aaa111",` +
-				`"grader":{"name":"llm-judge","stub":"judge","commit":"def456","branch":"main"},"dictionary":{"correctness":1}}`
+				`"grader":{"name":"llm-judge","stub":"judge","commit":"def456","branch":"main"},"body":{"correctness":1}}`
 			created := sendScorePost(t, base, path, first)
 			defer created.Body.Close()
 			if created.StatusCode != http.StatusCreated {
@@ -400,7 +400,7 @@ func TestAddScoreDifferentGraderDifferentRecord(t *testing.T) {
 				t.Fatalf("decode first body: %v", err)
 			}
 
-			body := `{"task":"fix-bug","test":"basic","result":"aaa111","grader":` + tc.grader + `,"dictionary":{"correctness":1}}`
+			body := `{"task":"fix-bug","test":"basic","result":"aaa111","grader":` + tc.grader + `,"body":{"correctness":1}}`
 			resp := sendScorePost(t, base, path, body)
 			defer resp.Body.Close()
 			if resp.StatusCode != http.StatusCreated {
@@ -431,13 +431,13 @@ func TestAddScoreGraderNameNotIdentity(t *testing.T) {
 	path := "repos/acme/widgets/scores"
 
 	first := sendScorePost(t, base, path, `{"task":"fix-bug","test":"basic","result":"aaa111",`+
-		`"grader":{"name":"llm-judge","stub":"judge","commit":"def456","branch":"main"},"dictionary":{"correctness":1}}`)
+		`"grader":{"name":"llm-judge","stub":"judge","commit":"def456","branch":"main"},"body":{"correctness":1}}`)
 	defer first.Body.Close()
 	if first.StatusCode != http.StatusCreated {
 		t.Fatalf("first status = %d, want %d", first.StatusCode, http.StatusCreated)
 	}
 	second := sendScorePost(t, base, path, `{"task":"fix-bug","test":"basic","result":"aaa111",`+
-		`"grader":{"name":"renamed-judge","stub":"judge","commit":"def456","branch":"main"},"dictionary":{"correctness":1}}`)
+		`"grader":{"name":"renamed-judge","stub":"judge","commit":"def456","branch":"main"},"body":{"correctness":1}}`)
 	defer second.Body.Close()
 	if second.StatusCode != http.StatusOK {
 		t.Fatalf("second status = %d, want %d", second.StatusCode, http.StatusOK)
@@ -468,7 +468,7 @@ func TestAddScoreRejectsIncompleteGrader(t *testing.T) {
 			st := scoreStore()
 			base := startServiceWithStore(t, st, auth.RoleAdmin)
 			body := `{"task":"fix-bug","test":"basic","result":"aaa111",` +
-				`"model":{"name":"claude-sonnet","provider":"anthropic","variant":"high"},"grader":` + tc.grader + `,"dictionary":{"correctness":1}}`
+				`"model":{"name":"claude-sonnet","provider":"anthropic","variant":"high"},"grader":` + tc.grader + `,"body":{"correctness":1}}`
 
 			resp := sendScorePost(t, base, "repos/acme/widgets/scores", body)
 			defer resp.Body.Close()
@@ -487,14 +487,14 @@ func TestAddScoreRejectsIncompleteGrader(t *testing.T) {
 	}
 }
 
-// TestAddScoreSameDictionaryReturnsExistingRef checks adding the same dictionary
+// TestAddScoreSameBodyReturnsExistingRef checks adding the same body
 // for the same result twice returns the existing ref with 200 and leaves one
 // score.
-func TestAddScoreSameDictionaryReturnsExistingRef(t *testing.T) {
+func TestAddScoreSameBodyReturnsExistingRef(t *testing.T) {
 	st := scoreStore()
 	base := startServiceWithStore(t, st, auth.RoleAdmin)
 	path := "repos/acme/widgets/scores"
-	body := `{"task":"fix-bug","test":"basic","result":"aaa111","dictionary":{"correctness":1}}`
+	body := `{"task":"fix-bug","test":"basic","result":"aaa111","body":{"correctness":1}}`
 
 	first := sendScorePost(t, base, path, body)
 	defer first.Body.Close()
@@ -523,15 +523,15 @@ func TestAddScoreSameDictionaryReturnsExistingRef(t *testing.T) {
 	}
 }
 
-// TestAddScoreRejectsMalformedBody checks a body that carries no dictionary, or
+// TestAddScoreRejectsMalformedBody checks a request that carries no body, or
 // is not valid JSON, returns 422 and creates no score.
 func TestAddScoreRejectsMalformedBody(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		tail string
 	}{
-		{name: "no dictionary", tail: `}`},
-		{name: "invalid json", tail: `,"dictionary":}`},
+		{name: "no body", tail: `}`},
+		{name: "invalid json", tail: `,"body":}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			st := scoreStore()
@@ -556,7 +556,7 @@ func TestAddScoreMissingResult(t *testing.T) {
 	base := startServiceWithStore(t, st, auth.RoleAdmin)
 
 	resp := sendScorePost(t, base, "repos/acme/widgets/scores",
-		`{"task":"fix-bug","test":"basic","result":"missing","dictionary":{"correctness":1}}`)
+		`{"task":"fix-bug","test":"basic","result":"missing","body":{"correctness":1}}`)
 	defer resp.Body.Close()
 
 	assertServiceError(t, resp, http.StatusNotFound)
@@ -583,7 +583,7 @@ func TestAddScoreRejectsMismatchedResultTaskOrTest(t *testing.T) {
 			body := `{"task":"` + tc.task + `","test":"` + tc.test + `","result":"aaa111",` +
 				`"model":{"name":"claude-sonnet","provider":"anthropic","variant":"high"},` +
 				`"grader":{"name":"llm-judge","stub":"judge","commit":"def456","branch":"main"},` +
-				`"dictionary":{"correctness":1}}`
+				`"body":{"correctness":1}}`
 
 			resp := sendScorePost(t, base, "repos/acme/widgets/scores", body)
 			defer resp.Body.Close()
@@ -607,16 +607,16 @@ func TestAddScoreRejectsMismatchedResultTaskOrTest(t *testing.T) {
 // key.
 func TestAddScoreAcceptsSchemaKeys(t *testing.T) {
 	for _, tc := range []struct {
-		name       string
-		dictionary string
+		name string
+		body string
 	}{
-		{name: "every key", dictionary: `{"correctness":1,"style":0.5}`},
-		{name: "partial score", dictionary: `{"correctness":1}`},
+		{name: "every key", body: `{"correctness":1,"style":0.5}`},
+		{name: "partial score", body: `{"correctness":1}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			st := scoreStore()
 			base := startServiceWithStore(t, st, auth.RoleAdmin)
-			body := `{"task":"fix-bug","test":"basic","result":"aaa111","dictionary":` + tc.dictionary + `}`
+			body := `{"task":"fix-bug","test":"basic","result":"aaa111","body":` + tc.body + `}`
 
 			resp := sendScorePost(t, base, "repos/acme/widgets/scores", body)
 			defer resp.Body.Close()
@@ -636,7 +636,7 @@ func TestAddScoreAcceptsSchemaKeys(t *testing.T) {
 func TestAddScoreRejectsUnknownSchemaKey(t *testing.T) {
 	st := scoreStore()
 	base := startServiceWithStore(t, st, auth.RoleAdmin)
-	body := `{"task":"fix-bug","test":"basic","result":"aaa111","dictionary":{"speed":1}}`
+	body := `{"task":"fix-bug","test":"basic","result":"aaa111","body":{"speed":1}}`
 
 	resp := sendScorePost(t, base, "repos/acme/widgets/scores", body)
 	defer resp.Body.Close()
@@ -651,18 +651,18 @@ func TestAddScoreRejectsUnknownSchemaKey(t *testing.T) {
 // number returns 422 and creates no score.
 func TestAddScoreRejectsNonNumberValue(t *testing.T) {
 	for _, tc := range []struct {
-		name       string
-		dictionary string
+		name string
+		body string
 	}{
-		{name: "string", dictionary: `{"correctness":"high"}`},
-		{name: "boolean", dictionary: `{"correctness":true}`},
-		{name: "null", dictionary: `{"correctness":null}`},
-		{name: "object", dictionary: `{"correctness":{"value":1}}`},
+		{name: "string", body: `{"correctness":"high"}`},
+		{name: "boolean", body: `{"correctness":true}`},
+		{name: "null", body: `{"correctness":null}`},
+		{name: "object", body: `{"correctness":{"value":1}}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			st := scoreStore()
 			base := startServiceWithStore(t, st, auth.RoleAdmin)
-			body := `{"task":"fix-bug","test":"basic","result":"aaa111","dictionary":` + tc.dictionary + `}`
+			body := `{"task":"fix-bug","test":"basic","result":"aaa111","body":` + tc.body + `}`
 
 			resp := sendScorePost(t, base, "repos/acme/widgets/scores", body)
 			defer resp.Body.Close()
@@ -690,7 +690,7 @@ func TestAddScoreRejectsNegativeMetrics(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			st := scoreStore()
 			base := startServiceWithStore(t, st, auth.RoleAdmin)
-			body := `{"task":"fix-bug","test":"basic","result":"aaa111","dictionary":{"correctness":1},` + tc.metric + `}`
+			body := `{"task":"fix-bug","test":"basic","result":"aaa111","body":{"correctness":1},` + tc.metric + `}`
 
 			resp := sendScorePost(t, base, "repos/acme/widgets/scores", body)
 			defer resp.Body.Close()
@@ -709,13 +709,13 @@ func TestAddScoreFailedWriteCreatesNoModelOrGrader(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		result     string
-		dictionary string
+		body       string
 		metric     string
 		wantStatus int
 	}{
-		{name: "negative metric", result: "aaa111", dictionary: `{"correctness":1}`, metric: `,"inputTokens":-1`, wantStatus: http.StatusUnprocessableEntity},
-		{name: "unknown schema key", result: "aaa111", dictionary: `{"speed":1}`, wantStatus: http.StatusUnprocessableEntity},
-		{name: "missing result", result: "missing", dictionary: `{"correctness":1}`, wantStatus: http.StatusNotFound},
+		{name: "negative metric", result: "aaa111", body: `{"correctness":1}`, metric: `,"inputTokens":-1`, wantStatus: http.StatusUnprocessableEntity},
+		{name: "unknown schema key", result: "aaa111", body: `{"speed":1}`, wantStatus: http.StatusUnprocessableEntity},
+		{name: "missing result", result: "missing", body: `{"correctness":1}`, wantStatus: http.StatusNotFound},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			st := scoreStore()
@@ -723,7 +723,7 @@ func TestAddScoreFailedWriteCreatesNoModelOrGrader(t *testing.T) {
 			body := `{"task":"fix-bug","test":"basic","result":"` + tc.result + `",` +
 				`"model":{"name":"claude-sonnet","provider":"anthropic","variant":"high"},` +
 				`"grader":{"name":"llm-judge","stub":"judge","commit":"def456","branch":"main"},` +
-				`"dictionary":` + tc.dictionary + tc.metric + `}`
+				`"body":` + tc.body + tc.metric + `}`
 
 			resp := sendScorePost(t, base, "repos/acme/widgets/scores", body)
 			defer resp.Body.Close()
@@ -744,12 +744,12 @@ func TestAddScoreFailedWriteCreatesNoModelOrGrader(t *testing.T) {
 
 // TestAddScoreRejectsNegativeMetricsOverExistingScore checks a negative metric
 // is rejected with 422 even when the result already holds a score for the same
-// dictionary, leaving the stored score unchanged.
+// body, leaving the stored score unchanged.
 func TestAddScoreRejectsNegativeMetricsOverExistingScore(t *testing.T) {
 	st := scoreStore()
 	base := startServiceWithStore(t, st, auth.RoleAdmin)
 	path := "repos/acme/widgets/scores"
-	valid := `{"task":"fix-bug","test":"basic","result":"aaa111","dictionary":{"correctness":1},"inputTokens":12}`
+	valid := `{"task":"fix-bug","test":"basic","result":"aaa111","body":{"correctness":1},"inputTokens":12}`
 
 	created := sendScorePost(t, base, path, valid)
 	defer created.Body.Close()
@@ -757,7 +757,7 @@ func TestAddScoreRejectsNegativeMetricsOverExistingScore(t *testing.T) {
 		t.Fatalf("create status = %d, want %d", created.StatusCode, http.StatusCreated)
 	}
 
-	negative := `{"task":"fix-bug","test":"basic","result":"aaa111","dictionary":{"correctness":1},"inputTokens":-1}`
+	negative := `{"task":"fix-bug","test":"basic","result":"aaa111","body":{"correctness":1},"inputTokens":-1}`
 	rejected := sendScorePost(t, base, path, negative)
 	defer rejected.Body.Close()
 
@@ -777,7 +777,7 @@ func TestAddScoreWriteAllowedForRoles(t *testing.T) {
 		t.Run(role, func(t *testing.T) {
 			st := scoreStore()
 			base := startServiceWithStore(t, st, role)
-			body := `{"task":"fix-bug","test":"basic","result":"aaa111","dictionary":{"correctness":1}}`
+			body := `{"task":"fix-bug","test":"basic","result":"aaa111","body":{"correctness":1}}`
 
 			resp := sendScorePost(t, base, "repos/acme/widgets/scores", body)
 			defer resp.Body.Close()
@@ -804,7 +804,7 @@ func TestAddScoreDeniedForUnpermittedRole(t *testing.T) {
 			base := startServiceWithStore(t, st, role)
 
 			resp := sendScorePost(t, base, "repos/acme/widgets/scores",
-				`{"task":"fix-bug","test":"basic","result":"aaa111","dictionary":{"correctness":1}}`)
+				`{"task":"fix-bug","test":"basic","result":"aaa111","body":{"correctness":1}}`)
 			defer resp.Body.Close()
 
 			if resp.StatusCode != http.StatusForbidden {
@@ -822,9 +822,9 @@ func TestAddScoreDeniedForUnpermittedRole(t *testing.T) {
 func TestGetScoresListsRefs(t *testing.T) {
 	st := scoreStore()
 	st.scores = []store.Score{
-		{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Result: "aaa111", Ref: "aaa111", Dictionary: map[string]float64{"correctness": 1}},
-		{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Result: "aaa111", Ref: "bbb222", Dictionary: map[string]float64{"style": 1}},
-		{Org: "acme", Repo: "other", Task: "fix-bug", Test: "basic", Result: "aaa111", Ref: "ccc333", Dictionary: map[string]float64{"correctness": 1}},
+		{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Result: "aaa111", Ref: "aaa111", Body: map[string]float64{"correctness": 1}},
+		{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Result: "aaa111", Ref: "bbb222", Body: map[string]float64{"style": 1}},
+		{Org: "acme", Repo: "other", Task: "fix-bug", Test: "basic", Result: "aaa111", Ref: "ccc333", Body: map[string]float64{"correctness": 1}},
 	}
 	base := startServiceWithStore(t, st, auth.RoleReader)
 
@@ -947,7 +947,7 @@ func TestGetScoresDeniedForUnpermittedRole(t *testing.T) {
 
 // TestGetScoreReturnsFields checks GET /repos/{org}/{repo}/scores/{ref}
 // returns one score with its ref, task, test, result ref, model, grader,
-// dictionary, logs, tokens, cost, and duration.
+// body, logs, tokens, cost, and duration.
 func TestGetScoreReturnsFields(t *testing.T) {
 	st := scoreStore()
 	st.scores = []store.Score{{
@@ -958,7 +958,7 @@ func TestGetScoreReturnsFields(t *testing.T) {
 			Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
 			Name: "llm-judge", Stub: "judge", Commit: "def456", Branch: "main",
 		},
-		Dictionary:  map[string]float64{"correctness": 1},
+		Body:        map[string]float64{"correctness": 1},
 		Logs:        "graded",
 		InputTokens: 12, OutputTokens: 3, TokenCost: 0.01, Duration: 1.5,
 	}}
@@ -984,7 +984,7 @@ func TestGetScoreReturnsFields(t *testing.T) {
 		Result       string             `json:"result"`
 		Model        store.Model        `json:"model"`
 		Grader       store.Grader       `json:"grader"`
-		Dictionary   map[string]float64 `json:"dictionary"`
+		Body         map[string]float64 `json:"body"`
 		Logs         string             `json:"logs"`
 		InputTokens  int                `json:"inputTokens"`
 		OutputTokens int                `json:"outputTokens"`
@@ -1003,8 +1003,8 @@ func TestGetScoreReturnsFields(t *testing.T) {
 	if got.Grader != st.scores[0].Grader {
 		t.Errorf("score grader = %#v, want the stored grader %#v", got.Grader, st.scores[0].Grader)
 	}
-	if got.Dictionary["correctness"] != 1 {
-		t.Errorf("score dictionary = %#v, want the stored dictionary", got.Dictionary)
+	if got.Body["correctness"] != 1 {
+		t.Errorf("score body = %#v, want the stored body", got.Body)
 	}
 	if got.Logs != "graded" || got.InputTokens != 12 || got.OutputTokens != 3 || got.TokenCost != 0.01 || got.Duration != 1.5 {
 		t.Errorf("score = %#v, want the stored logs and metrics", got)
@@ -1083,7 +1083,7 @@ func TestGetScoreReadAllowedForRoles(t *testing.T) {
 			st.scores = []store.Score{{
 				Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
 				Result: "aaa111", Ref: "bbb222",
-				Dictionary: map[string]float64{"correctness": 1},
+				Body: map[string]float64{"correctness": 1},
 			}}
 			base := startServiceWithStore(t, st, role)
 

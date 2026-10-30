@@ -17,12 +17,12 @@ func DatumRef(body []byte) string {
 }
 
 // ResultRef returns a result's ref: a short, URL-safe string derived from the
-// result JSON, its datum, and its model and agent. The same JSON for the same
+// result body, its datum, and its model and agent. The same body for the same
 // datum from the same model and agent always returns the same ref, and results
-// that differ in data, JSON, model, or agent return different refs.
+// that differ in data, body, model, or agent return different refs.
 func ResultRef(r Result) string {
 	parts := []string{
-		r.Org, r.Repo, r.Task, r.Test, r.Data, r.JSON,
+		r.Org, r.Repo, r.Task, r.Test, r.Data, r.Body,
 		r.Model.Name, r.Model.Provider, r.Model.Variant,
 		r.Agent.Stub, r.Agent.Commit, r.Agent.Branch,
 		r.Agent.Version, strconv.FormatBool(r.Agent.Uncommitted),
@@ -32,14 +32,14 @@ func ResultRef(r Result) string {
 }
 
 // ScoreRef returns a score's ref: a short, URL-safe string derived from the
-// score's key-number dictionary, its result, and its model and grader. The same
-// dictionary for the same result from the same model and grader always returns
-// the same ref, and scores that differ in result, dictionary, model, or grader
-// return different refs.
+// score's key-number body, its result, and its model and grader. The same body
+// for the same result from the same model and grader always returns the same
+// ref, and scores that differ in result, body, model, or grader return
+// different refs.
 func ScoreRef(s Score) string {
-	dict, _ := json.Marshal(s.Dictionary)
+	body, _ := json.Marshal(s.Body)
 	parts := []string{
-		s.Org, s.Repo, s.Task, s.Test, s.Result, string(dict),
+		s.Org, s.Repo, s.Task, s.Test, s.Result, string(body),
 		s.Model.Name, s.Model.Provider, s.Model.Variant,
 		s.Grader.Stub, s.Grader.Commit, s.Grader.Branch,
 		s.Grader.Version, strconv.FormatBool(s.Grader.Uncommitted),

@@ -20,7 +20,7 @@ grader:
   branch: main
   version: 2.0.0
   uncommitted: true
-dictionary:
+body:
   correctness: 1
   style: 0.5
 logs: graded
@@ -33,7 +33,7 @@ duration: 0.5
 const scoreInputJSON = `{
   "model": {"name": "claude-sonnet", "provider": "anthropic", "variant": "high"},
   "grader": {"name": "unit-grader", "stub": "unit", "commit": "def456", "branch": "main", "version": "2.0.0", "uncommitted": true},
-  "dictionary": {"correctness": 1, "style": 0.5},
+  "body": {"correctness": 1, "style": 0.5},
   "logs": "graded",
   "inputTokens": 12,
   "outputTokens": 3,
@@ -76,8 +76,8 @@ func TestAddScoreFromStdinRecordsTheScore(t *testing.T) {
 	if got.Task != "fix-bug" || got.Test != "basic" || got.Result != result {
 		t.Errorf("score identity = %s/%s/%s, want fix-bug/basic/%s", got.Task, got.Test, got.Result, result)
 	}
-	if got.Dictionary["correctness"] != 1 || got.Dictionary["style"] != 0.5 {
-		t.Errorf("dictionary = %v, want the input dictionary", got.Dictionary)
+	if got.Body["correctness"] != 1 || got.Body["style"] != 0.5 {
+		t.Errorf("body = %v, want the input body", got.Body)
 	}
 	if got.Logs != "graded" || got.InputTokens != 12 || got.OutputTokens != 3 || got.TokenCost != 0.01 || got.Duration != 0.5 {
 		t.Errorf("score = %+v, want the input logs and metrics", got)
@@ -113,8 +113,8 @@ func TestAddScoreFromFileRecordsTheScore(t *testing.T) {
 		t.Errorf("printed %q, want the recorded ref %q", printed, refs[0])
 	}
 	got, _ := fake.score("acme", "widgets", refs[0])
-	if got.Dictionary["correctness"] != 1 || got.Model.Name != "claude-sonnet" || got.Grader.Commit != "def456" {
-		t.Errorf("score = %+v, want the file's dictionary, model, and grader", got)
+	if got.Body["correctness"] != 1 || got.Model.Name != "claude-sonnet" || got.Grader.Commit != "def456" {
+		t.Errorf("score = %+v, want the file's body, model, and grader", got)
 	}
 }
 
@@ -138,8 +138,8 @@ func TestAddScoreFromYAMLFileRecordsTheScore(t *testing.T) {
 		t.Errorf("printed %q, want the recorded ref %q", printed, refs[0])
 	}
 	got, _ := fake.score("acme", "widgets", refs[0])
-	if got.Dictionary["correctness"] != 1 || got.Model.Name != "claude-sonnet" || got.Grader.Commit != "def456" {
-		t.Errorf("score = %+v, want the file's dictionary, model, and grader", got)
+	if got.Body["correctness"] != 1 || got.Model.Name != "claude-sonnet" || got.Grader.Commit != "def456" {
+		t.Errorf("score = %+v, want the file's body, model, and grader", got)
 	}
 }
 
@@ -410,26 +410,26 @@ func TestAddScoreFailsWhenGraderMissesARequiredField(t *testing.T) {
 	}
 }
 
-func TestAddScoreFailsWhenInputHasNoDictionary(t *testing.T) {
+func TestAddScoreFailsWhenInputHasNoBody(t *testing.T) {
 	workDir := t.TempDir()
 	addRemote(t, workDir, "git@github.com:acme/widgets.git")
 	fake := newFakeService(t)
 	result := seedScoreResult(t, fake, `{"prompt":"hi"}`, `{"answer":"hi"}`)
-	input := strings.Replace(scoreInputYAML, "dictionary:\n  correctness: 1\n  style: 0.5\n", "", 1)
+	input := strings.Replace(scoreInputYAML, "body:\n  correctness: 1\n  style: 0.5\n", "", 1)
 	d, out := addDataDeps(t, workDir, fake.url, input)
 
 	err := runAdd([]string{"score", result}, d)
 	if err == nil {
-		t.Fatal("add score = nil, want an error without a dictionary")
+		t.Fatal("add score = nil, want an error without a body")
 	}
-	if !strings.Contains(err.Error(), "dictionary") {
-		t.Errorf("error = %q, want it to name the dictionary", err)
+	if !strings.Contains(err.Error(), "body") {
+		t.Errorf("error = %q, want it to name the body", err)
 	}
 	if out.Len() != 0 {
-		t.Errorf("output = %q, want nothing without a dictionary", out.String())
+		t.Errorf("output = %q, want nothing without a body", out.String())
 	}
 	if fake.count() != 0 {
-		t.Errorf("requests = %d, want none without a dictionary", fake.count())
+		t.Errorf("requests = %d, want none without a body", fake.count())
 	}
 }
 

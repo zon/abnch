@@ -23,7 +23,7 @@ type resultAPI struct {
 	Data         string          `json:"data"`
 	Model        store.Model     `json:"model"`
 	Agent        store.Agent     `json:"agent"`
-	JSON         json.RawMessage `json:"json"`
+	Body         json.RawMessage `json:"body"`
 	Logs         string          `json:"logs"`
 	InputTokens  int             `json:"inputTokens"`
 	OutputTokens int             `json:"outputTokens"`
@@ -72,14 +72,14 @@ func (f *fakeService) serveGetResult(w http.ResponseWriter, org, repo, ref strin
 		httpx.WriteError(w, http.StatusNotFound, "result not found")
 		return
 	}
-	body := json.RawMessage(res.JSON)
+	body := json.RawMessage(res.Body)
 	if len(body) == 0 {
 		body = json.RawMessage("null")
 	}
 	httpx.WriteJSON(w, http.StatusOK, resultAPI{
 		Ref: res.Ref, Task: res.Task, Test: res.Test, Data: res.Data,
 		Model: res.Model, Agent: res.Agent,
-		JSON: body, Logs: res.Logs,
+		Body: body, Logs: res.Logs,
 		InputTokens: res.InputTokens, OutputTokens: res.OutputTokens,
 		TokenCost: res.TokenCost, Duration: res.Duration, Local: res.Local,
 	})
@@ -103,8 +103,8 @@ func TestGetResultsListsResultsAsYAML(t *testing.T) {
 	addRemote(t, workDir, "git@github.com:acme/widgets.git")
 	fake := newFakeService(t)
 	refs := seedWidgetResults(t, fake,
-		store.Result{Task: "fix-bug", Test: "basic", Data: "aaaa", JSON: `{"answer":"hi"}`},
-		store.Result{Task: "fix-bug", Test: "basic", Data: "bbbb", JSON: `{"answer":"bye"}`},
+		store.Result{Task: "fix-bug", Test: "basic", Data: "aaaa", Body: `{"answer":"hi"}`},
+		store.Result{Task: "fix-bug", Test: "basic", Data: "bbbb", Body: `{"answer":"bye"}`},
 	)
 	d, out := getDeps(t, workDir, fake.url)
 
@@ -129,9 +129,9 @@ func TestGetResultsListsOnlyTheRepoResults(t *testing.T) {
 	addRemote(t, workDir, "git@github.com:acme/widgets.git")
 	fake := newFakeService(t)
 	want := seedWidgetResults(t, fake,
-		store.Result{Task: "fix-bug", Test: "basic", Data: "aaaa", JSON: `{"answer":"hi"}`},
+		store.Result{Task: "fix-bug", Test: "basic", Data: "aaaa", Body: `{"answer":"hi"}`},
 	)[0]
-	fake.seedResult(store.Result{Org: "acme", Repo: "gadgets", Task: "fix-bug", Test: "basic", Data: "aaaa", JSON: `{"answer":"hi"}`})
+	fake.seedResult(store.Result{Org: "acme", Repo: "gadgets", Task: "fix-bug", Test: "basic", Data: "aaaa", Body: `{"answer":"hi"}`})
 	d, out := getDeps(t, workDir, fake.url)
 
 	if err := runGet([]string{"results"}, d); err != nil {
@@ -221,7 +221,7 @@ func TestGetResultPrintsResultAsJSON(t *testing.T) {
 	fake := newFakeService(t)
 	ref := seedWidgetResults(t, fake, store.Result{
 		Task: "fix-bug", Test: "basic", Data: "aaaa",
-		JSON: `{"answer":"hi"}`, Logs: "worked\n",
+		Body: `{"answer":"hi"}`, Logs: "worked\n",
 		InputTokens: 12, OutputTokens: 3, TokenCost: 0.01, Duration: 0.5, Local: "main",
 	})[0]
 	d, out := getDeps(t, workDir, fake.url)
@@ -235,7 +235,7 @@ func TestGetResultPrintsResultAsJSON(t *testing.T) {
 		Task         string            `json:"task"`
 		Test         string            `json:"test"`
 		Data         string            `json:"data"`
-		JSON         map[string]string `json:"json"`
+		Body         map[string]string `json:"body"`
 		Logs         string            `json:"logs"`
 		InputTokens  int               `json:"inputTokens"`
 		OutputTokens int               `json:"outputTokens"`
@@ -249,8 +249,8 @@ func TestGetResultPrintsResultAsJSON(t *testing.T) {
 	if got.Ref != ref || got.Task != "fix-bug" || got.Test != "basic" || got.Data != "aaaa" {
 		t.Errorf("result = %+v, want the stored result", got)
 	}
-	if got.JSON["answer"] != "hi" {
-		t.Errorf("json = %v, want the result JSON", got.JSON)
+	if got.Body["answer"] != "hi" {
+		t.Errorf("body = %v, want the result body", got.Body)
 	}
 	if got.Logs != "worked\n" || got.InputTokens != 12 || got.OutputTokens != 3 || got.TokenCost != 0.01 || got.Duration != 0.5 || got.Local != "main" {
 		t.Errorf("result = %+v, want the stored logs and metrics", got)
@@ -271,7 +271,7 @@ func TestGetResultPrintsLinkedModelAndAgent(t *testing.T) {
 		Branch: "main", Version: "1.2.3", Uncommitted: true,
 	}
 	ref := seedWidgetResults(t, fake, store.Result{
-		Task: "fix-bug", Test: "basic", Data: "aaaa", JSON: `{"answer":"hi"}`,
+		Task: "fix-bug", Test: "basic", Data: "aaaa", Body: `{"answer":"hi"}`,
 		Model: wantModel, Agent: wantAgent,
 	})[0]
 	d, out := getDeps(t, workDir, fake.url)

@@ -100,12 +100,12 @@ type Store interface {
 	GetScore(org, repo, ref string) (store.Score, error)
 	// ListScores returns a repo's scores, ordered by ref.
 	ListScores(org, repo string) ([]store.Score, error)
-	// SaveScore stores the key-number dictionary a grader produced for a result
-	// and returns the score's ref. The ref is derived from the dictionary within
-	// its result and the model and grader it carries, so saving the same
-	// dictionary from the same model and grader again returns the same ref and
-	// leaves one score. It reports store.ErrInvalidScore when a run metric is
-	// negative, store.ErrInvalidModel when the carried model is incomplete, and
+	// SaveScore stores the key-number body a grader produced for a result and
+	// returns the score's ref. The ref is derived from the body within its
+	// result and the model and grader it carries, so saving the same body from
+	// the same model and grader again returns the same ref and leaves one score.
+	// It reports store.ErrInvalidScore when a run metric is negative,
+	// store.ErrInvalidModel when the carried model is incomplete, and
 	// store.ErrInvalidGrader when the carried grader is incomplete.
 	SaveScore(sc store.Score) (string, error)
 	// SaveRepo creates or replaces the repo with the given stubs.

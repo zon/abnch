@@ -17,15 +17,15 @@ type scoreRef struct {
 }
 
 // scoreRequest is the JSON body a score write carries. Model and Grader are the
-// records the service creates or reuses; Dictionary is the key-number
-// dictionary the grader produced; the rest are its logs and run metrics.
+// records the service creates or reuses; Body holds the key-number score the
+// grader produced; the rest are its logs and run metrics.
 type scoreRequest struct {
 	Task         string             `json:"task"`
 	Test         string             `json:"test"`
 	Result       string             `json:"result"`
 	Model        *configModel       `json:"model,omitempty"`
 	Grader       *configGrader      `json:"grader,omitempty"`
-	Dictionary   map[string]float64 `json:"dictionary"`
+	Body         map[string]float64 `json:"body"`
 	Logs         string             `json:"logs"`
 	InputTokens  int                `json:"inputTokens"`
 	OutputTokens int                `json:"outputTokens"`
@@ -34,12 +34,12 @@ type scoreRequest struct {
 }
 
 // scoreInput is the YAML or JSON input an add score command reads. Model and
-// Grader are the records the service creates or reuses; Dictionary is the score
-// the grader produced; the rest are its logs and run metrics.
+// Grader are the records the service creates or reuses; Body is the score the
+// grader produced; the rest are its logs and run metrics.
 type scoreInput struct {
 	Model        *configModel       `json:"model" yaml:"model"`
 	Grader       *configGrader      `json:"grader" yaml:"grader"`
-	Dictionary   map[string]float64 `json:"dictionary" yaml:"dictionary"`
+	Body         map[string]float64 `json:"body" yaml:"body"`
 	Logs         string             `json:"logs" yaml:"logs"`
 	InputTokens  int                `json:"inputTokens" yaml:"inputTokens"`
 	OutputTokens int                `json:"outputTokens" yaml:"outputTokens"`
@@ -49,20 +49,20 @@ type scoreInput struct {
 
 // scoreResultView is the part of a result the add score command reads: the
 // result's ref, the task and test it belongs to, the datum that produced it, and
-// its JSON.
+// its body.
 type scoreResultView struct {
 	Ref  string          `json:"ref"`
 	Task string          `json:"task"`
 	Test string          `json:"test"`
 	Data string          `json:"data"`
-	JSON json.RawMessage `json:"json"`
+	Body json.RawMessage `json:"body"`
 }
 
 // addScore reads a score input for the result the ref names in the inferred
 // repo, posts it, prints the score ref, and records the model and grader in the
 // CLI config. It reads the input from `--file` when given and from stdin
 // otherwise. It fails without a request when the input lacks a model, a grader,
-// or a dictionary, or when the result is missing.
+// or a body, or when the result is missing.
 func addScore(d deps, c addScoreCmd) error {
 	input, err := readAddScoreInput(d, c.File)
 	if err != nil {
@@ -102,8 +102,8 @@ func readAddScoreInput(d deps, file string) (scoreInput, error) {
 }
 
 // scoreRequestFromInput builds the score write body from the input and the
-// result ref. It fails when the input lacks a model, a grader, or a dictionary,
-// or when a record lacks a required field.
+// result ref. It fails when the input lacks a model, a grader, or a body, or
+// when a record lacks a required field.
 func scoreRequestFromInput(ref string, input scoreInput) (scoreRequest, error) {
 	if input.Model == nil {
 		return scoreRequest{}, errors.New("score input has no model")
@@ -117,12 +117,12 @@ func scoreRequestFromInput(ref string, input scoreInput) (scoreRequest, error) {
 	if input.Grader.Name == "" || input.Grader.Stub == "" || input.Grader.Commit == "" || input.Grader.Branch == "" {
 		return scoreRequest{}, errors.New("score grader must carry a name, stub, commit, and branch")
 	}
-	if input.Dictionary == nil {
-		return scoreRequest{}, errors.New("score input has no dictionary")
+	if input.Body == nil {
+		return scoreRequest{}, errors.New("score input has no body")
 	}
 	return scoreRequest{
 		Result: ref, Model: input.Model, Grader: input.Grader,
-		Dictionary: input.Dictionary, Logs: input.Logs,
+		Body: input.Body, Logs: input.Logs,
 		InputTokens: input.InputTokens, OutputTokens: input.OutputTokens,
 		TokenCost: input.TokenCost, Duration: input.Duration,
 	}, nil

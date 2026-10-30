@@ -12,12 +12,12 @@ import (
 )
 
 // serveAddResult stores the result the body carries for its datum and returns
-// its ref, mirroring the service: the same JSON for the same datum returns the
+// its ref, mirroring the service: the same body for the same datum returns the
 // existing ref as 200, and a new result returns 201. A malformed body, or a
 // missing repo, task, test, or datum, writes the service error response.
 func (f *fakeService) serveAddResult(w http.ResponseWriter, org, repo string, body []byte) {
 	var req resultRequest
-	if err := json.Unmarshal(body, &req); err != nil || len(req.JSON) == 0 {
+	if err := json.Unmarshal(body, &req); err != nil || len(req.Body) == 0 {
 		httpx.WriteError(w, http.StatusUnprocessableEntity, "invalid result body")
 		return
 	}
@@ -31,7 +31,7 @@ func (f *fakeService) serveAddResult(w http.ResponseWriter, org, repo string, bo
 
 	result := store.Result{
 		Org: org, Repo: repo, Task: req.Task, Test: req.Test, Data: req.Data,
-		JSON: string(req.JSON), Logs: req.Logs,
+		Body: string(req.Body), Logs: req.Logs,
 		InputTokens: req.InputTokens, OutputTokens: req.OutputTokens,
 		TokenCost: req.TokenCost, Duration: req.Duration,
 	}
@@ -81,12 +81,12 @@ func (f *fakeService) result(org, repo, ref string) (store.Result, bool) {
 }
 
 // serveAddScore stores the score the body carries for its result and returns its
-// ref, mirroring the service: the same dictionary for the same result returns
-// the existing ref as 200, and a new score returns 201. A malformed body, or a
+// ref, mirroring the service: the same body for the same result returns the
+// existing ref as 200, and a new score returns 201. A malformed body, or a
 // missing repo, task, test, or result, writes the service error response.
 func (f *fakeService) serveAddScore(w http.ResponseWriter, org, repo string, body []byte) {
 	var req scoreRequest
-	if err := json.Unmarshal(body, &req); err != nil || req.Dictionary == nil {
+	if err := json.Unmarshal(body, &req); err != nil || req.Body == nil {
 		httpx.WriteError(w, http.StatusUnprocessableEntity, "invalid score body")
 		return
 	}
@@ -114,7 +114,7 @@ func (f *fakeService) serveAddScore(w http.ResponseWriter, org, repo string, bod
 
 	score := store.Score{
 		Org: org, Repo: repo, Task: req.Task, Test: req.Test, Result: req.Result,
-		Dictionary: req.Dictionary, Logs: req.Logs,
+		Body: req.Body, Logs: req.Logs,
 		InputTokens: req.InputTokens, OutputTokens: req.OutputTokens,
 		TokenCost: req.TokenCost, Duration: req.Duration,
 	}
@@ -165,12 +165,12 @@ func (f *fakeService) scoreRefs(org, repo string) []string {
 
 // seedScoreResult seeds the repo, task, test, datum, and result a score command
 // needs and returns the result ref.
-func seedScoreResult(t *testing.T, fake *fakeService, body, resultJSON string) string {
+func seedScoreResult(t *testing.T, fake *fakeService, body, resultBody string) string {
 	t.Helper()
 	seedDataTest(fake)
 	datum := fake.seedDatum("acme", "widgets", "fix-bug", "basic", body)
 	return fake.seedResult(store.Result{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
-		Data: datum, JSON: resultJSON,
+		Data: datum, Body: resultBody,
 	})
 }

@@ -1,6 +1,6 @@
 # Score Design
 
-A score is a key-number dictionary reporting how well an agent performed a task. The CLI adds a score to the service.
+A score reports how well an agent performed a task with a number per schema key. The CLI adds a score to the service.
 
 ## Models
 
@@ -26,7 +26,7 @@ grader:
   branch: main
   version: 2.0.0
   uncommitted: false
-dictionary: { correctness: 1 }
+body: { correctness: 1 }
 logs: grading the answer
 inputTokens: 12
 outputTokens: 3
@@ -34,7 +34,7 @@ tokenCost: 0.01
 duration: 0.5
 ```
 
-The `model`, `grader`, and `dictionary` properties are required. The rest are optional.
+The `model`, `grader`, and `body` properties are required. The rest are optional.
 
 ## Provenance
 

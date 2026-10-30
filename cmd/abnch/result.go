@@ -20,7 +20,7 @@ type resultRef struct {
 }
 
 // resultRequest is the JSON body a result write carries. Model and Agent are the
-// records that produced the result, and JSON is the result itself; the rest are
+// records that produced the result, and Body is the result itself; the rest are
 // its logs and run metrics.
 type resultRequest struct {
 	Task         string          `json:"task"`
@@ -28,7 +28,7 @@ type resultRequest struct {
 	Data         string          `json:"data"`
 	Model        *configModel    `json:"model,omitempty"`
 	Agent        *configAgent    `json:"agent,omitempty"`
-	JSON         json.RawMessage `json:"json"`
+	Body         json.RawMessage `json:"body"`
 	Logs         string          `json:"logs"`
 	InputTokens  int             `json:"inputTokens"`
 	OutputTokens int             `json:"outputTokens"`
@@ -37,12 +37,12 @@ type resultRequest struct {
 }
 
 // resultInput is the YAML or JSON input an add result command reads. Model and
-// Agent are the records the service creates or reuses; JSON is the result the
+// Agent are the records the service creates or reuses; Body is the result the
 // agent produced; the rest are its logs and run metrics.
 type resultInput struct {
 	Model        *configModel `json:"model" yaml:"model"`
 	Agent        *configAgent `json:"agent" yaml:"agent"`
-	JSON         jsonValue    `json:"json" yaml:"json"`
+	Body         bodyValue    `json:"body" yaml:"body"`
 	Logs         string       `json:"logs" yaml:"logs"`
 	InputTokens  int          `json:"inputTokens" yaml:"inputTokens"`
 	OutputTokens int          `json:"outputTokens" yaml:"outputTokens"`
@@ -50,22 +50,22 @@ type resultInput struct {
 	Duration     float64      `json:"duration" yaml:"duration"`
 }
 
-// jsonValue is a JSON value from a YAML or JSON input. It keeps the raw JSON so
+// bodyValue is a JSON value from a YAML or JSON input. It keeps the raw JSON so
 // the CLI posts the value as a JSON property alongside the rest of the input.
-type jsonValue struct {
+type bodyValue struct {
 	raw     json.RawMessage
 	present bool
 }
 
 // UnmarshalJSON keeps a JSON input's value as it was written.
-func (v *jsonValue) UnmarshalJSON(data []byte) error {
+func (v *bodyValue) UnmarshalJSON(data []byte) error {
 	v.raw = append(v.raw[:0], data...)
 	v.present = true
 	return nil
 }
 
 // UnmarshalYAML converts a YAML input's value to JSON.
-func (v *jsonValue) UnmarshalYAML(node *yaml.Node) error {
+func (v *bodyValue) UnmarshalYAML(node *yaml.Node) error {
 	var value any
 	if err := node.Decode(&value); err != nil {
 		return err
@@ -83,7 +83,7 @@ func (v *jsonValue) UnmarshalYAML(node *yaml.Node) error {
 // repo, posts it, prints the result ref, and records the model and agent in the
 // CLI config. It reads the input from `--file` when given and from stdin
 // otherwise. It fails without a request when the input lacks a model, an agent,
-// or json, or when the path does not name a datum.
+// or a body, or when the path does not name a datum.
 func addResult(d deps, c addResultCmd) error {
 	task, test, datum, err := splitResultPath(c.Path)
 	if err != nil {
@@ -132,8 +132,8 @@ func readResultInput(d deps, file string) (resultInput, error) {
 }
 
 // resultRequestFromInput builds the result write body from the input and the
-// datum the path names. It fails when the input lacks a model, an agent, or
-// json, or when a record lacks a required field.
+// datum the path names. It fails when the input lacks a model, an agent, or a
+// body, or when a record lacks a required field.
 func resultRequestFromInput(task, test, datum string, input resultInput) (resultRequest, error) {
 	if input.Model == nil {
 		return resultRequest{}, errors.New("result input has no model")
@@ -147,13 +147,13 @@ func resultRequestFromInput(task, test, datum string, input resultInput) (result
 	if input.Agent.Name == "" || input.Agent.Stub == "" || input.Agent.Commit == "" || input.Agent.Branch == "" {
 		return resultRequest{}, errors.New("result agent must carry a name, stub, commit, and branch")
 	}
-	if !input.JSON.present || len(input.JSON.raw) == 0 {
-		return resultRequest{}, errors.New("result input has no json")
+	if !input.Body.present || len(input.Body.raw) == 0 {
+		return resultRequest{}, errors.New("result input has no body")
 	}
 	return resultRequest{
 		Task: task, Test: test, Data: datum,
 		Model: input.Model, Agent: input.Agent,
-		JSON: input.JSON.raw, Logs: input.Logs,
+		Body: input.Body.raw, Logs: input.Logs,
 		InputTokens: input.InputTokens, OutputTokens: input.OutputTokens,
 		TokenCost: input.TokenCost, Duration: input.Duration,
 	}, nil

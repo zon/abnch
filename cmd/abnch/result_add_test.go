@@ -20,7 +20,7 @@ agent:
   branch: main
   version: 1.2.3
   uncommitted: true
-json:
+body:
   answer: hi
 logs: worked
 inputTokens: 12
@@ -32,7 +32,7 @@ duration: 0.5
 const resultInputJSON = `{
   "model": {"name": "claude-sonnet", "provider": "anthropic", "variant": "high"},
   "agent": {"name": "claude-code", "stub": "claude", "commit": "abc123", "branch": "main", "version": "1.2.3", "uncommitted": true},
-  "json": {"answer": "hi"},
+  "body": {"answer": "hi"},
   "logs": "worked",
   "inputTokens": 12,
   "outputTokens": 3,
@@ -83,8 +83,8 @@ func TestAddResultFromStdinRecordsTheResult(t *testing.T) {
 	if got.Task != "fix-bug" || got.Test != "basic" || got.Data != datum {
 		t.Errorf("result identity = %s/%s/%s, want fix-bug/basic/%s", got.Task, got.Test, got.Data, datum)
 	}
-	if got.JSON != `{"answer":"hi"}` {
-		t.Errorf("result JSON = %q, want the input json", got.JSON)
+	if got.Body != `{"answer":"hi"}` {
+		t.Errorf("result body = %q, want the input body", got.Body)
 	}
 	if got.Logs != "worked" || got.InputTokens != 12 || got.OutputTokens != 3 || got.TokenCost != 0.01 || got.Duration != 0.5 {
 		t.Errorf("result = %+v, want the input logs and metrics", got)
@@ -120,8 +120,8 @@ func TestAddResultFromFileRecordsTheResult(t *testing.T) {
 		t.Errorf("printed %q, want the recorded ref %q", printed, refs[0])
 	}
 	got, _ := fake.result("acme", "widgets", refs[0])
-	if got.JSON != `{"answer":"hi"}` || got.Model.Name != "claude-sonnet" || got.Agent.Commit != "abc123" {
-		t.Errorf("result = %+v, want the file's JSON, model, and agent", got)
+	if got.Body != `{"answer":"hi"}` || got.Model.Name != "claude-sonnet" || got.Agent.Commit != "abc123" {
+		t.Errorf("result = %+v, want the file's body, model, and agent", got)
 	}
 }
 
@@ -145,8 +145,8 @@ func TestAddResultFromYAMLFileRecordsTheResult(t *testing.T) {
 		t.Errorf("printed %q, want the recorded ref %q", printed, refs[0])
 	}
 	got, _ := fake.result("acme", "widgets", refs[0])
-	if got.JSON != `{"answer":"hi"}` || got.Model.Name != "claude-sonnet" || got.Agent.Commit != "abc123" {
-		t.Errorf("result = %+v, want the file's JSON, model, and agent", got)
+	if got.Body != `{"answer":"hi"}` || got.Model.Name != "claude-sonnet" || got.Agent.Commit != "abc123" {
+		t.Errorf("result = %+v, want the file's body, model, and agent", got)
 	}
 }
 
@@ -337,26 +337,26 @@ func TestAddResultFailsWhenInputHasNoAgent(t *testing.T) {
 	}
 }
 
-func TestAddResultFailsWhenInputHasNoJSON(t *testing.T) {
+func TestAddResultFailsWhenInputHasNoBody(t *testing.T) {
 	workDir := t.TempDir()
 	addRemote(t, workDir, "git@github.com:acme/widgets.git")
 	fake := newFakeService(t)
 	datum := seedResultDatum(t, fake, `{"prompt":"hi"}`)
-	input := strings.Replace(resultInputYAML, "json:\n  answer: hi\n", "", 1)
+	input := strings.Replace(resultInputYAML, "body:\n  answer: hi\n", "", 1)
 	d, out := addDataDeps(t, workDir, fake.url, input)
 
 	err := runAdd([]string{"result", "fix-bug/basic/" + datum}, d)
 	if err == nil {
-		t.Fatal("add result = nil, want an error without json")
+		t.Fatal("add result = nil, want an error without a body")
 	}
-	if !strings.Contains(err.Error(), "json") {
-		t.Errorf("error = %q, want it to name json", err)
+	if !strings.Contains(err.Error(), "body") {
+		t.Errorf("error = %q, want it to name the body", err)
 	}
 	if out.Len() != 0 {
-		t.Errorf("output = %q, want nothing without json", out.String())
+		t.Errorf("output = %q, want nothing without a body", out.String())
 	}
 	if fake.count() != 0 {
-		t.Errorf("requests = %d, want none without json", fake.count())
+		t.Errorf("requests = %d, want none without a body", fake.count())
 	}
 }
 

@@ -107,7 +107,7 @@ agent:
   branch: string
   version: string - optional
   uncommitted: bool - optional, default false
-json: any
+body: any
 logs: string
 inputTokens: number
 outputTokens: number
@@ -143,7 +143,7 @@ grader:
   branch: string
   version: string - optional
   uncommitted: bool - optional, default false
-dictionary: key-number dictionary
+body: key-number dictionary
 logs: string
 inputTokens: number
 outputTokens: number

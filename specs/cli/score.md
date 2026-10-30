@@ -10,13 +10,13 @@ Add a score for a result and read scores. A score links to the model and grader 
 
 `abnch add score <result ref>` SHALL add a score for the result and print its ref.
 
-The command SHALL read a score input as YAML or JSON from stdin or `--file`. The input SHALL carry a `model` record, a `grader` record, and a `dictionary` property holding the key-number dictionary. It MAY carry `logs`, `inputTokens`, `outputTokens`, `tokenCost`, and `duration`.
+The command SHALL read a score input as YAML or JSON from stdin or `--file`. The input SHALL carry a `model` record, a `grader` record, and a `body` property holding the key-number dictionary. It MAY carry `logs`, `inputTokens`, `outputTokens`, `tokenCost`, and `duration`.
 
 The model record SHALL carry a name, a provider, and a variant. The grader record SHALL carry a name, a stub, a commit, a branch, an optional version, and an uncommitted flag.
 
 The CLI SHALL read the result to find its task and test. It SHALL post the input to the service, which creates or reuses the model and grader records and links them to the score. The CLI SHALL record the model and grader in the config, so `abnch get model` and `abnch get grader` can read them.
 
-The command SHALL fail when the result is missing, when the input carries no model, no grader, or no `dictionary`, or when the service rejects the write.
+The command SHALL fail when the result is missing, when the input carries no model, no grader, or no `body`, or when the service rejects the write.
 
 #### Scenario: Add a score
 
@@ -44,9 +44,9 @@ The command SHALL fail when the result is missing, when the input carries no mod
 - AND an error is written to stderr
 - AND no score is recorded
 
-#### Scenario: Missing dictionary
+#### Scenario: Missing body
 
-- GIVEN a score input that carries no `dictionary` property
+- GIVEN a score input that carries no `body` property
 - WHEN the user runs `abnch add score <ref>`
 - THEN the command exits non-zero
 - AND an error is written to stderr

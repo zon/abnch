@@ -1,6 +1,6 @@
 # Result Design
 
-A result is the JSON an agent produced for a datum. The CLI adds a result to the service.
+A result is the body an agent produced for a datum. The CLI adds a result to the service.
 
 ## Models
 
@@ -26,7 +26,7 @@ agent:
   branch: main
   version: 1.2.3
   uncommitted: false
-json: { answer: hi }
+body: { answer: hi }
 logs: resolving the prompt
 inputTokens: 12
 outputTokens: 3
@@ -34,7 +34,7 @@ tokenCost: 0.01
 duration: 0.5
 ```
 
-The `model`, `agent`, and `json` properties are required. The rest are optional.
+The `model`, `agent`, and `body` properties are required. The rest are optional.
 
 ## Provenance
 

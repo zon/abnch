@@ -301,9 +301,9 @@ func (s *Store) ListData(org, repo, task, test string) ([]Datum, error) {
 	return data, nil
 }
 
-// SaveResult stores the JSON an agent produced for a datum and returns the
-// result's ref. The ref is derived from the JSON within its datum and the model
-// and agent it carries, so saving the same JSON from the same model and agent
+// SaveResult stores the body an agent produced for a datum and returns the
+// result's ref. The ref is derived from the body within its datum and the model
+// and agent it carries, so saving the same body from the same model and agent
 // again returns the same ref and leaves one result. It creates or reuses the
 // model and agent the result carries in the same write, and associates the
 // agent with the result's task. It returns ErrInvalidResult when a run metric is
@@ -356,15 +356,15 @@ func (s *Store) ListResults(org, repo string) ([]Result, error) {
 	return results, nil
 }
 
-// SaveScore stores the key-number dictionary a grader produced for a result and
-// returns the score's ref. The ref is derived from the dictionary within its
-// result and the model and grader it carries, so saving the same dictionary
-// from the same model and grader again returns the same ref and leaves one
-// score. It creates or reuses the model and grader the score carries in the
-// same write, and associates the grader with the result's test. It returns
-// ErrInvalidScore when a run metric is negative, ErrInvalidModel when the
-// carried model misses its name or provider, and ErrInvalidGrader when the
-// carried grader misses its name, stub, commit, or branch.
+// SaveScore stores the key-number body a grader produced for a result and
+// returns the score's ref. The ref is derived from the body within its result
+// and the model and grader it carries, so saving the same body from the same
+// model and grader again returns the same ref and leaves one score. It creates
+// or reuses the model and grader the score carries in the same write, and
+// associates the grader with the result's test. It returns ErrInvalidScore when
+// a run metric is negative, ErrInvalidModel when the carried model misses its
+// name or provider, and ErrInvalidGrader when the carried grader misses its
+// name, stub, commit, or branch.
 func (s *Store) SaveScore(sc Score) (string, error) {
 	hasGrader := sc.Grader.Present()
 	if hasGrader {

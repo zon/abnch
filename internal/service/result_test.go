@@ -35,7 +35,7 @@ func TestAddResultStoresResult(t *testing.T) {
 	st := resultStore()
 	base := startServiceWithStore(t, st, auth.RoleAdmin)
 	body := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `",` +
-		`"json":{"answer":"hi"},"logs":"worked","inputTokens":12,"outputTokens":3,"tokenCost":0.01,"duration":1.5,"local":"main"}`
+		`"body":{"answer":"hi"},"logs":"worked","inputTokens":12,"outputTokens":3,"tokenCost":0.01,"duration":1.5,"local":"main"}`
 
 	resp := sendResultPost(t, base, "repos/acme/widgets/results", body)
 	defer resp.Body.Close()
@@ -61,8 +61,8 @@ func TestAddResultStoresResult(t *testing.T) {
 	if stored.Ref != got.Ref {
 		t.Errorf("stored ref = %q, want the returned ref %q", stored.Ref, got.Ref)
 	}
-	if stored.JSON != `{"answer":"hi"}` || stored.Logs != "worked" {
-		t.Errorf("stored result = %#v, want the body's JSON and logs", stored)
+	if stored.Body != `{"answer":"hi"}` || stored.Logs != "worked" {
+		t.Errorf("stored result = %#v, want the body and logs", stored)
 	}
 	if stored.InputTokens != 12 || stored.OutputTokens != 3 || stored.TokenCost != 0.01 || stored.Duration != 1.5 || stored.Local != "main" {
 		t.Errorf("stored result = %#v, want the body's metrics and local branch", stored)
@@ -75,7 +75,7 @@ func TestAddResultCreatesAndReusesModel(t *testing.T) {
 	st := resultStore()
 	base := startServiceWithStore(t, st, auth.RoleAdmin)
 	body := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `",` +
-		`"model":{"name":"claude-sonnet","provider":"anthropic","variant":"high"},"json":{"answer":"hi"}}`
+		`"model":{"name":"claude-sonnet","provider":"anthropic","variant":"high"},"body":{"answer":"hi"}}`
 	want := store.Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"}
 
 	for i, wantStatus := range []int{http.StatusCreated, http.StatusOK} {
@@ -117,7 +117,7 @@ func TestAddResultDifferentModelDifferentResult(t *testing.T) {
 			base := startServiceWithStore(t, st, auth.RoleAdmin)
 			path := "repos/acme/widgets/results"
 			first := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `",` +
-				`"model":{"name":"claude-sonnet","provider":"anthropic","variant":"high"},"json":{"answer":"hi"}}`
+				`"model":{"name":"claude-sonnet","provider":"anthropic","variant":"high"},"body":{"answer":"hi"}}`
 			created := sendResultPost(t, base, path, first)
 			defer created.Body.Close()
 			if created.StatusCode != http.StatusCreated {
@@ -128,7 +128,7 @@ func TestAddResultDifferentModelDifferentResult(t *testing.T) {
 				t.Fatalf("decode first body: %v", err)
 			}
 
-			body := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `","model":` + tc.model + `,"json":{"answer":"hi"}}`
+			body := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `","model":` + tc.model + `,"body":{"answer":"hi"}}`
 			resp := sendResultPost(t, base, path, body)
 			defer resp.Body.Close()
 			if resp.StatusCode != http.StatusCreated {
@@ -165,7 +165,7 @@ func TestAddResultRejectsIncompleteModel(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			st := resultStore()
 			base := startServiceWithStore(t, st, auth.RoleAdmin)
-			body := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `","model":` + tc.model + `,"json":{"answer":"hi"}}`
+			body := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `","model":` + tc.model + `,"body":{"answer":"hi"}}`
 
 			resp := sendResultPost(t, base, "repos/acme/widgets/results", body)
 			defer resp.Body.Close()
@@ -189,7 +189,7 @@ func TestAddResultCreatesAndReusesAgent(t *testing.T) {
 	base := startServiceWithStore(t, st, auth.RoleAdmin)
 	path := "repos/acme/widgets/results"
 	body := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `",` +
-		`"agent":{"name":"claude-code","stub":"claude","commit":"abc123","branch":"main"},"json":{"answer":"hi"}}`
+		`"agent":{"name":"claude-code","stub":"claude","commit":"abc123","branch":"main"},"body":{"answer":"hi"}}`
 	want := store.Agent{
 		Org: "acme", Repo: "widgets", Task: "fix-bug",
 		Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main",
@@ -217,7 +217,7 @@ func TestAddResultCreatesAndReusesAgent(t *testing.T) {
 	}
 
 	other := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `",` +
-		`"agent":{"name":"claude-code","stub":"claude","commit":"abc123","branch":"main"},"json":{"answer":"bye"}}`
+		`"agent":{"name":"claude-code","stub":"claude","commit":"abc123","branch":"main"},"body":{"answer":"bye"}}`
 	resp := sendResultPost(t, base, path, other)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated {
@@ -241,7 +241,7 @@ func TestAddResultReturnsModelAndAgent(t *testing.T) {
 	body := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `",` +
 		`"model":{"name":"claude-sonnet","provider":"anthropic","variant":"high"},` +
 		`"agent":{"name":"claude-code","stub":"claude","commit":"abc123","branch":"main"},` +
-		`"json":{"answer":"hi"}}`
+		`"body":{"answer":"hi"}}`
 	wantModel := store.Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"}
 	wantAgent := store.Agent{
 		Org: "acme", Repo: "widgets", Task: "fix-bug",
@@ -316,7 +316,7 @@ func TestAddResultReusesModelAndAgentAcrossReads(t *testing.T) {
 	var refs []string
 	for _, answer := range []string{"hi", "bye"} {
 		body := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `",` + records +
-			`,"json":{"answer":"` + answer + `"}}`
+			`,"body":{"answer":"` + answer + `"}}`
 		created := sendResultPost(t, base, path, body)
 		defer created.Body.Close()
 		if created.StatusCode != http.StatusCreated {
@@ -368,7 +368,7 @@ func TestAddResultReusesModelAndAgentAcrossReads(t *testing.T) {
 
 // TestAddResultDifferentAgentDifferentRecord checks a result carrying an agent
 // that differs in an identity field links to a different agent record, and the
-// same JSON from a different agent is a different result.
+// same body from a different agent is a different result.
 func TestAddResultDifferentAgentDifferentRecord(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -385,7 +385,7 @@ func TestAddResultDifferentAgentDifferentRecord(t *testing.T) {
 			base := startServiceWithStore(t, st, auth.RoleAdmin)
 			path := "repos/acme/widgets/results"
 			first := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `",` +
-				`"agent":{"name":"claude-code","stub":"claude","commit":"abc123","branch":"main"},"json":{"answer":"hi"}}`
+				`"agent":{"name":"claude-code","stub":"claude","commit":"abc123","branch":"main"},"body":{"answer":"hi"}}`
 			created := sendResultPost(t, base, path, first)
 			defer created.Body.Close()
 			if created.StatusCode != http.StatusCreated {
@@ -396,7 +396,7 @@ func TestAddResultDifferentAgentDifferentRecord(t *testing.T) {
 				t.Fatalf("decode first body: %v", err)
 			}
 
-			body := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `","agent":` + tc.agent + `,"json":{"answer":"hi"}}`
+			body := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `","agent":` + tc.agent + `,"body":{"answer":"hi"}}`
 			resp := sendResultPost(t, base, path, body)
 			defer resp.Body.Close()
 			if resp.StatusCode != http.StatusCreated {
@@ -427,13 +427,13 @@ func TestAddResultAgentNameNotIdentity(t *testing.T) {
 	path := "repos/acme/widgets/results"
 
 	first := sendResultPost(t, base, path, `{"task":"fix-bug","test":"basic","data":"`+st.data[0].Ref+`",`+
-		`"agent":{"name":"claude-code","stub":"claude","commit":"abc123","branch":"main"},"json":{"answer":"hi"}}`)
+		`"agent":{"name":"claude-code","stub":"claude","commit":"abc123","branch":"main"},"body":{"answer":"hi"}}`)
 	defer first.Body.Close()
 	if first.StatusCode != http.StatusCreated {
 		t.Fatalf("first status = %d, want %d", first.StatusCode, http.StatusCreated)
 	}
 	second := sendResultPost(t, base, path, `{"task":"fix-bug","test":"basic","data":"`+st.data[0].Ref+`",`+
-		`"agent":{"name":"renamed-agent","stub":"claude","commit":"abc123","branch":"main"},"json":{"answer":"hi"}}`)
+		`"agent":{"name":"renamed-agent","stub":"claude","commit":"abc123","branch":"main"},"body":{"answer":"hi"}}`)
 	defer second.Body.Close()
 	if second.StatusCode != http.StatusOK {
 		t.Fatalf("second status = %d, want %d", second.StatusCode, http.StatusOK)
@@ -463,7 +463,7 @@ func TestAddResultRejectsIncompleteAgent(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			st := resultStore()
 			base := startServiceWithStore(t, st, auth.RoleAdmin)
-			body := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `","agent":` + tc.agent + `,"json":{"answer":"hi"}}`
+			body := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `","agent":` + tc.agent + `,"body":{"answer":"hi"}}`
 
 			resp := sendResultPost(t, base, "repos/acme/widgets/results", body)
 			defer resp.Body.Close()
@@ -494,7 +494,7 @@ func TestAddResultRejectsNegativeMetrics(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			st := resultStore()
 			base := startServiceWithStore(t, st, auth.RoleAdmin)
-			body := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `","json":{"answer":"hi"},` + tc.metric + `}`
+			body := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `","body":{"answer":"hi"},` + tc.metric + `}`
 
 			resp := sendResultPost(t, base, "repos/acme/widgets/results", body)
 			defer resp.Body.Close()
@@ -529,7 +529,7 @@ func TestAddResultFailedWriteCreatesNoModelOrAgent(t *testing.T) {
 			body := `{"task":"fix-bug","test":"basic","data":"` + data + `",` +
 				`"model":{"name":"claude-sonnet","provider":"anthropic","variant":"high"},` +
 				`"agent":{"name":"claude-code","stub":"claude","commit":"abc123","branch":"main"},` +
-				`"json":{"answer":"hi"}` + tc.metric + `}`
+				`"body":{"answer":"hi"}` + tc.metric + `}`
 
 			resp := sendResultPost(t, base, "repos/acme/widgets/results", body)
 			defer resp.Body.Close()
@@ -550,12 +550,12 @@ func TestAddResultFailedWriteCreatesNoModelOrAgent(t *testing.T) {
 
 // TestAddResultRejectsNegativeMetricsOverExistingResult checks a negative
 // metric is rejected with 422 even when the datum already holds a result for the
-// same JSON, leaving the stored result unchanged.
+// same body, leaving the stored result unchanged.
 func TestAddResultRejectsNegativeMetricsOverExistingResult(t *testing.T) {
 	st := resultStore()
 	base := startServiceWithStore(t, st, auth.RoleAdmin)
 	path := "repos/acme/widgets/results"
-	valid := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `","json":{"answer":"hi"},"inputTokens":12}`
+	valid := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `","body":{"answer":"hi"},"inputTokens":12}`
 
 	created := sendResultPost(t, base, path, valid)
 	defer created.Body.Close()
@@ -563,7 +563,7 @@ func TestAddResultRejectsNegativeMetricsOverExistingResult(t *testing.T) {
 		t.Fatalf("create status = %d, want %d", created.StatusCode, http.StatusCreated)
 	}
 
-	negative := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `","json":{"answer":"hi"},"inputTokens":-1}`
+	negative := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `","body":{"answer":"hi"},"inputTokens":-1}`
 	rejected := sendResultPost(t, base, path, negative)
 	defer rejected.Body.Close()
 
@@ -576,13 +576,13 @@ func TestAddResultRejectsNegativeMetricsOverExistingResult(t *testing.T) {
 	}
 }
 
-// TestAddResultSameJSONReturnsExistingRef checks adding the same JSON for the
+// TestAddResultSameBodyReturnsExistingRef checks adding the same body for the
 // same datum twice returns the existing ref with 200 and leaves one result.
-func TestAddResultSameJSONReturnsExistingRef(t *testing.T) {
+func TestAddResultSameBodyReturnsExistingRef(t *testing.T) {
 	st := resultStore()
 	base := startServiceWithStore(t, st, auth.RoleAdmin)
 	path := "repos/acme/widgets/results"
-	body := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `","json":{"answer":"hi"}}`
+	body := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `","body":{"answer":"hi"}}`
 
 	first := sendResultPost(t, base, path, body)
 	defer first.Body.Close()
@@ -611,15 +611,15 @@ func TestAddResultSameJSONReturnsExistingRef(t *testing.T) {
 	}
 }
 
-// TestAddResultRejectsMalformedBody checks a body that carries no JSON, or is
-// not valid JSON, returns 422 and creates no result.
+// TestAddResultRejectsMalformedBody checks a request that carries no body, or
+// is not valid JSON, returns 422 and creates no result.
 func TestAddResultRejectsMalformedBody(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		tail string
 	}{
-		{name: "no json", tail: `}`},
-		{name: "invalid json", tail: `,"json":}`},
+		{name: "no body", tail: `}`},
+		{name: "invalid json", tail: `,"body":}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			st := resultStore()
@@ -644,7 +644,7 @@ func TestAddResultMissingDatum(t *testing.T) {
 	base := startServiceWithStore(t, st, auth.RoleAdmin)
 
 	resp := sendResultPost(t, base, "repos/acme/widgets/results",
-		`{"task":"fix-bug","test":"basic","data":"missing","json":{"answer":"hi"}}`)
+		`{"task":"fix-bug","test":"basic","data":"missing","body":{"answer":"hi"}}`)
 	defer resp.Body.Close()
 
 	assertServiceError(t, resp, http.StatusNotFound)
@@ -658,9 +658,9 @@ func TestAddResultMissingDatum(t *testing.T) {
 func TestGetResultsListsRefs(t *testing.T) {
 	st := resultStore()
 	st.results = []store.Result{
-		{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Data: "aaa111", Ref: "aaa111", JSON: `{"n":1}`},
-		{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Data: "bbb222", Ref: "bbb222", JSON: `{"n":2}`},
-		{Org: "acme", Repo: "other", Task: "fix-bug", Test: "basic", Data: "ccc333", Ref: "ccc333", JSON: `{"n":3}`},
+		{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Data: "aaa111", Ref: "aaa111", Body: `{"n":1}`},
+		{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Data: "bbb222", Ref: "bbb222", Body: `{"n":2}`},
+		{Org: "acme", Repo: "other", Task: "fix-bug", Test: "basic", Data: "ccc333", Ref: "ccc333", Body: `{"n":3}`},
 	}
 	base := startServiceWithStore(t, st, auth.RoleReader)
 
@@ -782,7 +782,7 @@ func TestGetResultsReadAllowedForRoles(t *testing.T) {
 }
 
 // TestGetResultReturnsFields checks GET /repos/{org}/{repo}/results/{ref}
-// returns one result with its ref, task, test, datum ref, JSON, logs, tokens,
+// returns one result with its ref, task, test, datum ref, body, logs, tokens,
 // cost, duration, and local branch.
 func TestGetResultReturnsFields(t *testing.T) {
 	st := resultStore()
@@ -794,7 +794,7 @@ func TestGetResultReturnsFields(t *testing.T) {
 			Org: "acme", Repo: "widgets", Task: "fix-bug",
 			Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main",
 		},
-		Ref: "aaa111", JSON: `{"answer":"hi"}`, Logs: "worked",
+		Ref: "aaa111", Body: `{"answer":"hi"}`, Logs: "worked",
 		InputTokens: 12, OutputTokens: 3, TokenCost: 0.01, Duration: 1.5, Local: "main",
 	}}
 	base := startServiceWithStore(t, st, auth.RoleReader)
@@ -819,7 +819,7 @@ func TestGetResultReturnsFields(t *testing.T) {
 		Data         string          `json:"data"`
 		Model        store.Model     `json:"model"`
 		Agent        store.Agent     `json:"agent"`
-		JSON         json.RawMessage `json:"json"`
+		Body         json.RawMessage `json:"body"`
 		Logs         string          `json:"logs"`
 		InputTokens  int             `json:"inputTokens"`
 		OutputTokens int             `json:"outputTokens"`
@@ -839,8 +839,8 @@ func TestGetResultReturnsFields(t *testing.T) {
 	if got.Agent != st.results[0].Agent {
 		t.Errorf("result agent = %#v, want the stored agent %#v", got.Agent, st.results[0].Agent)
 	}
-	if string(got.JSON) != `{"answer":"hi"}` {
-		t.Errorf("result JSON = %s, want the stored JSON", got.JSON)
+	if string(got.Body) != `{"answer":"hi"}` {
+		t.Errorf("result body = %s, want the stored body", got.Body)
 	}
 	if got.Logs != "worked" || got.InputTokens != 12 || got.OutputTokens != 3 || got.TokenCost != 0.01 || got.Duration != 1.5 || got.Local != "main" {
 		t.Errorf("result = %#v, want the stored logs, metrics, and local branch", got)
@@ -899,7 +899,7 @@ func TestGetResultDeniedForUnpermittedRole(t *testing.T) {
 	st := resultStore()
 	st.results = []store.Result{{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
-		Data: st.data[0].Ref, Ref: "aaa111", JSON: `{"answer":"hi"}`,
+		Data: st.data[0].Ref, Ref: "aaa111", Body: `{"answer":"hi"}`,
 	}}
 	base := startServiceWithStore(t, st, auth.RoleAgent)
 
@@ -922,7 +922,7 @@ func TestGetResultReadAllowedForRoles(t *testing.T) {
 			st := resultStore()
 			st.results = []store.Result{{
 				Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
-				Data: st.data[0].Ref, Ref: "aaa111", JSON: `{"answer":"hi"}`,
+				Data: st.data[0].Ref, Ref: "aaa111", Body: `{"answer":"hi"}`,
 			}}
 			base := startServiceWithStore(t, st, role)
 
@@ -945,7 +945,7 @@ func TestAddResultWriteAllowedForRoles(t *testing.T) {
 		t.Run(role, func(t *testing.T) {
 			st := resultStore()
 			base := startServiceWithStore(t, st, role)
-			body := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `","json":{"answer":"hi"}}`
+			body := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `","body":{"answer":"hi"}}`
 
 			resp := sendResultPost(t, base, "repos/acme/widgets/results", body)
 			defer resp.Body.Close()
@@ -972,7 +972,7 @@ func TestAddResultDeniedForUnpermittedRole(t *testing.T) {
 			base := startServiceWithStore(t, st, role)
 
 			resp := sendResultPost(t, base, "repos/acme/widgets/results",
-				`{"task":"fix-bug","test":"basic","data":"`+st.data[0].Ref+`","json":{"answer":"hi"}}`)
+				`{"task":"fix-bug","test":"basic","data":"`+st.data[0].Ref+`","body":{"answer":"hi"}}`)
 			defer resp.Body.Close()
 
 			if resp.StatusCode != http.StatusForbidden {

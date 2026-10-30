@@ -22,7 +22,7 @@ type result struct {
 	Data         string          `json:"data"`
 	Model        store.Model     `json:"model"`
 	Agent        store.Agent     `json:"agent"`
-	JSON         json.RawMessage `json:"json"`
+	Body         json.RawMessage `json:"body"`
 	Logs         string          `json:"logs"`
 	InputTokens  int             `json:"inputTokens"`
 	OutputTokens int             `json:"outputTokens"`
@@ -32,7 +32,7 @@ type result struct {
 }
 
 // resultRequest is the JSON body a result write carries. Model is the model the
-// agent used, Agent is the agent that produced the result, and JSON is the
+// agent used, Agent is the agent that produced the result, and Body is the
 // result it produced; the rest are its logs and run metrics. A request that
 // omits its model or agent creates no such record; a model it carries must have
 // a name and provider, and an agent it carries must have a name, stub, commit,
@@ -43,7 +43,7 @@ type resultRequest struct {
 	Data         string          `json:"data"`
 	Model        *store.Model    `json:"model"`
 	Agent        *store.Agent    `json:"agent"`
-	JSON         json.RawMessage `json:"json"`
+	Body         json.RawMessage `json:"body"`
 	Logs         string          `json:"logs"`
 	InputTokens  int             `json:"inputTokens"`
 	OutputTokens int             `json:"outputTokens"`
@@ -64,35 +64,35 @@ func addResult(st Store) http.HandlerFunc {
 			return
 		}
 
-		var body resultRequest
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.JSON) == 0 {
+		var req resultRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Body) == 0 {
 			httpx.WriteError(w, http.StatusUnprocessableEntity, "invalid result body")
 			return
 		}
-		if body.Model != nil {
-			if err := body.Model.Validate(); err != nil {
+		if req.Model != nil {
+			if err := req.Model.Validate(); err != nil {
 				writeResultStoreError(w, err)
 				return
 			}
 		}
-		if body.Agent != nil {
-			if err := body.Agent.Validate(); err != nil {
+		if req.Agent != nil {
+			if err := req.Agent.Validate(); err != nil {
 				writeResultStoreError(w, err)
 				return
 			}
 		}
 
-		if _, ok := requireTask(w, st, org, repo, body.Task); !ok {
+		if _, ok := requireTask(w, st, org, repo, req.Task); !ok {
 			return
 		}
-		if _, ok := requireTest(w, st, org, repo, body.Task, body.Test); !ok {
+		if _, ok := requireTest(w, st, org, repo, req.Task, req.Test); !ok {
 			return
 		}
-		if _, ok := requireDatum(w, st, org, repo, body.Task, body.Test, body.Data); !ok {
+		if _, ok := requireDatum(w, st, org, repo, req.Task, req.Test, req.Data); !ok {
 			return
 		}
 
-		result := newResult(org, repo, body)
+		result := newResult(org, repo, req)
 		if err := result.Validate(); err != nil {
 			writeResultStoreError(w, err)
 			return
@@ -168,16 +168,16 @@ func requireResult(w http.ResponseWriter, st Store, org, repo, ref string) (stor
 	return res, true
 }
 
-// resultJSON returns one result as the API represents it. An empty result JSON
+// resultJSON returns one result as the API represents it. An empty result body
 // comes back as null rather than breaking the response.
 func resultJSON(r store.Result) result {
-	body := json.RawMessage(r.JSON)
+	body := json.RawMessage(r.Body)
 	if len(body) == 0 {
 		body = json.RawMessage("null")
 	}
 	return result{
 		Ref: r.Ref, Task: r.Task, Test: r.Test, Data: r.Data, Model: r.Model, Agent: r.Agent,
-		JSON: body, Logs: r.Logs,
+		Body: body, Logs: r.Logs,
 		InputTokens: r.InputTokens, OutputTokens: r.OutputTokens,
 		TokenCost: r.TokenCost, Duration: r.Duration, Local: r.Local,
 	}
@@ -198,7 +198,7 @@ func resultRefs(results []store.Result) []string {
 func newResult(org, repo string, body resultRequest) store.Result {
 	r := store.Result{
 		Org: org, Repo: repo, Task: body.Task, Test: body.Test, Data: body.Data,
-		JSON: string(body.JSON), Logs: body.Logs,
+		Body: string(body.Body), Logs: body.Logs,
 		InputTokens: body.InputTokens, OutputTokens: body.OutputTokens,
 		TokenCost: body.TokenCost, Duration: body.Duration, Local: body.Local,
 	}
