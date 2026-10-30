@@ -22,11 +22,11 @@ It also writes the local service URL to the [CLI config](app/abnch-config.md) at
 
 * It generates an asymmetric key pair and writes the private key to `dev-issuer.key` beside the config, in the `.abnchd` directory. Git ignores the directory.
 * It adds the dev issuer to `oauth.issuers` in `.abnchd/config.yaml`. The issuer URL is the local service URL plus `/dev`, the audience is `abnch`, and the role claim is `sub`.
-* The role map grants `Admin` to `local-cli` and `Service` to `local-runtime`.
+* The role map grants `Admin` to `local-cli`.
 * The local service serves the dev issuer's OIDC configuration and JWKS.
 * It writes a local CLI credential to `~/.abnch/credentials.yaml`, keyed by the local service URL.
 
-`abnch` reads the local credential and presents it to the local service. It mints a Service token from the dev key for a runtime it starts and passes the token in the runtime's environment. See [Auth Design](auth.md).
+`abnch` reads the local credential and presents it to the local service. See [Auth Design](auth.md).
 
 ## Running the Service
 

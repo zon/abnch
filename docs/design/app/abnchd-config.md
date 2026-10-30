@@ -65,11 +65,9 @@ oidc:
 
 A claim value with no mapping grants no role.
 
-## Workload Authentication
+## Dev Issuer Authentication
 
-Non-human callers authenticate with an OAuth token, without a sign-in. Workloads are Kubernetes service accounts, GitHub workflows, and local clients of a dev issuer. See [Auth Design](../auth.md).
-
-A workload token is an OIDC JWT. The service discovers each trusted issuer's keys from its OIDC configuration, then checks the signature, the audience, and the expiry.
+A local client authenticates with an OAuth token, without a sign-in. The token is an OIDC JWT signed by a dev issuer. The service discovers each trusted issuer's keys from its OIDC configuration, then checks the signature, the audience, and the expiry. See [Auth Design](../auth.md).
 
 ```yaml
 oauth:
@@ -78,12 +76,10 @@ oauth:
       audience: string - audience a token must carry to be accepted
       roleClaim: string - claim that carries the caller identity
       roleMap:
-        <claim value>: <Service|Agent|Grader> - role granted for the claim value
+        <claim value>: <Reader|Admin> - role granted for the claim value
 ```
 
 The service rejects a token with an unknown issuer, a wrong audience, a bad signature, or an expiry in the past.
-
-A Kubernetes service account token carries the `sub` claim `system:serviceaccount:<namespace>:<name>`. A GitHub workflow token carries claims such as `repository` and `ref`.
 
 A dev issuer token is minted by the CLI and signed with a dev key. A local service config trusts the dev issuer that signs it, and the service serves that issuer's public half from its JWKS. The dev key sits beside the config in the `.abnchd` directory. See [Dev Config Design](../dev-config.md).
 
