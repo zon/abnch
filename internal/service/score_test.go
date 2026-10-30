@@ -210,6 +210,141 @@ func TestAddScoreCreatesAndReusesGrader(t *testing.T) {
 	}
 }
 
+// TestAddScoreReturnsModelAndGrader checks a score write carrying a model and a
+// grader creates and links both records, and a later read returns them with the
+// score.
+func TestAddScoreReturnsModelAndGrader(t *testing.T) {
+	st := scoreStore()
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+	path := "repos/acme/widgets/scores"
+	body := `{"task":"fix-bug","test":"basic","result":"aaa111",` +
+		`"model":{"name":"claude-sonnet","provider":"anthropic","variant":"high"},` +
+		`"grader":{"name":"llm-judge","stub":"judge","commit":"def456","branch":"main"},` +
+		`"dictionary":{"correctness":1}}`
+	wantModel := store.Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"}
+	wantGrader := store.Grader{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Name: "llm-judge", Stub: "judge", Commit: "def456", Branch: "main",
+	}
+
+	created := sendScorePost(t, base, path, body)
+	defer created.Body.Close()
+	if created.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want %d", created.StatusCode, http.StatusCreated)
+	}
+	var added scoreRefBody
+	if err := json.NewDecoder(created.Body).Decode(&added); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+
+	if len(st.models) != 1 || st.models[0] != wantModel {
+		t.Fatalf("store models = %#v, want the carried model %#v", st.models, wantModel)
+	}
+	if len(st.graders) != 1 || st.graders[0] != wantGrader {
+		t.Fatalf("store graders = %#v, want the carried grader %#v", st.graders, wantGrader)
+	}
+	if len(st.scores) != 1 {
+		t.Fatalf("store holds %d scores, want 1", len(st.scores))
+	}
+	if st.scores[0].Model != wantModel || st.scores[0].Grader != wantGrader {
+		t.Errorf("score records = %#v and %#v, want the carried records", st.scores[0].Model, st.scores[0].Grader)
+	}
+
+	resp, err := http.Get(base + path + "/" + added.Ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	var got struct {
+		Ref    string       `json:"ref"`
+		Model  store.Model  `json:"model"`
+		Grader store.Grader `json:"grader"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if got.Ref != added.Ref {
+		t.Errorf("score ref = %q, want the added ref %q", got.Ref, added.Ref)
+	}
+	if got.Model != wantModel {
+		t.Errorf("score model = %#v, want %#v", got.Model, wantModel)
+	}
+	if got.Grader != wantGrader {
+		t.Errorf("score grader = %#v, want %#v", got.Grader, wantGrader)
+	}
+}
+
+// TestAddScoreReusesModelAndGraderAcrossReads checks two scores carrying the
+// same model and grader share one record each, and each read returns them.
+func TestAddScoreReusesModelAndGraderAcrossReads(t *testing.T) {
+	st := scoreStore()
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+	path := "repos/acme/widgets/scores"
+	records := `"model":{"name":"claude-sonnet","provider":"anthropic","variant":"high"},` +
+		`"grader":{"name":"llm-judge","stub":"judge","commit":"def456","branch":"main"}`
+	wantModel := store.Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"}
+	wantGrader := store.Grader{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Name: "llm-judge", Stub: "judge", Commit: "def456", Branch: "main",
+	}
+
+	var refs []string
+	for _, dictionary := range []string{`{"correctness":1}`, `{"style":1}`} {
+		body := `{"task":"fix-bug","test":"basic","result":"aaa111",` + records +
+			`,"dictionary":` + dictionary + `}`
+		created := sendScorePost(t, base, path, body)
+		defer created.Body.Close()
+		if created.StatusCode != http.StatusCreated {
+			t.Fatalf("dictionary %s status = %d, want %d", dictionary, created.StatusCode, http.StatusCreated)
+		}
+		var added scoreRefBody
+		if err := json.NewDecoder(created.Body).Decode(&added); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		refs = append(refs, added.Ref)
+	}
+
+	if len(st.models) != 1 || st.models[0] != wantModel {
+		t.Fatalf("store models = %#v, want one carried model %#v", st.models, wantModel)
+	}
+	if len(st.graders) != 1 || st.graders[0] != wantGrader {
+		t.Fatalf("store graders = %#v, want one carried grader %#v", st.graders, wantGrader)
+	}
+	if len(st.scores) != 2 {
+		t.Fatalf("store holds %d scores, want 2", len(st.scores))
+	}
+
+	for _, ref := range refs {
+		resp, err := http.Get(base + path + "/" + ref)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			t.Fatalf("get %s status = %d, want %d", ref, resp.StatusCode, http.StatusOK)
+		}
+		var got struct {
+			Model  store.Model  `json:"model"`
+			Grader store.Grader `json:"grader"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+			resp.Body.Close()
+			t.Fatalf("decode body: %v", err)
+		}
+		resp.Body.Close()
+		if got.Model != wantModel {
+			t.Errorf("score %s model = %#v, want %#v", ref, got.Model, wantModel)
+		}
+		if got.Grader != wantGrader {
+			t.Errorf("score %s grader = %#v, want %#v", ref, got.Grader, wantGrader)
+		}
+	}
+}
+
 // TestAddScoreDifferentGraderDifferentRecord checks a score carrying a grader
 // that differs in an identity field links to a different grader record, and the
 // same dictionary from a different grader is a different score.
