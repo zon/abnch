@@ -206,6 +206,141 @@ func TestAddResultCreatesAndReusesAgent(t *testing.T) {
 	}
 }
 
+// TestAddResultReturnsModelAndAgent checks a result write carrying a model and
+// an agent creates and links both records, and a later read returns them with
+// the result.
+func TestAddResultReturnsModelAndAgent(t *testing.T) {
+	st := resultStore()
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+	path := "repos/acme/widgets/results"
+	body := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `",` +
+		`"model":{"name":"claude-sonnet","provider":"anthropic","variant":"high"},` +
+		`"agent":{"name":"claude-code","stub":"claude","commit":"abc123","branch":"main"},` +
+		`"json":{"answer":"hi"}}`
+	wantModel := store.Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"}
+	wantAgent := store.Agent{
+		Org: "acme", Repo: "widgets", Task: "fix-bug",
+		Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main",
+	}
+
+	created := sendResultPost(t, base, path, body)
+	defer created.Body.Close()
+	if created.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want %d", created.StatusCode, http.StatusCreated)
+	}
+	var added resultRefBody
+	if err := json.NewDecoder(created.Body).Decode(&added); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+
+	if len(st.models) != 1 || st.models[0] != wantModel {
+		t.Fatalf("store models = %#v, want the carried model %#v", st.models, wantModel)
+	}
+	if len(st.agents) != 1 || st.agents[0] != wantAgent {
+		t.Fatalf("store agents = %#v, want the carried agent %#v", st.agents, wantAgent)
+	}
+	if len(st.results) != 1 {
+		t.Fatalf("store holds %d results, want 1", len(st.results))
+	}
+	if st.results[0].Model != wantModel || st.results[0].Agent != wantAgent {
+		t.Errorf("result records = %#v and %#v, want the carried records", st.results[0].Model, st.results[0].Agent)
+	}
+
+	resp, err := http.Get(base + path + "/" + added.Ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	var got struct {
+		Ref   string      `json:"ref"`
+		Model store.Model `json:"model"`
+		Agent store.Agent `json:"agent"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if got.Ref != added.Ref {
+		t.Errorf("result ref = %q, want the added ref %q", got.Ref, added.Ref)
+	}
+	if got.Model != wantModel {
+		t.Errorf("result model = %#v, want %#v", got.Model, wantModel)
+	}
+	if got.Agent != wantAgent {
+		t.Errorf("result agent = %#v, want %#v", got.Agent, wantAgent)
+	}
+}
+
+// TestAddResultReusesModelAndAgentAcrossReads checks two results carrying the
+// same model and agent share one record each, and each read returns them.
+func TestAddResultReusesModelAndAgentAcrossReads(t *testing.T) {
+	st := resultStore()
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+	path := "repos/acme/widgets/results"
+	records := `"model":{"name":"claude-sonnet","provider":"anthropic","variant":"high"},` +
+		`"agent":{"name":"claude-code","stub":"claude","commit":"abc123","branch":"main"}`
+	wantModel := store.Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"}
+	wantAgent := store.Agent{
+		Org: "acme", Repo: "widgets", Task: "fix-bug",
+		Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main",
+	}
+
+	var refs []string
+	for _, answer := range []string{"hi", "bye"} {
+		body := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `",` + records +
+			`,"json":{"answer":"` + answer + `"}}`
+		created := sendResultPost(t, base, path, body)
+		defer created.Body.Close()
+		if created.StatusCode != http.StatusCreated {
+			t.Fatalf("answer %s status = %d, want %d", answer, created.StatusCode, http.StatusCreated)
+		}
+		var added resultRefBody
+		if err := json.NewDecoder(created.Body).Decode(&added); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		refs = append(refs, added.Ref)
+	}
+
+	if len(st.models) != 1 || st.models[0] != wantModel {
+		t.Fatalf("store models = %#v, want one carried model %#v", st.models, wantModel)
+	}
+	if len(st.agents) != 1 || st.agents[0] != wantAgent {
+		t.Fatalf("store agents = %#v, want one carried agent %#v", st.agents, wantAgent)
+	}
+	if len(st.results) != 2 {
+		t.Fatalf("store holds %d results, want 2", len(st.results))
+	}
+
+	for _, ref := range refs {
+		resp, err := http.Get(base + path + "/" + ref)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			t.Fatalf("get %s status = %d, want %d", ref, resp.StatusCode, http.StatusOK)
+		}
+		var got struct {
+			Model store.Model `json:"model"`
+			Agent store.Agent `json:"agent"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+			resp.Body.Close()
+			t.Fatalf("decode body: %v", err)
+		}
+		resp.Body.Close()
+		if got.Model != wantModel {
+			t.Errorf("result %s model = %#v, want %#v", ref, got.Model, wantModel)
+		}
+		if got.Agent != wantAgent {
+			t.Errorf("result %s agent = %#v, want %#v", ref, got.Agent, wantAgent)
+		}
+	}
+}
+
 // TestAddResultDifferentAgentDifferentRecord checks a result carrying an agent
 // that differs in an identity field links to a different agent record, and the
 // same JSON from a different agent is a different result.
