@@ -260,6 +260,41 @@ func TestGetResultPrintsResultAsJSON(t *testing.T) {
 	}
 }
 
+func TestGetResultPrintsLinkedModelAndAgent(t *testing.T) {
+	workDir := t.TempDir()
+	addRemote(t, workDir, "git@github.com:acme/widgets.git")
+	fake := newFakeService(t)
+	wantModel := store.Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"}
+	wantAgent := store.Agent{
+		Org: "acme", Repo: "widgets", Task: "fix-bug",
+		Name: "claude-code", Stub: "claude", Commit: "abc123",
+		Branch: "main", Version: "1.2.3", Uncommitted: true,
+	}
+	ref := seedWidgetResults(t, fake, store.Result{
+		Task: "fix-bug", Test: "basic", Data: "aaaa", JSON: `{"answer":"hi"}`,
+		Model: wantModel, Agent: wantAgent,
+	})[0]
+	d, out := getDeps(t, workDir, fake.url)
+
+	if err := runGet([]string{"result", ref}, d); err != nil {
+		t.Fatalf("get result = %v, want no error", err)
+	}
+
+	var got struct {
+		Model store.Model `json:"model"`
+		Agent store.Agent `json:"agent"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out.String())
+	}
+	if got.Model != wantModel {
+		t.Errorf("model = %+v, want the linked model %+v", got.Model, wantModel)
+	}
+	if got.Agent != wantAgent {
+		t.Errorf("agent = %+v, want the linked agent %+v", got.Agent, wantAgent)
+	}
+}
+
 func TestGetResultFailsWhenResultMissing(t *testing.T) {
 	workDir := t.TempDir()
 	addRemote(t, workDir, "git@github.com:acme/widgets.git")

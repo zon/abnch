@@ -21,6 +21,8 @@ type scoreAPI struct {
 	Task         string             `json:"task"`
 	Test         string             `json:"test"`
 	Result       string             `json:"result"`
+	Model        store.Model        `json:"model"`
+	Grader       store.Grader       `json:"grader"`
 	Dictionary   map[string]float64 `json:"dictionary"`
 	Logs         string             `json:"logs"`
 	InputTokens  int                `json:"inputTokens"`
@@ -71,6 +73,7 @@ func (f *fakeService) serveGetScore(w http.ResponseWriter, org, repo, ref string
 	}
 	httpx.WriteJSON(w, http.StatusOK, scoreAPI{
 		Ref: sc.Ref, Task: sc.Task, Test: sc.Test, Result: sc.Result,
+		Model: sc.Model, Grader: sc.Grader,
 		Dictionary: sc.Dictionary, Logs: sc.Logs,
 		InputTokens: sc.InputTokens, OutputTokens: sc.OutputTokens,
 		TokenCost: sc.TokenCost, Duration: sc.Duration,
@@ -248,6 +251,42 @@ func TestGetScorePrintsScoreAsJSON(t *testing.T) {
 	}
 	if !contains(fake.methods(), "GET /repos/acme/widgets/scores/"+ref) {
 		t.Errorf("requests = %v, want the score request", fake.methods())
+	}
+}
+
+func TestGetScorePrintsLinkedModelAndGrader(t *testing.T) {
+	workDir := t.TempDir()
+	addRemote(t, workDir, "git@github.com:acme/widgets.git")
+	fake := newFakeService(t)
+	wantModel := store.Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"}
+	wantGrader := store.Grader{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Name: "llm-judge", Stub: "judge", Commit: "def456",
+		Branch: "main", Version: "2.0.0", Uncommitted: true,
+	}
+	ref := seedWidgetScores(t, fake, store.Score{
+		Task: "fix-bug", Test: "basic", Result: "aaaa",
+		Dictionary: map[string]float64{"correctness": 1},
+		Model:      wantModel, Grader: wantGrader,
+	})[0]
+	d, out := getDeps(t, workDir, fake.url)
+
+	if err := runGet([]string{"score", ref}, d); err != nil {
+		t.Fatalf("get score = %v, want no error", err)
+	}
+
+	var got struct {
+		Model  store.Model  `json:"model"`
+		Grader store.Grader `json:"grader"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out.String())
+	}
+	if got.Model != wantModel {
+		t.Errorf("model = %+v, want the linked model %+v", got.Model, wantModel)
+	}
+	if got.Grader != wantGrader {
+		t.Errorf("grader = %+v, want the linked grader %+v", got.Grader, wantGrader)
 	}
 }
 
