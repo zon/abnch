@@ -2,105 +2,67 @@
 
 ## Purpose
 
-Score a result with a task's grader and read scores. A grade run executes locally. Workflow execution is out of scope. The grader config is defined in the [Grader CLI spec](grader.md). The model config is defined in the [Model CLI spec](model.md). The service contract is defined in the [Score Service API](../service/score.md).
+Add a score for a result and read scores. A score links to the model and grader records that produced it. The score input is defined in the [Score Design](../../docs/design/score.md). The service contract is defined in the [Score Service API](../service/score.md).
 
 ## Requirements
 
-### Requirement: Score a Result
+### Requirement: Add a Score
 
-`abnch score <result ref>` SHALL run the task's grader against the result and record a score.
+`abnch add score <result ref>` SHALL add a score for the result and print its ref.
 
-The CLI SHALL read the result from the service, read the task's grader from the config, resolve the model, build the grader once, run it against the result, and record the score.
+The command SHALL read a score input as YAML or JSON from stdin or `--file`. The input SHALL carry a `model` record, a `grader` record, and a `dictionary` property holding the key-number dictionary. It MAY carry `logs`, `inputTokens`, `outputTokens`, `tokenCost`, and `duration`.
 
-The command SHALL accept `--model`. `--model` overrides the task's default model.
+The model record SHALL carry a name, a provider, and a variant. The grader record SHALL carry a name, a stub, a commit, a branch, an optional version, and an uncommitted flag.
 
-The command SHALL fail when the task has no grader, when no model is set, or when the result is missing.
+The CLI SHALL read the result to find its task and test. It SHALL post the input to the service, which creates or reuses the model and grader records and links them to the score. The CLI SHALL record the model and grader in the config, so `abnch get model` and `abnch get grader` can read them.
 
-#### Scenario: Score a result
+The command SHALL fail when the result is missing, when the input carries no model, no grader, or no `dictionary`, or when the service rejects the write.
+
+#### Scenario: Add a score
 
 - GIVEN result `<ref>` exists in the inferred repo
-- AND the task has a grader and a model
-- WHEN the user runs `abnch score <ref>`
-- THEN the grader runs against the result
-- AND a score is recorded for the result
+- WHEN the user runs `abnch add score <ref>` with a score input
+- THEN the service creates or reuses the model and grader records
+- AND the score is recorded with the model and grader records
+- AND the CLI records the model and grader in the config
+- AND the command prints the score ref
 - AND the command exits zero
-
-#### Scenario: Missing grader
-
-- GIVEN the task has no grader
-- WHEN the user runs `abnch score <ref>`
-- THEN the command exits non-zero
-- AND an error is written to stderr
-- AND the grader does not run
 
 #### Scenario: Missing model
 
-- GIVEN the task has no default model and no `--model` is given
-- WHEN the user runs `abnch score <ref>`
+- GIVEN a score input that carries no `model` record
+- WHEN the user runs `abnch add score <ref>`
 - THEN the command exits non-zero
 - AND an error is written to stderr
-- AND the grader does not run
+- AND no score is recorded
 
-#### Scenario: Unknown model
+#### Scenario: Missing grader
 
-- GIVEN the config holds no model `ghost`
-- WHEN the user runs `abnch score <ref> --model ghost`
+- GIVEN a score input that carries no `grader` record
+- WHEN the user runs `abnch add score <ref>`
 - THEN the command exits non-zero
 - AND an error is written to stderr
+- AND no score is recorded
+
+#### Scenario: Missing dictionary
+
+- GIVEN a score input that carries no `dictionary` property
+- WHEN the user runs `abnch add score <ref>`
+- THEN the command exits non-zero
+- AND an error is written to stderr
+- AND no score is recorded
 
 #### Scenario: Missing result
 
 - GIVEN no result with that ref exists
-- WHEN the user runs `abnch score <ref>`
+- WHEN the user runs `abnch add score <ref>`
 - THEN the command exits non-zero
 - AND an error is written to stderr
-- AND the grader does not run
-
-### Requirement: Grader Input
-
-The CLI SHALL pass a JSON object to the grader's run command on stdin.
-
-The object SHALL carry the model's name, provider, and variant, the JSON of the datum that produced the result, and the result's JSON.
-
-#### Scenario: Grader reads the model, the datum, and the result
-
-- GIVEN a model, a datum, and its result
-- WHEN the grader's run command runs
-- THEN stdin carries the model's name, provider, and variant, the datum's JSON, and the result's JSON
-
-### Requirement: Score Output
-
-The grader's run command SHALL write its logs to stdout, then the abnch marker, then a score output as JSON. The marker and the score output are defined in the [Score Design](../../docs/design/score.md).
-
-The CLI SHALL treat stdout before the marker as the score's logs and parse the JSON after the marker as the score output. The score output SHALL carry a `score` property holding the key-number dictionary. It MAY carry `inputTokens`, `outputTokens`, and `tokenCost`.
-
-The CLI SHALL measure the run's duration and record it with the score.
-
-A grade run whose stdout carries no marker, or whose score output carries no `score` property, SHALL fail.
-
-#### Scenario: Record the score output
-
-- GIVEN a grader that writes logs, the marker, and a score output with a dictionary and token counts
-- WHEN the grader runs
-- THEN the score carries the logs, the dictionary, the token counts, and the run duration
-
-#### Scenario: Missing marker
-
-- GIVEN a grader that writes no marker
-- WHEN the user runs `abnch score <ref>`
-- THEN the command exits non-zero
-- AND an error is written to stderr
-
-#### Scenario: Missing score
-
-- GIVEN a grader whose score output carries no `score` property
-- WHEN the user runs `abnch score <ref>`
-- THEN the command exits non-zero
-- AND an error is written to stderr
+- AND no score is recorded
 
 ### Requirement: Read Scores
 
-`abnch get scores` SHALL list the inferred repo's scores as YAML. `abnch get score <ref>` SHALL output one score as JSON. The command SHALL fail when the score is missing.
+`abnch get scores` SHALL list the inferred repo's scores as YAML. `abnch get score <ref>` SHALL output one score as JSON with the model and grader records it links to. The command SHALL fail when the score is missing.
 
 #### Scenario: List scores
 
@@ -114,6 +76,7 @@ A grade run whose stdout carries no marker, or whose score output carries no `sc
 - GIVEN a score `<ref>` exists in the inferred repo
 - WHEN the user runs `abnch get score <ref>`
 - THEN the score is written to stdout as JSON
+- AND the output includes the model and grader records
 - AND the command exits zero
 
 #### Scenario: Get a missing score
@@ -132,6 +95,6 @@ When the service returns an error, the CLI SHALL surface the service error messa
 #### Scenario: Service error
 
 - GIVEN the service returns `403` for a score write
-- WHEN the user runs `abnch score <ref>`
+- WHEN the user runs `abnch add score <ref>`
 - THEN the command exits non-zero
 - AND the service error message is written to stderr

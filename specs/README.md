@@ -10,6 +10,7 @@ Behavior contracts for the Agent Benchmark system.
 - [Task](service/task.md) — managing tasks within a repo over the service API
 - [Test](service/test.md) — managing tests within a task over the service API
 - [Data](service/data.md) — managing a test's data over the service API
+- [Provenance](service/provenance.md) — storing the model, agent, and grader records that results and scores reference
 - [Result](service/result.md) — storing and reading the results agents produce
 - [Score](service/score.md) — storing and reading the scores graders produce
 
@@ -21,11 +22,11 @@ Behavior contracts for the Agent Benchmark system.
 - [Task](cli/task.md) — creating, updating, and reading tasks
 - [Test](cli/test.md) — creating, updating, and reading tests
 - [Data](cli/data.md) — adding and reading a test's data
-- [Model](cli/model.md) — recording the models an agent may call
-- [Agent](cli/agent.md) — recording a task's agent
-- [Grader](cli/grader.md) — recording a task's grader
-- [Run](cli/run.md) — running an agent against a test's data and reading results
-- [Score](cli/score.md) — scoring a result and reading scores
+- [Model](cli/model.md) — reading the models used by results and scores
+- [Agent](cli/agent.md) — reading the agent last used for a task
+- [Grader](cli/grader.md) — reading the grader last used for a task
+- [Result](cli/result.md) — adding a result for a test's datum and reading results
+- [Score](cli/score.md) — adding a score for a result and reading scores
 
 ## Dev
 

@@ -6,7 +6,7 @@ Commands that reach the service authenticate a caller. The caller signs in with 
 
 Sessions live in a user-level `~/.abnch/credentials.yaml` file, keyed by service URL, outside any repo. A command that needs a session and finds none, or finds an expired one, fails and tells the user to run `abnch login`.
 
-A service running locally trusts a dev issuer. `just config` writes a local CLI credential, which the CLI reads like a session. A runtime the CLI starts gets a Service token. Agent and grader code runs on the caller's machine. See the [Dev Config Design](dev-config.md).
+A service running locally trusts a dev issuer. `just config` writes a local CLI credential, which the CLI reads like a session. See the [Dev Config Design](dev-config.md).
 
 ## `abnch login`
 
@@ -42,13 +42,6 @@ Create or updates an `.abnch/config.yaml` file in the repo under the working dir
 
 Outputs the effective config as YAML.
 
-## `abnch set model <provider>/<name>`
-
-Create or updates model config. Adds a model option to the config file. See [CLI Config Design](abnch-config.md).
-
-* --stub: optional string - override the auto generated stub
-* --variant: optional string
-
 ## `abnch get models` | `abnch get model`
 
 Lists models in the config.
@@ -57,25 +50,9 @@ Lists models in the config.
 
 Outputs a model as YAML.
 
-## `abnch set agent <task stub>`
-
-Creates or updates agent config for a task. See [CLI Config Design](abnch-config.md).
-
-* --version-cmd: string
-* --build-cmd: string
-* --run-cmd: string
-
 ## `abnch get agent <task stub>`
 
 Outputs the task's agent config as YAML.
-
-## `abnch set grader <task stub>`
-
-Creates or updates grader config for a task. See [CLI Config Design](abnch-config.md).
-
-* --version-cmd: string
-* --build-cmd: string
-* --run-cmd: string
 
 ## `abnch get grader <task stub>`
 
@@ -88,7 +65,6 @@ Create or updates a task. Can recieve options or a YAML file with matching prope
 * --name: string - task name
 * --description: string - task description
 * --move: optional string - renames task from <stub> to --move value
-* --model: optional string - sets the task's default model in config
 
 ## `abnch get tasks` | `abnch get task`
 
@@ -127,19 +103,61 @@ Adds test data. Expects stdin or `--file` containing valid JSON.
 
 * --file: relative path - a valid JSON file
 
-## `abnch run <task stub>/<test stub>` | `abnch run <task stub>/<test stub>/<data ref>`
+## `abnch add result <task stub>/<test stub>/<data ref>`
 
-Run a test.
+Adds a result for a datum. Expects stdin or `--file` containing a result input as YAML or JSON. See [Result Design](result.md).
 
-* --model: string - override default model
-* --limit: int - cap data iterations
-* --shuffle: bool - randomly sort iterations
+* --file: relative path - a result input file
 
-## `abnch score <result ref>`
+### File Schema
 
-Score a result.
+```YAML
+model:
+  name: string
+  provider: string
+  variant: string
+agent:
+  name: string
+  stub: string
+  commit: string - Git ref
+  branch: string
+  version: string - optional
+  uncommitted: bool - optional, default false
+json: any
+logs: string
+inputTokens: number
+outputTokens: number
+tokenCost: number
+duration: number - seconds
+```
 
-* --model: string - override default model
+## `abnch add score <result ref>`
+
+Adds a score for a result. Expects stdin or `--file` containing a score input as YAML or JSON. See [Score Design](score.md).
+
+* --file: relative path - a score input file
+
+### File Schema
+
+```YAML
+model:
+  name: string
+  provider: string
+  variant: string
+grader:
+  name: string
+  stub: string
+  commit: string - Git ref
+  branch: string
+  version: string - optional
+  uncommitted: bool - optional, default false
+dictionary: key-number dictionary
+logs: string
+inputTokens: number
+outputTokens: number
+tokenCost: number
+duration: number - seconds
+```
 
 ## `abnch get results` | `abnch get result`
 

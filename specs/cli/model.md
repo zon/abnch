@@ -2,43 +2,9 @@
 
 ## Purpose
 
-Record the models a task's agent may call. Models live in the local [CLI config](../../docs/design/app/abnch-config.md) and are not stored on the service. A run passes a model to the agent, as defined in the [Run CLI spec](run.md).
+Read the models used by results and scores. The `add result` and `add score` commands record the model they use in the local [CLI config](../../docs/design/app/abnch-config.md) under a stub derived from the model's name. The `get` commands read them.
 
 ## Requirements
-
-### Requirement: Set Model
-
-`abnch set model <provider>/<name>` SHALL create or update a model in the config.
-
-The command SHALL record the model's provider and name. It SHALL accept `--variant` and SHALL store it when given. It SHALL accept `--stub`, and SHALL derive the stub from the name otherwise.
-
-#### Scenario: Add a model
-
-- GIVEN the working directory has an `.abnch/config.yaml`
-- WHEN the user runs `abnch set model anthropic/claude-sonnet --variant high`
-- THEN the config records a model with provider `anthropic`, name `claude-sonnet`, and variant `high`
-- AND the command exits zero
-
-#### Scenario: Choose the stub
-
-- GIVEN the working directory has an `.abnch/config.yaml`
-- WHEN the user runs `abnch set model anthropic/claude-sonnet --stub sonnet`
-- THEN the model is recorded under `sonnet`
-
-#### Scenario: Update a model
-
-- GIVEN model `sonnet` exists in the config
-- WHEN the user runs `abnch set model anthropic/claude-sonnet --stub sonnet --variant low`
-- THEN the model's variant is `low`
-- AND the model's name and provider are unchanged
-
-#### Scenario: Missing provider
-
-- GIVEN the user provides `claude-sonnet` with no provider
-- WHEN the user runs `abnch set model claude-sonnet`
-- THEN the command exits non-zero
-- AND an error is written to stderr
-- AND no model is recorded
 
 ### Requirement: List Models
 
@@ -66,7 +32,7 @@ The command SHALL record the model's provider and name. It SHALL accept `--varia
 
 - GIVEN model `sonnet` exists in the config
 - WHEN the user runs `abnch get model sonnet`
-- THEN the model is written to stdout as YAML with its stub, provider, name, and variant
+- THEN the model is written to stdout as YAML with its stub, name, provider, and variant
 - AND the command exits zero
 
 #### Scenario: Get a missing model

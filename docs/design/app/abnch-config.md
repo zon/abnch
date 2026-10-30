@@ -13,17 +13,22 @@ models:
     variant: string
 tasks:
   <task stub>:
-    model: <model stub>
     agent:
-      versionCmd: string
-      buildCmd: string
-      runCmd: string
+      name: string
+      stub: string
+      commit: string
+      branch: string
+      version: string
+      uncommitted: bool
     grader:
-      versionCmd: string
-      buildCmd: string
-      runCmd: string
+      name: string
+      stub: string
+      commit: string
+      branch: string
+      version: string
+      uncommitted: bool
 ```
 
 ## Commands
 
-The `set` commands in the [CLI Design](cli.md) write these values. The `get` commands read them.
+The `add result` and `add score` commands record the model, agent, and grader they use in the config. The model stub is derived from the model's name. The `get` commands read them. The config keeps the last record seen for a model stub, a task's agent, and a task's grader.

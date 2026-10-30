@@ -147,27 +147,28 @@ The Reader role SHALL allow reading tasks, tests, data, results, and scores. It 
 
 ### Requirement: Service Role
 
-The Service role SHALL allow reading tasks, tests, and data, running agent workflows, posting results, running grader workflows, and posting scores.
+The Service role SHALL allow reading tasks, tests, and data, posting results, and posting scores. Posting a result or score SHALL create and link the model, agent, and grader records it carries.
 
 #### Scenario: Service posts a result
 
 - GIVEN a caller with the Service role
 - WHEN the caller posts a result
 - THEN the status is `2xx`
+- AND the result's model and agent records are created or reused
 
 ### Requirement: Agent and Grader Roles
 
-The Agent and Grader roles SHALL be stateless. They SHALL allow a workflow to reach the model providers configured for its run.
+The Agent and Grader roles SHALL be stateless. They SHALL allow a workload to reach the model providers configured for its run.
 
 #### Scenario: Agent reaches a model provider
 
-- GIVEN a workflow running with the Agent role
+- GIVEN a workload running with the Agent role
 - WHEN it calls a configured model provider
 - THEN the call is allowed
 
 #### Scenario: Grader reaches a model provider
 
-- GIVEN a workflow running with the Grader role
+- GIVEN a workload running with the Grader role
 - WHEN it calls a configured model provider
 - THEN the call is allowed
 

@@ -1,0 +1,17 @@
+- The service creates or reuses a model record from the model a result or score carries, unique by name, provider, and variant, and rejects a model without a name or provider with `422`.
+- The service creates or reuses an agent record from the agent a result carries, associates it with the result's task, makes it unique by stub, commit, branch, version, uncommitted, and task, defaults uncommitted to false, and rejects an agent without a name, stub, commit, or branch with `422`.
+- The service creates or reuses a grader record from the grader a score carries, associates it with the result's test, makes it unique by stub, commit, branch, version, uncommitted, and test, defaults uncommitted to false, and rejects a grader without a name, stub, commit, or branch with `422`.
+- The service creates no model, agent, or grader record when the result or score write that carries it fails.
+- '`POST /repos/{org}/{repo}/results` accepts nested model and agent records, creates or reuses them, links the result to them, and returns them when the result is read.'
+- A result's ref includes its datum, model record, agent record, and JSON, so the same JSON for the same datum from a different model or agent is a distinct result.
+- '`POST /repos/{org}/{repo}/scores` accepts nested model and grader records, creates or reuses them, links the score to them, and returns them when the score is read.'
+- A score's ref includes its result, model record, grader record, and dictionary, so the same dictionary for the same result from a different model or grader is a distinct score.
+- The service rejects a score whose task or test does not match its result's task or test with `422`.
+- '`abnch add result <task>/<test>/<datum ref>` reads YAML or JSON from stdin or `--file` carrying a required model record (name, provider, variant), a required agent record (name, stub, commit, branch, optional version, uncommitted), a required `json`, and optional logs, tokens, cost, and duration; posts it, prints the result ref, records the model and agent in the config, and fails when the input lacks a model, an agent, or `json`, or the datum is missing.'
+- '`abnch add score <result ref>` reads YAML or JSON from stdin or `--file` carrying a required model record (name, provider, variant), a required grader record (name, stub, commit, branch, optional version, uncommitted), a required `dictionary`, and optional logs, tokens, cost, and duration; reads the result for its task and test, posts it, prints the score ref, records the model and grader in the config, and fails when the input lacks a model, a grader, or `dictionary`, or the result is missing.'
+- The CLI config records the service URL, models under a stub derived from the name, and each task's last agent and grader; the add commands populate them, and `abnch get models`, `abnch get model`, `abnch get agent`, and `abnch get grader` read them.
+- The `abnch set model`, `abnch set agent`, `abnch set grader`, and `abnch set task --model` commands are removed.
+- The `abnch run` and `abnch score` commands are removed, along with their execution, version-command, build, commit, branch, limit, and shuffle logic.
+- '`abnch get result` and `abnch get score` output the linked model and agent or grader records.'
+- Apply a semver major bump to the app version.
+- Bump the Helm chart version and appVersion to the repo version.

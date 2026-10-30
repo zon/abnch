@@ -57,17 +57,6 @@ The command SHALL fail when the task is missing or when `<new>` is already taken
 - THEN the command exits non-zero
 - AND both tasks are unchanged
 
-### Requirement: Default Model
-
-`abnch set task <stub> --model <model stub>` SHALL set the task's default model in the local [config](../../docs/design/app/abnch-config.md). It SHALL NOT change the task on the service.
-
-#### Scenario: Set the default model
-
-- GIVEN the working directory has an `.abnch/config.yaml`
-- WHEN the user runs `abnch set task fix-bug --model sonnet`
-- THEN `sonnet` is recorded as the task's model in the config
-- AND the task on the service is unchanged
-
 ### Requirement: Get Tasks
 
 `abnch get tasks` SHALL list the tasks in the inferred repo as YAML.

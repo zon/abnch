@@ -61,30 +61,18 @@ The command SHALL preserve every other key in the file. It SHALL fail when neith
 
 ### Requirement: Config Updates Preserve the Service URL
 
-A `set` command that updates a model, task, agent, or grader SHALL preserve the config's url and every key the command does not name.
+An `add result` or `add score` command that records a model, agent, or grader SHALL preserve the config's url and every key the command does not name.
 
-#### Scenario: Set a model
+#### Scenario: Add a result
 
 - GIVEN the config has a url
-- WHEN the user runs `abnch set model anthropic/claude-sonnet`
+- WHEN the user runs `abnch add result fix-bug/basic/<ref>` with a model and an agent
 - THEN the config still holds its url
 
-#### Scenario: Set a task model
+#### Scenario: Add a score
 
 - GIVEN the config has a url
-- WHEN the user runs `abnch set task fix-bug --model sonnet`
-- THEN the config still holds its url
-
-#### Scenario: Set an agent
-
-- GIVEN the config has a url
-- WHEN the user runs `abnch set agent fix-bug --run-cmd ./run.sh`
-- THEN the config still holds its url
-
-#### Scenario: Set a grader
-
-- GIVEN the config has a url
-- WHEN the user runs `abnch set grader fix-bug --run-cmd ./grade.sh`
+- WHEN the user runs `abnch add score <ref>` with a model and a grader
 - THEN the config still holds its url
 
 ### Requirement: Missing URL Message

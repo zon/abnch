@@ -1,48 +1,41 @@
 # Score Design
 
-Grading executes a task's grader against a result and records a [score](schema.md).
+A score is a key-number dictionary reporting how well an agent performed a task. The CLI adds a score to the service.
 
 ## Models
 
-A model is a provider, a name, and a variant. Models are recorded in the [CLI config](app/abnch-config.md). A grade run passes a model to the grader, as a [run](run.md) passes one to an agent.
+A model is a record with a name, a provider, and a variant. A score carries the model it used. The service creates or reuses the model record and links the score to it.
 
 ## Graders
 
-A task records a grader in the [CLI config](app/abnch-config.md). A grader carries a version command, a build command, and a run command, like an agent. The commands run in the repo under the working directory.
+A grader is a record with a name, a stub, a commit, a branch, an optional version, and an uncommitted flag. A score carries the grader that produced it. The service associates the grader with the result's test, creates or reuses the record, and links the score to it.
 
-* The version command prints the grader's version
-* The build command prepares the grader to run
-* The run command produces a score
+## Score Input
 
-## Grader Interface
+`abnch add score <result ref>` reads a score input as YAML or JSON from stdin or `--file`.
 
-The run command reads a grader input as JSON on stdin. The input carries the model config, the datum that produced the result, and the result.
-
-```json
-{
-  "model": { "name": "claude-sonnet", "provider": "anthropic", "variant": "high" },
-  "data": { "prompt": "hi" },
-  "result": { "answer": "hi" }
-}
+```yaml
+model:
+  name: claude-sonnet
+  provider: anthropic
+  variant: high
+grader:
+  name: llm-judge
+  stub: judge
+  commit: def456
+  branch: main
+  version: 2.0.0
+  uncommitted: false
+dictionary: { correctness: 1 }
+logs: grading the answer
+inputTokens: 12
+outputTokens: 3
+tokenCost: 0.01
+duration: 0.5
 ```
 
-The run command writes its logs to stdout, then the abnch marker, then a score output as JSON.
+The `model`, `grader`, and `dictionary` properties are required. The rest are optional.
 
-```
-grading the answer
-__abnch__
-{ "score": { "correctness": 1 }, "inputTokens": 12, "outputTokens": 3, "tokenCost": 0.01 }
-```
+## Provenance
 
-The marker is the same marker a [run](run.md) uses. Text before it is the grade run's logs. The JSON after it is the score output.
-
-## Score Output
-
-* score - the score as a key-number dictionary
-* inputTokens - optional input token count
-* outputTokens - optional output token count
-* tokenCost - optional token cost
-
-## Local Runs
-
-`abnch score` runs a grader on the caller's machine. The CLI builds the grader once, runs it against the result, measures the run's duration, and records the score.
+A score links to the model and grader records that produced it. The model record carries the name, provider, and variant. The grader record carries the name, stub, commit, branch, version, and uncommitted flag. The service stores the records and the link, as defined in the [Schema Design](schema.md).
