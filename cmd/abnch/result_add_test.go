@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"go.yaml.in/yaml/v3"
 )
 
 const resultInputYAML = `model:
@@ -179,6 +181,54 @@ func TestAddResultRecordsModelAndAgentInConfig(t *testing.T) {
 	}
 	if agent.Name != "claude-code" || agent.Stub != "claude" || agent.Commit != "abc123" || agent.Branch != "main" || agent.Version != "1.2.3" || !agent.Uncommitted {
 		t.Errorf("agent = %+v, want the input agent", *agent)
+	}
+}
+
+func TestAddResultRecordsProvenanceThatGetCommandsRead(t *testing.T) {
+	workDir := t.TempDir()
+	addRemote(t, workDir, "git@github.com:acme/widgets.git")
+	fake := newFakeService(t)
+	datum := seedResultDatum(t, fake, `{"prompt":"hi"}`)
+	d, _ := addDataDeps(t, workDir, fake.url, resultInputYAML)
+
+	if err := runAdd([]string{"result", "fix-bug/basic/" + datum}, d); err != nil {
+		t.Fatalf("add result = %v, want no error", err)
+	}
+
+	modelDeps, modelOut := getConfigDeps(t, workDir)
+	if err := runGet([]string{"model", "claude-sonnet"}, modelDeps); err != nil {
+		t.Fatalf("get model = %v, want the result's model", err)
+	}
+	var model modelView
+	if err := yaml.Unmarshal(modelOut.Bytes(), &model); err != nil {
+		t.Fatalf("model output is not YAML: %v\n%s", err, modelOut.String())
+	}
+	if model.Stub != "claude-sonnet" || model.Name != "claude-sonnet" || model.Provider != "anthropic" || model.Variant != "high" {
+		t.Errorf("model = %+v, want the result's model under its derived stub", model)
+	}
+
+	modelsDeps, modelsOut := getConfigDeps(t, workDir)
+	if err := runGet([]string{"models"}, modelsDeps); err != nil {
+		t.Fatalf("get models = %v, want no error", err)
+	}
+	var models []modelView
+	if err := yaml.Unmarshal(modelsOut.Bytes(), &models); err != nil {
+		t.Fatalf("models output is not YAML: %v\n%s", err, modelsOut.String())
+	}
+	if len(models) != 1 || models[0].Stub != "claude-sonnet" {
+		t.Errorf("models = %+v, want the result's model listed", models)
+	}
+
+	agentDeps, agentOut := getConfigDeps(t, workDir)
+	if err := runGet([]string{"agent", "fix-bug"}, agentDeps); err != nil {
+		t.Fatalf("get agent = %v, want the result's agent", err)
+	}
+	var agent configAgent
+	if err := yaml.Unmarshal(agentOut.Bytes(), &agent); err != nil {
+		t.Fatalf("agent output is not YAML: %v\n%s", err, agentOut.String())
+	}
+	if agent.Name != "claude-code" || agent.Stub != "claude" || agent.Commit != "abc123" || agent.Branch != "main" || agent.Version != "1.2.3" || !agent.Uncommitted {
+		t.Errorf("agent = %+v, want the result's agent", agent)
 	}
 }
 
