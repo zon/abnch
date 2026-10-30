@@ -260,9 +260,6 @@ type setCmd struct {
 	Config setConfigCmd `cmd:"" help:"Create or update the CLI config."`
 	Task   setTaskCmd   `cmd:"" help:"Create or update a task in the inferred repo."`
 	Test   setTestCmd   `cmd:"" help:"Create or update a test in the inferred repo."`
-	Model  setModelCmd  `cmd:"" help:"Create or update a model in the CLI config."`
-	Agent  setAgentCmd  `cmd:"" help:"Create or update a task's agent in the CLI config."`
-	Grader setGraderCmd `cmd:"" help:"Create or update a task's grader in the CLI config."`
 }
 
 // setConfigCmd creates or updates the CLI config.
@@ -273,44 +270,6 @@ type setConfigCmd struct {
 // Run creates or updates the CLI config.
 func (c setConfigCmd) Run(deps deps) error {
 	return setConfig(deps, c)
-}
-
-// setAgentCmd creates or updates a task's agent in the CLI config.
-type setAgentCmd struct {
-	Stub       string `arg:"" help:"Task stub."`
-	VersionCmd string `help:"Agent version command." optional:""`
-	BuildCmd   string `help:"Agent build command." optional:""`
-	RunCmd     string `help:"Agent run command." optional:""`
-}
-
-// Run creates or updates the task's agent in the CLI config.
-func (c setAgentCmd) Run(deps deps) error {
-	return setAgent(deps, c)
-}
-
-// setGraderCmd creates or updates a task's grader in the CLI config.
-type setGraderCmd struct {
-	Stub       string `arg:"" help:"Task stub."`
-	VersionCmd string `help:"Grader version command." optional:""`
-	BuildCmd   string `help:"Grader build command." optional:""`
-	RunCmd     string `help:"Grader run command." optional:""`
-}
-
-// Run creates or updates the task's grader in the CLI config.
-func (c setGraderCmd) Run(deps deps) error {
-	return setGrader(deps, c)
-}
-
-// setModelCmd creates or updates a model in the CLI config.
-type setModelCmd struct {
-	Path    string `arg:"" help:"Model provider and name as <provider>/<name>."`
-	Stub    string `help:"Override the auto generated stub." optional:""`
-	Variant string `help:"Model variant." optional:""`
-}
-
-// Run creates or updates the model in the CLI config.
-func (c setModelCmd) Run(deps deps) error {
-	return setModel(deps, c)
 }
 
 // setTestCmd creates, updates, or renames a test under a task in the inferred
@@ -334,7 +293,6 @@ type setTaskCmd struct {
 	Name        string `help:"Task name." optional:""`
 	Description string `help:"Task description." optional:""`
 	Move        string `help:"Rename the task to this stub." optional:""`
-	Model       string `help:"Set the task's default model in config." optional:""`
 }
 
 // Run creates or updates the task in the inferred repo.

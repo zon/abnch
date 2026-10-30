@@ -230,37 +230,6 @@ func TestCommandsWithoutServiceURLNameSetConfig(t *testing.T) {
 	}
 }
 
-func TestSetCommandsKeepConfigURL(t *testing.T) {
-	const url = "https://bench.example.com"
-	commands := []struct {
-		name string
-		args []string
-	}{
-		{"model", []string{"set", "model", "anthropic/claude-sonnet", "--stub", "sonnet"}},
-		{"task model", []string{"set", "task", "fix-bug", "--model", "sonnet"}},
-		{"agent", []string{"set", "agent", "fix-bug", "--run-cmd", "./run.sh"}},
-		{"grader", []string{"set", "grader", "fix-bug", "--run-cmd", "./grade.sh"}},
-	}
-	for _, command := range commands {
-		t.Run(command.name, func(t *testing.T) {
-			workDir := t.TempDir()
-			writeCLIConfig(t, workDir, "url: "+url+"\n"+
-				"models:\n  haiku:\n    provider: anthropic\n    name: claude-haiku\n"+
-				"tasks:\n  other:\n    model: haiku\n")
-			d := commandDeps(t, workDir)
-
-			code, _, errOut := exitCode(t, command.args, d)
-			if code != 0 {
-				t.Fatalf("exit = %d, want 0: %s", code, errOut)
-			}
-			cfg := readCLIConfig(t, workDir)
-			if cfg.URL != url {
-				t.Errorf("url = %q, want the existing url kept", cfg.URL)
-			}
-		})
-	}
-}
-
 func TestSetConfigKeepsExistingURLWhenNotGiven(t *testing.T) {
 	workDir := t.TempDir()
 	body := "# Service config\n" +
