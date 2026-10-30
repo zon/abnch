@@ -6,12 +6,19 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// configAgent is an agent entry in the CLI config. A command that is not set is
-// omitted when the entry is printed.
+// configAgent is an agent entry in the CLI config. It records the agent that
+// produced a result and, for the older run commands, the commands that run it.
+// A value that is not set is omitted when the entry is printed.
 type configAgent struct {
-	VersionCmd string `yaml:"versionCmd,omitempty"`
-	BuildCmd   string `yaml:"buildCmd,omitempty"`
-	RunCmd     string `yaml:"runCmd"`
+	Name        string `yaml:"name,omitempty" json:"name,omitempty"`
+	Stub        string `yaml:"stub,omitempty" json:"stub,omitempty"`
+	Commit      string `yaml:"commit,omitempty" json:"commit,omitempty"`
+	Branch      string `yaml:"branch,omitempty" json:"branch,omitempty"`
+	Version     string `yaml:"version,omitempty" json:"version,omitempty"`
+	Uncommitted bool   `yaml:"uncommitted" json:"uncommitted"`
+	VersionCmd  string `yaml:"versionCmd,omitempty" json:"-"`
+	BuildCmd    string `yaml:"buildCmd,omitempty" json:"-"`
+	RunCmd      string `yaml:"runCmd,omitempty" json:"-"`
 }
 
 // setAgent records the task's agent in the CLI config under the working

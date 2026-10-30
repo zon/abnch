@@ -160,6 +160,24 @@ func setTaskAgent(workDir, stub string, agent configAgent) error {
 	})
 }
 
+// setResultModel records the model a result used in the CLI config under workDir
+// under its name. It edits the existing YAML document, so every other key
+// survives. A missing config is created.
+func setResultModel(workDir string, model configModel) error {
+	return editConfig(workDir, func(data []byte) ([]byte, error) {
+		return updateResultModel(data, model.Name, model)
+	})
+}
+
+// setTaskAgentRecord records the agent a result used for the task in the CLI
+// config under workDir. It edits the existing YAML document, so every other key
+// survives. A missing config is created.
+func setTaskAgentRecord(workDir, stub string, agent configAgent) error {
+	return editConfig(workDir, func(data []byte) ([]byte, error) {
+		return updateTaskAgentRecord(data, stub, agent)
+	})
+}
+
 // setTaskGrader records the task's grader in the CLI config under workDir. It
 // edits the existing YAML document, so every other key survives. A missing
 // config is created. It fails when the merged grader has no run command.
@@ -246,6 +264,40 @@ func updateConfigModel(data []byte, stub string, model configModel) ([]byte, err
 	return marshalNode(&doc)
 }
 
+// updateResultModel returns the config document with models.<name> set to the
+// model a result used, preserving every other key and comment. Every model
+// field is written, so the entry holds the whole record rather than a merge with
+// an earlier one.
+func updateResultModel(data []byte, name string, model configModel) ([]byte, error) {
+	var doc yaml.Node
+	if len(data) > 0 {
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			return nil, err
+		}
+	}
+
+	root, err := rootMapping(&doc)
+	if err != nil {
+		return nil, err
+	}
+	models, err := childMapping(root, "models")
+	if err != nil {
+		return nil, err
+	}
+	entry, err := childMapping(models, name)
+	if err != nil {
+		return nil, err
+	}
+	setMappingValue(entry, "provider", scalarNode(model.Provider))
+	setMappingValue(entry, "name", scalarNode(model.Name))
+	if model.Variant == "" {
+		removeMappingValue(entry, "variant")
+	} else {
+		setMappingValue(entry, "variant", scalarNode(model.Variant))
+	}
+	return marshalNode(&doc)
+}
+
 // updateTaskAgent returns the config document with tasks.<stub>.agent merged
 // with agent, preserving every other key and comment. Only the commands the
 // update carries are set. It fails when the merged agent has no run command, so
@@ -287,6 +339,48 @@ func updateTaskAgent(data []byte, stub string, agent configAgent) ([]byte, error
 	if agent.RunCmd != "" {
 		setMappingValue(entry, "runCmd", scalarNode(agent.RunCmd))
 	}
+	return marshalNode(&doc)
+}
+
+// updateTaskAgentRecord returns the config document with tasks.<stub>.agent set
+// to the agent a result used, preserving every other key and comment. Every
+// record field is written, so the entry holds the whole record rather than a
+// merge with an earlier one.
+func updateTaskAgentRecord(data []byte, stub string, agent configAgent) ([]byte, error) {
+	var doc yaml.Node
+	if len(data) > 0 {
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			return nil, err
+		}
+	}
+
+	root, err := rootMapping(&doc)
+	if err != nil {
+		return nil, err
+	}
+	tasks, err := childMapping(root, "tasks")
+	if err != nil {
+		return nil, err
+	}
+	task, err := childMapping(tasks, stub)
+	if err != nil {
+		return nil, err
+	}
+	entry, err := childMapping(task, "agent")
+	if err != nil {
+		return nil, err
+	}
+
+	setMappingValue(entry, "name", scalarNode(agent.Name))
+	setMappingValue(entry, "stub", scalarNode(agent.Stub))
+	setMappingValue(entry, "commit", scalarNode(agent.Commit))
+	setMappingValue(entry, "branch", scalarNode(agent.Branch))
+	if agent.Version == "" {
+		removeMappingValue(entry, "version")
+	} else {
+		setMappingValue(entry, "version", scalarNode(agent.Version))
+	}
+	setMappingValue(entry, "uncommitted", boolNode(agent.Uncommitted))
 	return marshalNode(&doc)
 }
 
@@ -406,9 +500,25 @@ func setMappingValue(mapping *yaml.Node, key string, value *yaml.Node) {
 	mapping.Content = append(mapping.Content, keyNode, value)
 }
 
+// removeMappingValue removes key and its value from a mapping, leaving every
+// other entry in place.
+func removeMappingValue(mapping *yaml.Node, key string) {
+	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		if mapping.Content[i].Value == key {
+			mapping.Content = append(mapping.Content[:i], mapping.Content[i+2:]...)
+			return
+		}
+	}
+}
+
 // scalarNode returns a string scalar YAML node for value.
 func scalarNode(value string) *yaml.Node {
 	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value}
+}
+
+// boolNode returns a boolean scalar YAML node for value.
+func boolNode(value bool) *yaml.Node {
+	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: fmt.Sprintf("%t", value)}
 }
 
 // isNull reports whether a node is a YAML null.

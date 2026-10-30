@@ -41,6 +41,16 @@ func (f *fakeService) serveAddResult(w http.ResponseWriter, org, repo string, bo
 		InputTokens: req.InputTokens, OutputTokens: req.OutputTokens,
 		TokenCost: req.TokenCost, Duration: req.Duration, Local: req.Local,
 	}
+	if req.Model != nil {
+		result.Model = store.Model{Name: req.Model.Name, Provider: req.Model.Provider, Variant: req.Model.Variant}
+	}
+	if req.Agent != nil {
+		result.Agent = store.Agent{
+			Org: org, Repo: repo, Task: req.Task,
+			Name: req.Agent.Name, Stub: req.Agent.Stub, Commit: req.Agent.Commit,
+			Branch: req.Agent.Branch, Version: req.Agent.Version, Uncommitted: req.Agent.Uncommitted,
+		}
+	}
 	ref := store.ResultRef(result)
 	result.Ref = ref
 	key := org + "/" + repo + "/" + ref

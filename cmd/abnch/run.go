@@ -22,19 +22,22 @@ type resultRef struct {
 	Ref string `json:"ref"`
 }
 
-// resultRequest is the JSON body a result write carries. JSON is the result the
-// agent produced; the rest are its logs and run metrics.
+// resultRequest is the JSON body a result write carries. Model and Agent are the
+// records that produced the result, and JSON is the result itself; the rest are
+// its logs and run metrics.
 type resultRequest struct {
 	Task         string          `json:"task"`
 	Test         string          `json:"test"`
 	Data         string          `json:"data"`
+	Model        *configModel    `json:"model,omitempty"`
+	Agent        *configAgent    `json:"agent,omitempty"`
 	JSON         json.RawMessage `json:"json"`
 	Logs         string          `json:"logs"`
 	InputTokens  int             `json:"inputTokens"`
 	OutputTokens int             `json:"outputTokens"`
 	TokenCost    float64         `json:"tokenCost"`
 	Duration     float64         `json:"duration"`
-	Local        string          `json:"local"`
+	Local        string          `json:"local,omitempty"`
 }
 
 // runInput is the JSON object the CLI writes to an agent's stdin.
@@ -249,7 +252,6 @@ func splitRunOutput(stdout []byte) (logs string, output []byte, ok bool) {
 }
 
 // writeResult records a run's result for its datum and returns the result's ref.
-// A not-found response maps to the missing repo, task, test, or datum.
 func writeResult(ctx context.Context, client *serviceClient, org, repo, task, test, data string, run agentRun, local string) (string, error) {
 	body := resultRequest{
 		Task: task, Test: test, Data: data,
@@ -257,6 +259,14 @@ func writeResult(ctx context.Context, client *serviceClient, org, repo, task, te
 		InputTokens: run.output.InputTokens, OutputTokens: run.output.OutputTokens,
 		TokenCost: run.output.TokenCost, Duration: run.duration, Local: local,
 	}
+	return postResult(ctx, client, org, repo, body)
+}
+
+// postResult posts a result write and returns the result's ref. The service
+// returns the existing ref when the same result is already stored, so both a
+// create and an existing result succeed. A not-found response maps to the
+// missing repo, task, test, or datum.
+func postResult(ctx context.Context, client *serviceClient, org, repo string, body resultRequest) (string, error) {
 	payload, err := json.Marshal(body)
 	if err != nil {
 		return "", err
@@ -274,7 +284,7 @@ func writeResult(ctx context.Context, client *serviceClient, org, repo, task, te
 		}
 		return ref.Ref, nil
 	case http.StatusNotFound:
-		return "", dataNotFoundError(resp, org, repo, task, test, data)
+		return "", dataNotFoundError(resp, org, repo, body.Task, body.Test, body.Data)
 	default:
 		return "", serviceError(resp)
 	}

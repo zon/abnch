@@ -21,6 +21,8 @@ type resultAPI struct {
 	Task         string          `json:"task"`
 	Test         string          `json:"test"`
 	Data         string          `json:"data"`
+	Model        store.Model     `json:"model"`
+	Agent        store.Agent     `json:"agent"`
 	JSON         json.RawMessage `json:"json"`
 	Logs         string          `json:"logs"`
 	InputTokens  int             `json:"inputTokens"`
@@ -76,6 +78,7 @@ func (f *fakeService) serveGetResult(w http.ResponseWriter, org, repo, ref strin
 	}
 	httpx.WriteJSON(w, http.StatusOK, resultAPI{
 		Ref: res.Ref, Task: res.Task, Test: res.Test, Data: res.Data,
+		Model: res.Model, Agent: res.Agent,
 		JSON: body, Logs: res.Logs,
 		InputTokens: res.InputTokens, OutputTokens: res.OutputTokens,
 		TokenCost: res.TokenCost, Duration: res.Duration, Local: res.Local,
