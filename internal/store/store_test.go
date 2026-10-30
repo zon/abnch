@@ -11,7 +11,7 @@ import (
 func TestMigrateCreatesTables(t *testing.T) {
 	s := newTestStore(t)
 
-	for _, model := range []any{&Repo{}, &Task{}, &Test{}, &Model{}, &Agent{}, &Datum{}, &Result{}, &Score{}} {
+	for _, model := range []any{&Repo{}, &Task{}, &Test{}, &Model{}, &Agent{}, &Grader{}, &Datum{}, &Result{}, &Score{}} {
 		if !s.db.Migrator().HasTable(model) {
 			t.Errorf("Migrate did not create the table for %T", model)
 		}
@@ -1927,6 +1927,146 @@ func TestSaveAgentRejectsIncomplete(t *testing.T) {
 	}
 }
 
+// TestSaveAndGetGrader checks a grader round trips through the store with its
+// name, stub, commit, branch, version, uncommitted flag, and test.
+func TestSaveAndGetGrader(t *testing.T) {
+	s := newTestStore(t)
+	want := Grader{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Name: "llm-judge", Stub: "judge", Commit: "def456", Branch: "main",
+		Version: "2.0.0", Uncommitted: true,
+	}
+
+	if err := s.SaveGrader(want); err != nil {
+		t.Fatalf("SaveGrader: %v", err)
+	}
+
+	got, err := s.GetGrader(want)
+	if err != nil {
+		t.Fatalf("GetGrader: %v", err)
+	}
+	if got != want {
+		t.Errorf("GetGrader = %#v, want %#v", got, want)
+	}
+}
+
+// TestSaveGraderDefaultsUncommittedAndAllowsEmptyVersion checks a grader needs
+// no version, and an omitted uncommitted flag records false.
+func TestSaveGraderDefaultsUncommittedAndAllowsEmptyVersion(t *testing.T) {
+	s := newTestStore(t)
+	want := Grader{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Name: "llm-judge", Stub: "judge", Commit: "def456", Branch: "main",
+	}
+
+	if err := s.SaveGrader(want); err != nil {
+		t.Fatalf("SaveGrader: %v", err)
+	}
+
+	got, err := s.GetGrader(want)
+	if err != nil {
+		t.Fatalf("GetGrader: %v", err)
+	}
+	if got.Uncommitted || got.Version != "" {
+		t.Errorf("GetGrader = %#v, want a false uncommitted flag and an empty version", got)
+	}
+}
+
+// TestSaveGraderReusesSameIdentityIgnoringName checks saving the same identity
+// again leaves one grader and keeps the stored name, because a name is not part
+// of a grader's identity.
+func TestSaveGraderReusesSameIdentityIgnoringName(t *testing.T) {
+	s := newTestStore(t)
+	grader := Grader{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Name: "llm-judge", Stub: "judge", Commit: "def456", Branch: "main",
+	}
+
+	if err := s.SaveGrader(grader); err != nil {
+		t.Fatal(err)
+	}
+	renamed := grader
+	renamed.Name = "renamed-judge"
+	if err := s.SaveGrader(renamed); err != nil {
+		t.Fatal(err)
+	}
+
+	graders, err := s.ListGraders()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(graders) != 1 {
+		t.Fatalf("ListGraders returned %d graders, want 1", len(graders))
+	}
+	if graders[0].Name != grader.Name {
+		t.Errorf("grader name = %q, want the stored name %q", graders[0].Name, grader.Name)
+	}
+}
+
+// TestSaveGraderSeparatesDifferentValues checks a grader that differs in its
+// repo, task, test, stub, commit, branch, version, or uncommitted flag is a
+// different record.
+func TestSaveGraderSeparatesDifferentValues(t *testing.T) {
+	s := newTestStore(t)
+	base := Grader{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Name: "llm-judge", Stub: "judge", Commit: "def456", Branch: "main",
+	}
+	for _, grader := range []Grader{
+		base,
+		{Org: "other", Repo: base.Repo, Task: base.Task, Test: base.Test, Name: base.Name, Stub: base.Stub, Commit: base.Commit, Branch: base.Branch},
+		{Org: base.Org, Repo: "gadgets", Task: base.Task, Test: base.Test, Name: base.Name, Stub: base.Stub, Commit: base.Commit, Branch: base.Branch},
+		{Org: base.Org, Repo: base.Repo, Task: "ship-it", Test: base.Test, Name: base.Name, Stub: base.Stub, Commit: base.Commit, Branch: base.Branch},
+		{Org: base.Org, Repo: base.Repo, Task: base.Task, Test: "other", Name: base.Name, Stub: base.Stub, Commit: base.Commit, Branch: base.Branch},
+		{Org: base.Org, Repo: base.Repo, Task: base.Task, Test: base.Test, Name: base.Name, Stub: "other", Commit: base.Commit, Branch: base.Branch},
+		{Org: base.Org, Repo: base.Repo, Task: base.Task, Test: base.Test, Name: base.Name, Stub: base.Stub, Commit: "abc123", Branch: base.Branch},
+		{Org: base.Org, Repo: base.Repo, Task: base.Task, Test: base.Test, Name: base.Name, Stub: base.Stub, Commit: base.Commit, Branch: "dev"},
+		{Org: base.Org, Repo: base.Repo, Task: base.Task, Test: base.Test, Name: base.Name, Stub: base.Stub, Commit: base.Commit, Branch: base.Branch, Version: "2.0.0"},
+		{Org: base.Org, Repo: base.Repo, Task: base.Task, Test: base.Test, Name: base.Name, Stub: base.Stub, Commit: base.Commit, Branch: base.Branch, Uncommitted: true},
+	} {
+		if err := s.SaveGrader(grader); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	graders, err := s.ListGraders()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(graders) != 10 {
+		t.Errorf("ListGraders returned %d graders, want 10", len(graders))
+	}
+}
+
+// TestSaveGraderRejectsIncomplete checks a grader without a name, stub, commit,
+// or branch is refused and stored nowhere.
+func TestSaveGraderRejectsIncomplete(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		grader Grader
+	}{
+		{"missing name", Grader{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Stub: "judge", Commit: "def456", Branch: "main"}},
+		{"missing stub", Grader{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Name: "llm-judge", Commit: "def456", Branch: "main"}},
+		{"missing commit", Grader{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Name: "llm-judge", Stub: "judge", Branch: "main"}},
+		{"missing branch", Grader{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Name: "llm-judge", Stub: "judge", Commit: "def456"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTestStore(t)
+
+			if err := s.SaveGrader(tc.grader); !errors.Is(err, ErrInvalidGrader) {
+				t.Errorf("SaveGrader error = %v, want ErrInvalidGrader", err)
+			}
+			graders, err := s.ListGraders()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(graders) != 0 {
+				t.Errorf("ListGraders returned %d graders, want none", len(graders))
+			}
+		})
+	}
+}
+
 // TestSaveResultStoresAndReusesModel checks a result creates the model it
 // carries, reuses it for the same values, and links a different model value to
 // a different record.
@@ -2184,6 +2324,111 @@ func TestSaveScoreRejectsIncompleteModel(t *testing.T) {
 	}
 }
 
+// TestSaveScoreStoresAndReusesGrader checks a score creates the grader it
+// carries, associates it with the result's test, reuses it for the same values,
+// and links a different grader value or test to a different record.
+func TestSaveScoreStoresAndReusesGrader(t *testing.T) {
+	s := newTestStore(t)
+	base := Score{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Result: "56ac1b0e4f0d", Dictionary: map[string]float64{"correctness": 1},
+		Grader: Grader{Name: "llm-judge", Stub: "judge", Commit: "def456", Branch: "main"},
+	}
+	want := base.Grader
+	want.Org, want.Repo, want.Task, want.Test = base.Org, base.Repo, base.Task, base.Test
+
+	ref, err := s.SaveScore(base)
+	if err != nil {
+		t.Fatalf("SaveScore: %v", err)
+	}
+	got, err := s.GetScore("acme", "widgets", ref)
+	if err != nil {
+		t.Fatalf("GetScore: %v", err)
+	}
+	if got.Grader != want {
+		t.Errorf("score grader = %#v, want %#v", got.Grader, want)
+	}
+
+	again := base
+	again.Result = "ffffffffffff"
+	if _, err := s.SaveScore(again); err != nil {
+		t.Fatal(err)
+	}
+	graders, err := s.ListGraders()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(graders) != 1 {
+		t.Errorf("ListGraders returned %d graders, want 1", len(graders))
+	}
+
+	otherTest := base
+	otherTest.Test = "other"
+	otherTest.Result = "eeeeeeeeeeee"
+	if _, err := s.SaveScore(otherTest); err != nil {
+		t.Fatal(err)
+	}
+	graders, err = s.ListGraders()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(graders) != 2 {
+		t.Errorf("ListGraders returned %d graders, want 2", len(graders))
+	}
+
+	otherGrader := base
+	otherGrader.Result = "dddddddddddd"
+	otherGrader.Grader.Version = "2.0.0"
+	if _, err := s.SaveScore(otherGrader); err != nil {
+		t.Fatal(err)
+	}
+	graders, err = s.ListGraders()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(graders) != 3 {
+		t.Errorf("ListGraders returned %d graders, want 3", len(graders))
+	}
+}
+
+// TestSaveScoreRejectsIncompleteGrader checks a score carrying a grader without
+// a name, stub, commit, or branch is refused and creates neither the score nor
+// the grader.
+func TestSaveScoreRejectsIncompleteGrader(t *testing.T) {
+	s := newTestStore(t)
+	sc := Score{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Result: "56ac1b0e4f0d", Dictionary: map[string]float64{"correctness": 1},
+		Model:  Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"},
+		Grader: Grader{Name: "llm-judge", Stub: "judge", Commit: "def456"},
+	}
+
+	if _, err := s.SaveScore(sc); !errors.Is(err, ErrInvalidGrader) {
+		t.Errorf("SaveScore error = %v, want ErrInvalidGrader", err)
+	}
+	scores, err := s.ListScores("acme", "widgets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scores) != 0 {
+		t.Errorf("ListScores returned %d scores, want none", len(scores))
+	}
+	graders, err := s.ListGraders()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(graders) != 0 {
+		t.Errorf("ListGraders returned %d graders, want none", len(graders))
+	}
+	models, err := s.ListModels()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 0 {
+		t.Errorf("ListModels returned %d models, want none", len(models))
+	}
+}
+
 // TestScoreRef checks a ref is short and URL-safe, is stable for the same
 // dictionary within the same result, is independent of dictionary key order,
 // and changes when the dictionary or any part of the result identity changes.
@@ -2191,6 +2436,7 @@ func TestScoreRef(t *testing.T) {
 	base := Score{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
 		Result: "56ac1b0e4f0d", Dictionary: map[string]float64{"correctness": 1, "style": 0.5},
+		Grader: Grader{Name: "llm-judge", Stub: "judge", Commit: "def456", Branch: "main"},
 	}
 	ref := ScoreRef(base)
 	if ref != ScoreRef(base) {
@@ -2218,6 +2464,11 @@ func TestScoreRef(t *testing.T) {
 		{"different model name", func(s Score) Score { s.Model.Name = "claude-opus"; return s }},
 		{"different model provider", func(s Score) Score { s.Model.Provider = "openai"; return s }},
 		{"different model variant", func(s Score) Score { s.Model.Variant = "low"; return s }},
+		{"different grader stub", func(s Score) Score { s.Grader.Stub = "other"; return s }},
+		{"different grader commit", func(s Score) Score { s.Grader.Commit = "abc123"; return s }},
+		{"different grader branch", func(s Score) Score { s.Grader.Branch = "dev"; return s }},
+		{"different grader version", func(s Score) Score { s.Grader.Version = "2.0.0"; return s }},
+		{"uncommitted grader", func(s Score) Score { s.Grader.Uncommitted = true; return s }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := ScoreRef(tc.change(base)); got == ref {

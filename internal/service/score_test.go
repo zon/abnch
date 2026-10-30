@@ -160,6 +160,162 @@ func TestAddScoreRejectsIncompleteModel(t *testing.T) {
 	}
 }
 
+// TestAddScoreCreatesAndReusesGrader checks a score write creates the grader it
+// carries, associates it with the result's test, defaults uncommitted to false,
+// and reuses it for the same grader values.
+func TestAddScoreCreatesAndReusesGrader(t *testing.T) {
+	st := scoreStore()
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+	path := "repos/acme/widgets/scores"
+	body := `{"task":"fix-bug","test":"basic","result":"aaa111",` +
+		`"grader":{"name":"llm-judge","stub":"judge","commit":"def456","branch":"main"},"dictionary":{"correctness":1}}`
+	want := store.Grader{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Name: "llm-judge", Stub: "judge", Commit: "def456", Branch: "main",
+	}
+
+	for i, wantStatus := range []int{http.StatusCreated, http.StatusOK} {
+		resp := sendScorePost(t, base, path, body)
+		defer resp.Body.Close()
+		if resp.StatusCode != wantStatus {
+			t.Fatalf("post %d status = %d, want %d", i, resp.StatusCode, wantStatus)
+		}
+	}
+
+	if len(st.graders) != 1 {
+		t.Fatalf("store holds %d graders, want 1", len(st.graders))
+	}
+	if st.graders[0] != want {
+		t.Errorf("stored grader = %#v, want %#v", st.graders[0], want)
+	}
+	if len(st.scores) != 1 {
+		t.Fatalf("store holds %d scores, want 1", len(st.scores))
+	}
+	if st.scores[0].Grader != want {
+		t.Errorf("score grader = %#v, want %#v", st.scores[0].Grader, want)
+	}
+
+	other := `{"task":"fix-bug","test":"basic","result":"aaa111",` +
+		`"grader":{"name":"llm-judge","stub":"judge","commit":"def456","branch":"main"},"dictionary":{"style":1}}`
+	resp := sendScorePost(t, base, path, other)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("second score status = %d, want %d", resp.StatusCode, http.StatusCreated)
+	}
+	if len(st.graders) != 1 {
+		t.Errorf("store holds %d graders, want the reused grader", len(st.graders))
+	}
+	if len(st.scores) != 2 {
+		t.Errorf("store holds %d scores, want 2", len(st.scores))
+	}
+}
+
+// TestAddScoreDifferentGraderDifferentRecord checks a score carrying a grader
+// that differs in an identity field links to a different grader record, and the
+// same dictionary from a different grader is a different score.
+func TestAddScoreDifferentGraderDifferentRecord(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		grader string
+	}{
+		{name: "different stub", grader: `{"name":"llm-judge","stub":"other","commit":"def456","branch":"main"}`},
+		{name: "different commit", grader: `{"name":"llm-judge","stub":"judge","commit":"abc123","branch":"main"}`},
+		{name: "different branch", grader: `{"name":"llm-judge","stub":"judge","commit":"def456","branch":"dev"}`},
+		{name: "different version", grader: `{"name":"llm-judge","stub":"judge","commit":"def456","branch":"main","version":"2.0.0"}`},
+		{name: "uncommitted", grader: `{"name":"llm-judge","stub":"judge","commit":"def456","branch":"main","uncommitted":true}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := scoreStore()
+			base := startServiceWithStore(t, st, auth.RoleAdmin)
+			path := "repos/acme/widgets/scores"
+			first := `{"task":"fix-bug","test":"basic","result":"aaa111",` +
+				`"grader":{"name":"llm-judge","stub":"judge","commit":"def456","branch":"main"},"dictionary":{"correctness":1}}`
+			created := sendScorePost(t, base, path, first)
+			defer created.Body.Close()
+			if created.StatusCode != http.StatusCreated {
+				t.Fatalf("first status = %d, want %d", created.StatusCode, http.StatusCreated)
+			}
+
+			body := `{"task":"fix-bug","test":"basic","result":"aaa111","grader":` + tc.grader + `,"dictionary":{"correctness":1}}`
+			resp := sendScorePost(t, base, path, body)
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusCreated {
+				t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusCreated)
+			}
+			if len(st.graders) != 2 {
+				t.Errorf("store holds %d graders, want 2", len(st.graders))
+			}
+			if len(st.scores) != 2 {
+				t.Errorf("store holds %d scores, want 2", len(st.scores))
+			}
+		})
+	}
+}
+
+// TestAddScoreGraderNameNotIdentity checks a grader's name does not separate
+// records, so the same identity with another name reuses the stored grader.
+func TestAddScoreGraderNameNotIdentity(t *testing.T) {
+	st := scoreStore()
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+	path := "repos/acme/widgets/scores"
+
+	first := sendScorePost(t, base, path, `{"task":"fix-bug","test":"basic","result":"aaa111",`+
+		`"grader":{"name":"llm-judge","stub":"judge","commit":"def456","branch":"main"},"dictionary":{"correctness":1}}`)
+	defer first.Body.Close()
+	if first.StatusCode != http.StatusCreated {
+		t.Fatalf("first status = %d, want %d", first.StatusCode, http.StatusCreated)
+	}
+	second := sendScorePost(t, base, path, `{"task":"fix-bug","test":"basic","result":"aaa111",`+
+		`"grader":{"name":"renamed-judge","stub":"judge","commit":"def456","branch":"main"},"dictionary":{"correctness":1}}`)
+	defer second.Body.Close()
+	if second.StatusCode != http.StatusOK {
+		t.Fatalf("second status = %d, want %d", second.StatusCode, http.StatusOK)
+	}
+	if len(st.graders) != 1 {
+		t.Errorf("store holds %d graders, want 1", len(st.graders))
+	}
+	if len(st.scores) != 1 {
+		t.Errorf("store holds %d scores, want 1", len(st.scores))
+	}
+}
+
+// TestAddScoreRejectsIncompleteGrader checks a score carrying a grader without
+// a name, stub, commit, or branch returns 422 and creates no score, grader, or
+// model.
+func TestAddScoreRejectsIncompleteGrader(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		grader string
+	}{
+		{name: "missing name", grader: `{"stub":"judge","commit":"def456","branch":"main"}`},
+		{name: "missing stub", grader: `{"name":"llm-judge","commit":"def456","branch":"main"}`},
+		{name: "missing commit", grader: `{"name":"llm-judge","stub":"judge","branch":"main"}`},
+		{name: "missing branch", grader: `{"name":"llm-judge","stub":"judge","commit":"def456"}`},
+		{name: "empty grader", grader: `{}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := scoreStore()
+			base := startServiceWithStore(t, st, auth.RoleAdmin)
+			body := `{"task":"fix-bug","test":"basic","result":"aaa111",` +
+				`"model":{"name":"claude-sonnet","provider":"anthropic","variant":"high"},"grader":` + tc.grader + `,"dictionary":{"correctness":1}}`
+
+			resp := sendScorePost(t, base, "repos/acme/widgets/scores", body)
+			defer resp.Body.Close()
+
+			assertServiceError(t, resp, http.StatusUnprocessableEntity)
+			if len(st.graders) != 0 {
+				t.Errorf("store holds %d graders, want none", len(st.graders))
+			}
+			if len(st.scores) != 0 {
+				t.Errorf("store holds %d scores, want none", len(st.scores))
+			}
+			if len(st.models) != 0 {
+				t.Errorf("store holds %d models, want none", len(st.models))
+			}
+		})
+	}
+}
+
 // TestAddScoreSameDictionaryReturnsExistingRef checks adding the same dictionary
 // for the same result twice returns the existing ref with 200 and leaves one
 // score.
@@ -543,14 +699,18 @@ func TestGetScoresDeniedForUnpermittedRole(t *testing.T) {
 }
 
 // TestGetScoreReturnsFields checks GET /repos/{org}/{repo}/scores/{ref}
-// returns one score with its ref, task, test, result ref, dictionary, logs,
-// tokens, cost, and duration.
+// returns one score with its ref, task, test, result ref, model, grader,
+// dictionary, logs, tokens, cost, and duration.
 func TestGetScoreReturnsFields(t *testing.T) {
 	st := scoreStore()
 	st.scores = []store.Score{{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
 		Result: "aaa111", Ref: "bbb222",
-		Model:       store.Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"},
+		Model: store.Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"},
+		Grader: store.Grader{
+			Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+			Name: "llm-judge", Stub: "judge", Commit: "def456", Branch: "main",
+		},
 		Dictionary:  map[string]float64{"correctness": 1},
 		Logs:        "graded",
 		InputTokens: 12, OutputTokens: 3, TokenCost: 0.01, Duration: 1.5,
@@ -576,6 +736,7 @@ func TestGetScoreReturnsFields(t *testing.T) {
 		Test         string             `json:"test"`
 		Result       string             `json:"result"`
 		Model        store.Model        `json:"model"`
+		Grader       store.Grader       `json:"grader"`
 		Dictionary   map[string]float64 `json:"dictionary"`
 		Logs         string             `json:"logs"`
 		InputTokens  int                `json:"inputTokens"`
@@ -591,6 +752,9 @@ func TestGetScoreReturnsFields(t *testing.T) {
 	}
 	if got.Model != st.scores[0].Model {
 		t.Errorf("score model = %#v, want the stored model %#v", got.Model, st.scores[0].Model)
+	}
+	if got.Grader != st.scores[0].Grader {
+		t.Errorf("score grader = %#v, want the stored grader %#v", got.Grader, st.scores[0].Grader)
 	}
 	if got.Dictionary["correctness"] != 1 {
 		t.Errorf("score dictionary = %#v, want the stored dictionary", got.Dictionary)

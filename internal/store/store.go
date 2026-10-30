@@ -31,6 +31,10 @@ var ErrInvalidModel = errors.New("invalid model")
 // branch.
 var ErrInvalidAgent = errors.New("invalid agent")
 
+// ErrInvalidGrader reports that a grader is missing its name, stub, commit, or
+// branch.
+var ErrInvalidGrader = errors.New("invalid grader")
+
 // ErrInvalidResult reports that a result carries a negative run metric.
 var ErrInvalidResult = errors.New("invalid result")
 
@@ -49,7 +53,7 @@ func New(db *gorm.DB) *Store {
 
 // Migrate creates the tables the store needs.
 func (s *Store) Migrate() error {
-	return s.db.AutoMigrate(&Repo{}, &Task{}, &Test{}, &Model{}, &Agent{}, &Datum{}, &Result{}, &Score{})
+	return s.db.AutoMigrate(&Repo{}, &Task{}, &Test{}, &Model{}, &Agent{}, &Grader{}, &Datum{}, &Result{}, &Score{})
 }
 
 // Close closes the store's database connection.
@@ -224,6 +228,45 @@ func (s *Store) ListAgents() ([]Agent, error) {
 	return agents, nil
 }
 
+// SaveGrader writes a grader, creating it or leaving the stored grader with the
+// same repo, task, test, stub, commit, branch, version, and uncommitted flag. It
+// returns ErrInvalidGrader when the grader misses its name, stub, commit, or
+// branch.
+func (s *Store) SaveGrader(g Grader) error {
+	return saveGrader(s.db, g)
+}
+
+// saveGrader writes a grader with db, reusing the stored grader with the same
+// identity.
+func saveGrader(db *gorm.DB, g Grader) error {
+	if err := g.Validate(); err != nil {
+		return err
+	}
+	return db.Clauses(clause.OnConflict{DoNothing: true}).Create(&g).Error
+}
+
+// GetGrader returns the grader with the given identity, or ErrNotFound. Its name
+// is not part of its identity.
+func (s *Store) GetGrader(g Grader) (Grader, error) {
+	var got Grader
+	err := s.db.First(&got, "org = ? AND repo = ? AND task = ? AND test = ? AND stub = ? AND commit = ? AND branch = ? AND version = ? AND uncommitted = ?",
+		g.Org, g.Repo, g.Task, g.Test, g.Stub, g.Commit, g.Branch, g.Version, g.Uncommitted).Error
+	if err != nil {
+		return Grader{}, notFound(err)
+	}
+	return got, nil
+}
+
+// ListGraders returns every grader, ordered by org, repo, task, test, stub,
+// commit, branch, version, and uncommitted flag.
+func (s *Store) ListGraders() ([]Grader, error) {
+	var graders []Grader
+	if err := s.db.Order("org, repo, task, test, stub, commit, branch, version, uncommitted").Find(&graders).Error; err != nil {
+		return nil, err
+	}
+	return graders, nil
+}
+
 // SaveDatum stores the JSON a test passes to an agent and returns the datum's
 // ref. The ref is derived from the JSON, so saving the same JSON in the same
 // test again returns the same ref and leaves one datum. It stores the JSON
@@ -315,12 +358,18 @@ func (s *Store) ListResults(org, repo string) ([]Result, error) {
 
 // SaveScore stores the key-number dictionary a grader produced for a result and
 // returns the score's ref. The ref is derived from the dictionary within its
-// result, so saving the same dictionary for the same result again returns the
-// same ref and leaves one score. It creates or reuses the model the score
-// carries in the same write. It returns ErrInvalidScore when a run metric is
-// negative and ErrInvalidModel when the carried model misses its name or
-// provider.
+// result and the model and grader it carries, so saving the same dictionary
+// from the same model and grader again returns the same ref and leaves one
+// score. It creates or reuses the model and grader the score carries in the
+// same write, and associates the grader with the result's test. It returns
+// ErrInvalidScore when a run metric is negative, ErrInvalidModel when the
+// carried model misses its name or provider, and ErrInvalidGrader when the
+// carried grader misses its name, stub, commit, or branch.
 func (s *Store) SaveScore(sc Score) (string, error) {
+	hasGrader := sc.Grader.Present()
+	if hasGrader {
+		sc.Grader.Org, sc.Grader.Repo, sc.Grader.Task, sc.Grader.Test = sc.Org, sc.Repo, sc.Task, sc.Test
+	}
 	if err := sc.Validate(); err != nil {
 		return "", err
 	}
@@ -328,6 +377,11 @@ func (s *Store) SaveScore(sc Score) (string, error) {
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		if sc.Model.Present() {
 			if err := saveModel(tx, sc.Model); err != nil {
+				return err
+			}
+		}
+		if hasGrader {
+			if err := saveGrader(tx, sc.Grader); err != nil {
 				return err
 			}
 		}

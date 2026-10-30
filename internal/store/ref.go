@@ -32,14 +32,17 @@ func ResultRef(r Result) string {
 }
 
 // ScoreRef returns a score's ref: a short, URL-safe string derived from the
-// score's key-number dictionary, its result, and its model. The same dictionary
-// for the same result from the same model always returns the same ref, and
-// scores that differ in result, dictionary, or model return different refs.
+// score's key-number dictionary, its result, and its model and grader. The same
+// dictionary for the same result from the same model and grader always returns
+// the same ref, and scores that differ in result, dictionary, model, or grader
+// return different refs.
 func ScoreRef(s Score) string {
 	dict, _ := json.Marshal(s.Dictionary)
 	parts := []string{
 		s.Org, s.Repo, s.Task, s.Test, s.Result, string(dict),
 		s.Model.Name, s.Model.Provider, s.Model.Variant,
+		s.Grader.Stub, s.Grader.Commit, s.Grader.Branch,
+		s.Grader.Version, strconv.FormatBool(s.Grader.Uncommitted),
 	}
 	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
 	return hex.EncodeToString(sum[:])[:12]

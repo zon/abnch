@@ -43,7 +43,7 @@ func TestRunCreatesTables(t *testing.T) {
 	if conn, err := db.DB(); err == nil {
 		defer conn.Close()
 	}
-	for _, model := range []any{&store.Repo{}, &store.Task{}, &store.Test{}, &store.Model{}, &store.Agent{}, &store.Datum{}, &store.Result{}, &store.Score{}} {
+	for _, model := range []any{&store.Repo{}, &store.Task{}, &store.Test{}, &store.Model{}, &store.Agent{}, &store.Grader{}, &store.Datum{}, &store.Result{}, &store.Score{}} {
 		if !db.Migrator().HasTable(model) {
 			t.Errorf("Run did not create the table for %T", model)
 		}

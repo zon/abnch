@@ -433,6 +433,7 @@ type fakeDB struct {
 	tests          []store.Test
 	models         []store.Model
 	agents         []store.Agent
+	graders        []store.Grader
 	data           []store.Datum
 	results        []store.Result
 	scores         []store.Score
@@ -459,6 +460,9 @@ type fakeDB struct {
 	getAgentErr    error
 	listAgentsErr  error
 	saveAgentErr   error
+	getGraderErr   error
+	listGradersErr error
+	saveGraderErr  error
 }
 
 func (f *fakeDB) GetRepo(org, stub string) (store.Repo, error) {
@@ -734,6 +738,48 @@ func sameAgent(a, b store.Agent) bool {
 	return a == b
 }
 
+func (f *fakeDB) GetGrader(g store.Grader) (store.Grader, error) {
+	if f.getGraderErr != nil {
+		return store.Grader{}, f.getGraderErr
+	}
+	for _, existing := range f.graders {
+		if sameGrader(existing, g) {
+			return existing, nil
+		}
+	}
+	return store.Grader{}, store.ErrNotFound
+}
+
+func (f *fakeDB) ListGraders() ([]store.Grader, error) {
+	if f.listGradersErr != nil {
+		return nil, f.listGradersErr
+	}
+	return f.graders, nil
+}
+
+func (f *fakeDB) SaveGrader(g store.Grader) error {
+	if f.saveGraderErr != nil {
+		return f.saveGraderErr
+	}
+	if err := g.Validate(); err != nil {
+		return err
+	}
+	for _, existing := range f.graders {
+		if sameGrader(existing, g) {
+			return nil
+		}
+	}
+	f.graders = append(f.graders, g)
+	return nil
+}
+
+// sameGrader reports whether two graders share the identity fields the store
+// uses, ignoring the name.
+func sameGrader(a, b store.Grader) bool {
+	a.Name, b.Name = "", ""
+	return a == b
+}
+
 func (f *fakeDB) GetResult(org, repo, ref string) (store.Result, error) {
 	if f.getResultErr != nil {
 		return store.Result{}, f.getResultErr
@@ -820,11 +866,20 @@ func (f *fakeDB) SaveScore(sc store.Score) (string, error) {
 	if f.saveScoreErr != nil {
 		return "", f.saveScoreErr
 	}
+	hasGrader := sc.Grader.Present()
+	if hasGrader {
+		sc.Grader.Org, sc.Grader.Repo, sc.Grader.Task, sc.Grader.Test = sc.Org, sc.Repo, sc.Task, sc.Test
+	}
 	if err := sc.Validate(); err != nil {
 		return "", err
 	}
 	if sc.Model.Present() {
 		if err := f.SaveModel(sc.Model); err != nil {
+			return "", err
+		}
+	}
+	if hasGrader {
+		if err := f.SaveGrader(sc.Grader); err != nil {
 			return "", err
 		}
 	}

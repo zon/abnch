@@ -64,6 +64,15 @@ type Store interface {
 	// store.ErrInvalidAgent when the agent misses its name, stub, commit, or
 	// branch.
 	SaveAgent(a store.Agent) error
+	// GetGrader returns the grader with the given identity, or store.ErrNotFound.
+	GetGrader(g store.Grader) (store.Grader, error)
+	// ListGraders returns every grader, ordered by org, repo, task, test, stub,
+	// commit, branch, version, and uncommitted flag.
+	ListGraders() ([]store.Grader, error)
+	// SaveGrader creates or reuses the grader with the given identity. It reports
+	// store.ErrInvalidGrader when the grader misses its name, stub, commit, or
+	// branch.
+	SaveGrader(g store.Grader) error
 	// ListData returns a test's data, ordered by ref.
 	ListData(org, repo, task, test string) ([]store.Datum, error)
 	// GetDatum returns the datum with the given ref in a test, or
@@ -93,9 +102,11 @@ type Store interface {
 	ListScores(org, repo string) ([]store.Score, error)
 	// SaveScore stores the key-number dictionary a grader produced for a result
 	// and returns the score's ref. The ref is derived from the dictionary within
-	// its result, so saving the same dictionary for the same result again
-	// returns the same ref and leaves one score. It reports store.ErrInvalidScore
-	// when a run metric is negative.
+	// its result and the model and grader it carries, so saving the same
+	// dictionary from the same model and grader again returns the same ref and
+	// leaves one score. It reports store.ErrInvalidScore when a run metric is
+	// negative, store.ErrInvalidModel when the carried model is incomplete, and
+	// store.ErrInvalidGrader when the carried grader is incomplete.
 	SaveScore(sc store.Score) (string, error)
 	// SaveRepo creates or replaces the repo with the given stubs.
 	SaveRepo(r store.Repo) error

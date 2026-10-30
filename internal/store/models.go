@@ -137,6 +137,40 @@ func (a Agent) Present() bool {
 	return a != Agent{}
 }
 
+// Grader is the external code that scored a result. It is identified by its
+// repo, task stub, test stub, stub, commit, branch, version, and uncommitted
+// flag, so two graders with the same values are the same record. Its name may
+// differ without making a new record. A version may be empty, and an omitted
+// uncommitted flag records false.
+type Grader struct {
+	Org         string `gorm:"primaryKey" json:"org"`
+	Repo        string `gorm:"primaryKey" json:"repo"`
+	Task        string `gorm:"primaryKey" json:"task"`
+	Test        string `gorm:"primaryKey" json:"test"`
+	Name        string `json:"name"`
+	Stub        string `gorm:"primaryKey" json:"stub"`
+	Commit      string `gorm:"primaryKey" json:"commit"`
+	Branch      string `gorm:"primaryKey" json:"branch"`
+	Version     string `gorm:"primaryKey" json:"version"`
+	Uncommitted bool   `gorm:"primaryKey" json:"uncommitted"`
+}
+
+// Validate reports whether the grader carries the fields it needs: a non-empty
+// name, stub, commit, and branch. An empty version or a false uncommitted flag
+// is allowed.
+func (g Grader) Validate() error {
+	if g.Name == "" || g.Stub == "" || g.Commit == "" || g.Branch == "" {
+		return ErrInvalidGrader
+	}
+	return nil
+}
+
+// Present reports whether the grader carries any value. An absent grader is the
+// zero value, so a score that omits its grader creates no record.
+func (g Grader) Present() bool {
+	return g != Grader{}
+}
+
 // Datum is the JSON a test passes to an agent, one per case. It is identified by
 // its repo, task stub, test stub, and ref, so two data with the same identity
 // are the same datum.
@@ -202,6 +236,7 @@ type Score struct {
 	Result       string             `gorm:"primaryKey"`
 	Ref          string             `gorm:"primaryKey"`
 	Model        Model              `gorm:"embedded"`
+	Grader       Grader             `gorm:"embedded;embeddedPrefix:grader_"`
 	Dictionary   map[string]float64 `gorm:"serializer:json;type:jsonb"`
 	Logs         string
 	InputTokens  int
@@ -211,14 +246,19 @@ type Score struct {
 }
 
 // Validate reports whether the score's run metrics are zero or greater and its
-// model, when carried, has a name and provider. A score that omits a metric
-// records zero. Its dictionary, logs, and result may be empty.
+// model and grader, when carried, carry their required fields. A score that
+// omits a metric records zero. Its dictionary, logs, and result may be empty.
 func (s Score) Validate() error {
 	if s.InputTokens < 0 || s.OutputTokens < 0 || s.TokenCost < 0 || s.Duration < 0 {
 		return ErrInvalidScore
 	}
 	if s.Model.Present() {
-		return s.Model.Validate()
+		if err := s.Model.Validate(); err != nil {
+			return err
+		}
+	}
+	if s.Grader.Present() {
+		return s.Grader.Validate()
 	}
 	return nil
 }
