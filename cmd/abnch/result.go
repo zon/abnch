@@ -26,8 +26,8 @@ type resultRequest struct {
 	Task         string          `json:"task"`
 	Test         string          `json:"test"`
 	Data         string          `json:"data"`
-	Model        *configModel    `json:"model,omitempty"`
-	Agent        *configAgent    `json:"agent,omitempty"`
+	Model        *modelRecord    `json:"model,omitempty"`
+	Agent        *agentRecord    `json:"agent,omitempty"`
 	Body         json.RawMessage `json:"body"`
 	Logs         string          `json:"logs"`
 	InputTokens  int             `json:"inputTokens"`
@@ -40,8 +40,8 @@ type resultRequest struct {
 // Agent are the records the service creates or reuses; Body is the result the
 // agent produced; the rest are its logs and run metrics.
 type resultInput struct {
-	Model        *configModel `json:"model" yaml:"model"`
-	Agent        *configAgent `json:"agent" yaml:"agent"`
+	Model        *modelRecord `json:"model" yaml:"model"`
+	Agent        *agentRecord `json:"agent" yaml:"agent"`
 	Body         bodyValue    `json:"body" yaml:"body"`
 	Logs         string       `json:"logs" yaml:"logs"`
 	InputTokens  int          `json:"inputTokens" yaml:"inputTokens"`
@@ -80,10 +80,10 @@ func (v *bodyValue) UnmarshalYAML(node *yaml.Node) error {
 }
 
 // addResult reads a result input for the datum the path names in the inferred
-// repo, posts it, prints the result ref, and records the model and agent in the
-// CLI config. It reads the input from `--file` when given and from stdin
-// otherwise. It fails without a request when the input lacks a model, an agent,
-// or a body, or when the path does not name a datum.
+// repo, posts it, and prints the result ref. It reads the input from `--file`
+// when given and from stdin otherwise. It fails without a request when the
+// input lacks a model, an agent, or a body, or when the path does not name a
+// datum.
 func addResult(d deps, c addResultCmd) error {
 	task, test, datum, err := splitResultPath(c.Path)
 	if err != nil {
@@ -106,9 +106,6 @@ func addResult(d deps, c addResultCmd) error {
 
 	ref, err := postResult(d.ctx, target.client, target.org, target.stub, request)
 	if err != nil {
-		return err
-	}
-	if err := recordResultProvenance(d.workDir, task, *input.Model, *input.Agent); err != nil {
 		return err
 	}
 	fmt.Fprintln(d.out, ref)
@@ -157,16 +154,6 @@ func resultRequestFromInput(task, test, datum string, input resultInput) (result
 		InputTokens: input.InputTokens, OutputTokens: input.OutputTokens,
 		TokenCost: input.TokenCost, Duration: input.Duration,
 	}, nil
-}
-
-// recordResultProvenance records the model and agent a result used in the CLI
-// config under workDir. The model is stored under its name and the agent under
-// the result's task.
-func recordResultProvenance(workDir, task string, model configModel, agent configAgent) error {
-	if err := setResultModel(workDir, model); err != nil {
-		return err
-	}
-	return setTaskAgentRecord(workDir, task, agent)
 }
 
 // postResult posts a result write and returns the result's ref. The service

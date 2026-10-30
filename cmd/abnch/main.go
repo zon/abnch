@@ -87,10 +87,6 @@ type getCmd struct {
 	Tests   getTestsCmd   `cmd:"" help:"List a task's tests as YAML."`
 	Test    getTestCmd    `cmd:"" help:"Print one test as YAML."`
 	Data    getDataCmd    `cmd:"" help:"List a test's data refs or print one datum as JSON."`
-	Models  getModelsCmd  `cmd:"" help:"List the models in the CLI config as YAML."`
-	Model   getModelCmd   `cmd:"" help:"Print one model as YAML."`
-	Agent   getAgentCmd   `cmd:"" help:"Print a task's agent as YAML."`
-	Grader  getGraderCmd  `cmd:"" help:"Print a task's grader as YAML."`
 	Results getResultsCmd `cmd:"" help:"List the inferred repo's results as YAML."`
 	Result  getResultCmd  `cmd:"" help:"Print one result as JSON."`
 	Scores  getScoresCmd  `cmd:"" help:"List the inferred repo's scores as YAML."`
@@ -139,44 +135,6 @@ type getResultCmd struct {
 // Run prints the result as JSON.
 func (c getResultCmd) Run(deps deps) error {
 	return getResult(deps, c.Ref)
-}
-
-// getAgentCmd prints one task's agent as YAML.
-type getAgentCmd struct {
-	Stub string `arg:"" help:"Task stub."`
-}
-
-// Run prints the task's agent as YAML.
-func (c getAgentCmd) Run(deps deps) error {
-	return getAgent(deps, c.Stub)
-}
-
-// getGraderCmd prints one task's grader as YAML.
-type getGraderCmd struct {
-	Stub string `arg:"" help:"Task stub."`
-}
-
-// Run prints the task's grader as YAML.
-func (c getGraderCmd) Run(deps deps) error {
-	return getGrader(deps, c.Stub)
-}
-
-// getModelsCmd lists the models in the CLI config.
-type getModelsCmd struct{}
-
-// Run lists the models in the CLI config.
-func (c getModelsCmd) Run(deps deps) error {
-	return getModels(deps)
-}
-
-// getModelCmd prints one model as YAML.
-type getModelCmd struct {
-	Stub string `arg:"" help:"Model stub."`
-}
-
-// Run prints the model as YAML.
-func (c getModelCmd) Run(deps deps) error {
-	return getModel(deps, c.Stub)
 }
 
 // getTasksCmd lists the tasks in the inferred repo.

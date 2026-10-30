@@ -23,8 +23,8 @@ type scoreRequest struct {
 	Task         string             `json:"task"`
 	Test         string             `json:"test"`
 	Result       string             `json:"result"`
-	Model        *configModel       `json:"model,omitempty"`
-	Grader       *configGrader      `json:"grader,omitempty"`
+	Model        *modelRecord       `json:"model,omitempty"`
+	Grader       *graderRecord      `json:"grader,omitempty"`
 	Body         map[string]float64 `json:"body"`
 	Logs         string             `json:"logs"`
 	InputTokens  int                `json:"inputTokens"`
@@ -37,8 +37,8 @@ type scoreRequest struct {
 // Grader are the records the service creates or reuses; Body is the score the
 // grader produced; the rest are its logs and run metrics.
 type scoreInput struct {
-	Model        *configModel       `json:"model" yaml:"model"`
-	Grader       *configGrader      `json:"grader" yaml:"grader"`
+	Model        *modelRecord       `json:"model" yaml:"model"`
+	Grader       *graderRecord      `json:"grader" yaml:"grader"`
 	Body         map[string]float64 `json:"body" yaml:"body"`
 	Logs         string             `json:"logs" yaml:"logs"`
 	InputTokens  int                `json:"inputTokens" yaml:"inputTokens"`
@@ -59,10 +59,9 @@ type scoreResultView struct {
 }
 
 // addScore reads a score input for the result the ref names in the inferred
-// repo, posts it, prints the score ref, and records the model and grader in the
-// CLI config. It reads the input from `--file` when given and from stdin
-// otherwise. It fails without a request when the input lacks a model, a grader,
-// or a body, or when the result is missing.
+// repo, posts it, and prints the score ref. It reads the input from `--file`
+// when given and from stdin otherwise. It fails without a request when the
+// input lacks a model, a grader, or a body, or when the result is missing.
 func addScore(d deps, c addScoreCmd) error {
 	input, err := readAddScoreInput(d, c.File)
 	if err != nil {
@@ -86,9 +85,6 @@ func addScore(d deps, c addScoreCmd) error {
 
 	ref, err := postScore(d.ctx, target.client, target.org, target.stub, request)
 	if err != nil {
-		return err
-	}
-	if err := recordScoreProvenance(d.workDir, result.Task, *input.Model, *input.Grader); err != nil {
 		return err
 	}
 	fmt.Fprintln(d.out, ref)
@@ -126,16 +122,6 @@ func scoreRequestFromInput(ref string, input scoreInput) (scoreRequest, error) {
 		InputTokens: input.InputTokens, OutputTokens: input.OutputTokens,
 		TokenCost: input.TokenCost, Duration: input.Duration,
 	}, nil
-}
-
-// recordScoreProvenance records the model and grader a score used in the CLI
-// config under workDir. The model is stored under its name and the grader under
-// the result's task.
-func recordScoreProvenance(workDir, task string, model configModel, grader configGrader) error {
-	if err := setResultModel(workDir, model); err != nil {
-		return err
-	}
-	return setTaskGraderRecord(workDir, task, grader)
 }
 
 // readScoreResult reads the result the ref names in the repo and parses the

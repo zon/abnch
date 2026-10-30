@@ -34,7 +34,7 @@ The `set test` version uses `--test-version`, so `--version` names the app versi
 
 ## `abnch set config`
 
-Create or updates an `.abnch/config.yaml` file in the repo under the working dir. See [CLI Config Design](abnch-config.md).
+Creates or updates the `.abnch/config.yaml` file in the repo under the working dir. The config holds only the service URL. See [CLI Config Design](abnch-config.md).
 
 * --url: string - abnch service url
 
@@ -158,19 +158,3 @@ Lists scores.
 ## `abnch get score <score ref>`
 
 Outputs a score as JSON.
-
-## `abnch get models` | `abnch get model`
-
-Lists models in the config.
-
-## `abnch get model <stub>`
-
-Outputs a model as YAML.
-
-## `abnch get agent <task stub>`
-
-Outputs the task's agent config as YAML.
-
-## `abnch get grader <task stub>`
-
-Outputs the task's grader config as YAML.

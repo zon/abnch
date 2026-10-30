@@ -213,12 +213,12 @@ func TestSetLocalAuthWritesCLIConfigURL(t *testing.T) {
 	}
 }
 
-// TestSetLocalAuthPreservesCLIConfigKeys keeps the models and tasks a repo
-// writes into its CLI config when the command updates the service URL.
+// TestSetLocalAuthPreservesCLIConfigKeys keeps the other keys a repo writes
+// into its CLI config when the command updates the service URL.
 func TestSetLocalAuthPreservesCLIConfigKeys(t *testing.T) {
 	repo := t.TempDir()
 	path := CLIConfigPath(repo)
-	seed := "url: http://localhost:1111\nmodels:\n  stub:\n    name: gpt\n"
+	seed := "url: http://localhost:1111\nother:\n  key: value\n"
 	if err := writeConfigFile(path, seed); err != nil {
 		t.Fatal(err)
 	}
@@ -231,12 +231,12 @@ func TestSetLocalAuthPreservesCLIConfigKeys(t *testing.T) {
 	if doc["url"] != "http://localhost:9090" {
 		t.Errorf("url = %#v, want the command's url", doc["url"])
 	}
-	models, ok := doc["models"].(map[string]any)
+	other, ok := doc["other"].(map[string]any)
 	if !ok {
-		t.Fatalf("models = %#v, want the seeded mapping", doc["models"])
+		t.Fatalf("other = %#v, want the seeded mapping", doc["other"])
 	}
-	if _, ok := models["stub"]; !ok {
-		t.Errorf("models = %#v, want the seeded stub", models)
+	if other["key"] != "value" {
+		t.Errorf("other = %#v, want the seeded key", other)
 	}
 }
 

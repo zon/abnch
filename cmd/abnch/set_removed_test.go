@@ -7,8 +7,7 @@ import (
 
 func TestRemovedSetCommandsFailWithoutChangingConfig(t *testing.T) {
 	const body = "url: https://bench.example.com\n" +
-		"models:\n  sonnet:\n    provider: anthropic\n    name: claude-sonnet\n" +
-		"tasks:\n  fix-bug:\n    model: sonnet\n"
+		"other:\n  key: value\n"
 	commands := []struct {
 		name string
 		args []string

@@ -6,29 +6,8 @@ The CLI creates and updates an `.abnch/config.yaml` file in the repo under the w
 
 ```yaml
 url: string - abnchd service url
-models:
-  <stub>:
-    name: string
-    provider: string
-    variant: string
-tasks:
-  <task stub>:
-    agent:
-      name: string
-      stub: string
-      commit: string
-      branch: string
-      version: string
-      uncommitted: bool
-    grader:
-      name: string
-      stub: string
-      commit: string
-      branch: string
-      version: string
-      uncommitted: bool
 ```
 
 ## Commands
 
-The `add result` and `add score` commands record the model, agent, and grader they use in the config. The model stub is derived from the model's name. The `get` commands read them. The config keeps the last record seen for a model stub, a task's agent, and a task's grader.
+`abnch set config` creates or updates the service URL, and `abnch get config` reads the config. Result and score submission carry their own model, agent, and grader records, so the config holds only the service URL.

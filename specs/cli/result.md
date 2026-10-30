@@ -14,7 +14,7 @@ The command SHALL read a result input as YAML or JSON from stdin or `--file`. Th
 
 The model record SHALL carry a name, a provider, and a variant. The agent record SHALL carry a name, a stub, a commit, a branch, an optional version, and an uncommitted flag.
 
-The CLI SHALL post the input to the service, which creates or reuses the model and agent records and links them to the result. The CLI SHALL record the model and agent in the config, so `abnch get model` and `abnch get agent` can read them.
+The CLI SHALL post the input to the service, which creates or reuses the model and agent records and links them to the result.
 
 The command SHALL fail when the input carries no model, no agent, or no `body` property, when the datum is missing, or when the service rejects the write.
 
@@ -24,7 +24,6 @@ The command SHALL fail when the input carries no model, no agent, or no `body` p
 - WHEN the user runs `abnch add result fix-bug/basic/<ref>` with a result input
 - THEN the service creates or reuses the model and agent records
 - AND the result is recorded with the model and agent records
-- AND the CLI records the model and agent in the config
 - AND the command prints the result ref
 - AND the command exits zero
 

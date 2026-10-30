@@ -7,8 +7,7 @@ import (
 
 func TestRemovedRunAndScoreCommandsFailWithoutChangingConfig(t *testing.T) {
 	const body = "url: https://bench.example.com\n" +
-		"models:\n  sonnet:\n    provider: anthropic\n    name: claude-sonnet\n" +
-		"tasks:\n  fix-bug:\n    agent:\n      name: claude-code\n      stub: claude\n      commit: abc123\n      branch: main\n"
+		"other:\n  key: value\n"
 	commands := []struct {
 		name string
 		args []string

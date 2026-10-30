@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"go.yaml.in/yaml/v3"
 )
 
 const scoreInputYAML = `model:
@@ -143,88 +141,6 @@ func TestAddScoreFromYAMLFileRecordsTheScore(t *testing.T) {
 	}
 }
 
-func TestAddScoreRecordsModelAndGraderInConfig(t *testing.T) {
-	workDir := t.TempDir()
-	addRemote(t, workDir, "git@github.com:acme/widgets.git")
-	fake := newFakeService(t)
-	result := seedScoreResult(t, fake, `{"prompt":"hi"}`, `{"answer":"hi"}`)
-	d, _ := addDataDeps(t, workDir, fake.url, scoreInputYAML)
-
-	if err := runAdd([]string{"score", result}, d); err != nil {
-		t.Fatalf("add score = %v, want no error", err)
-	}
-
-	cfg, err := loadConfig(workDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.URL != fake.url {
-		t.Errorf("config url = %q, want it kept as %q", cfg.URL, fake.url)
-	}
-	model, ok := cfg.Models["claude-sonnet"]
-	if !ok {
-		t.Fatalf("models = %+v, want the model under its name", cfg.Models)
-	}
-	if model.Name != "claude-sonnet" || model.Provider != "anthropic" || model.Variant != "high" {
-		t.Errorf("model = %+v, want the input model", model)
-	}
-	grader := cfg.Tasks["fix-bug"].Grader
-	if grader == nil {
-		t.Fatal("the task has no grader, want the score's grader")
-	}
-	if grader.Name != "unit-grader" || grader.Stub != "unit" || grader.Commit != "def456" || grader.Branch != "main" || grader.Version != "2.0.0" || !grader.Uncommitted {
-		t.Errorf("grader = %+v, want the input grader", *grader)
-	}
-}
-
-func TestAddScoreRecordsProvenanceThatGetCommandsRead(t *testing.T) {
-	workDir := t.TempDir()
-	addRemote(t, workDir, "git@github.com:acme/widgets.git")
-	fake := newFakeService(t)
-	result := seedScoreResult(t, fake, `{"prompt":"hi"}`, `{"answer":"hi"}`)
-	d, _ := addDataDeps(t, workDir, fake.url, scoreInputYAML)
-
-	if err := runAdd([]string{"score", result}, d); err != nil {
-		t.Fatalf("add score = %v, want no error", err)
-	}
-
-	modelDeps, modelOut := getConfigDeps(t, workDir)
-	if err := runGet([]string{"model", "claude-sonnet"}, modelDeps); err != nil {
-		t.Fatalf("get model = %v, want the score's model", err)
-	}
-	var model modelView
-	if err := yaml.Unmarshal(modelOut.Bytes(), &model); err != nil {
-		t.Fatalf("model output is not YAML: %v\n%s", err, modelOut.String())
-	}
-	if model.Stub != "claude-sonnet" || model.Name != "claude-sonnet" || model.Provider != "anthropic" || model.Variant != "high" {
-		t.Errorf("model = %+v, want the score's model under its derived stub", model)
-	}
-
-	modelsDeps, modelsOut := getConfigDeps(t, workDir)
-	if err := runGet([]string{"models"}, modelsDeps); err != nil {
-		t.Fatalf("get models = %v, want no error", err)
-	}
-	var models []modelView
-	if err := yaml.Unmarshal(modelsOut.Bytes(), &models); err != nil {
-		t.Fatalf("models output is not YAML: %v\n%s", err, modelsOut.String())
-	}
-	if len(models) != 1 || models[0].Stub != "claude-sonnet" {
-		t.Errorf("models = %+v, want the score's model listed", models)
-	}
-
-	graderDeps, graderOut := getConfigDeps(t, workDir)
-	if err := runGet([]string{"grader", "fix-bug"}, graderDeps); err != nil {
-		t.Fatalf("get grader = %v, want the score's grader", err)
-	}
-	var grader configGrader
-	if err := yaml.Unmarshal(graderOut.Bytes(), &grader); err != nil {
-		t.Fatalf("grader output is not YAML: %v\n%s", err, graderOut.String())
-	}
-	if grader.Name != "unit-grader" || grader.Stub != "unit" || grader.Commit != "def456" || grader.Branch != "main" || grader.Version != "2.0.0" || !grader.Uncommitted {
-		t.Errorf("grader = %+v, want the score's grader", grader)
-	}
-}
-
 func TestAddScoreDefaultsUncommittedToFalse(t *testing.T) {
 	workDir := t.TempDir()
 	addRemote(t, workDir, "git@github.com:acme/widgets.git")
@@ -242,75 +158,28 @@ func TestAddScoreDefaultsUncommittedToFalse(t *testing.T) {
 	if got.Grader.Uncommitted {
 		t.Errorf("grader = %+v, want uncommitted false when the input omits it", got.Grader)
 	}
-	cfg, err := loadConfig(workDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Tasks["fix-bug"].Grader.Uncommitted {
-		t.Error("config grader is uncommitted, want it defaulted to false")
-	}
 }
 
-func TestAddScoreKeepsOtherConfig(t *testing.T) {
+func TestAddScoreLeavesConfigUnchanged(t *testing.T) {
 	workDir := t.TempDir()
 	addRemote(t, workDir, "git@github.com:acme/widgets.git")
 	fake := newFakeService(t)
 	result := seedScoreResult(t, fake, `{"prompt":"hi"}`, `{"answer":"hi"}`)
 	d, _ := addDataDeps(t, workDir, fake.url, scoreInputYAML)
-	writeCLIConfig(t, workDir, "url: "+fake.url+"\n"+
-		"models:\n  haiku:\n    provider: anthropic\n    name: claude-haiku\n"+
-		"tasks:\n  other:\n    grader:\n      name: other-grader\n      stub: other\n      commit: 123abc\n      branch: main\n")
+	body := "url: " + fake.url + "\n" +
+		"other:\n  key: value\n"
+	writeCLIConfig(t, workDir, body)
 
 	if err := runAdd([]string{"score", result}, d); err != nil {
 		t.Fatalf("add score = %v, want no error", err)
 	}
 
-	cfg, err := loadConfig(workDir)
+	after, err := os.ReadFile(configPath(workDir))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.URL != fake.url {
-		t.Errorf("config url = %q, want it kept", cfg.URL)
-	}
-	if cfg.Models["haiku"].Name != "claude-haiku" {
-		t.Errorf("models = %+v, want the existing model kept", cfg.Models)
-	}
-	if cfg.Tasks["other"].Grader == nil || cfg.Tasks["other"].Grader.Commit != "123abc" {
-		t.Errorf("tasks = %+v, want the existing task kept", cfg.Tasks)
-	}
-}
-
-func TestAddScoreKeepsOtherGraderKeys(t *testing.T) {
-	workDir := t.TempDir()
-	addRemote(t, workDir, "git@github.com:acme/widgets.git")
-	fake := newFakeService(t)
-	result := seedScoreResult(t, fake, `{"prompt":"hi"}`, `{"answer":"hi"}`)
-	d, _ := addDataDeps(t, workDir, fake.url, scoreInputYAML)
-	writeCLIConfig(t, workDir, "url: "+fake.url+"\n"+
-		"tasks:\n  fix-bug:\n    grader:\n      label: judge-one\n      note: keep-me\n")
-
-	if err := runAdd([]string{"score", result}, d); err != nil {
-		t.Fatalf("add score = %v, want no error", err)
-	}
-
-	data, err := os.ReadFile(configPath(workDir))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var raw struct {
-		Tasks map[string]struct {
-			Grader map[string]any `yaml:"grader"`
-		} `yaml:"tasks"`
-	}
-	if err := yaml.Unmarshal(data, &raw); err != nil {
-		t.Fatal(err)
-	}
-	grader := raw.Tasks["fix-bug"].Grader
-	if grader["label"] != "judge-one" || grader["note"] != "keep-me" {
-		t.Errorf("grader = %+v, want the existing keys kept", grader)
-	}
-	if grader["name"] != "unit-grader" || grader["commit"] != "def456" {
-		t.Errorf("grader = %+v, want the record written", grader)
+	if string(after) != body {
+		t.Errorf("config = %q, want it unchanged as %q", after, body)
 	}
 }
 
@@ -334,9 +203,6 @@ func TestAddScoreFailsWhenInputHasNoModel(t *testing.T) {
 	}
 	if fake.count() != 0 {
 		t.Errorf("requests = %d, want none without a model", fake.count())
-	}
-	if cfg, _ := loadConfig(workDir); len(cfg.Models) != 0 {
-		t.Errorf("models = %+v, want none recorded", cfg.Models)
 	}
 }
 
@@ -453,10 +319,6 @@ func TestAddScoreFailsWhenResultIsMissing(t *testing.T) {
 	if got := fake.scoreRefs("acme", "widgets"); len(got) != 0 {
 		t.Errorf("recorded %v scores, want none for a missing result", got)
 	}
-	cfg, _ := loadConfig(workDir)
-	if len(cfg.Models) != 0 || cfg.Tasks["fix-bug"].Grader != nil {
-		t.Errorf("config = %+v, want no records for a failed write", cfg)
-	}
 }
 
 func TestAddScoreReportsMissingResultOnStderr(t *testing.T) {
@@ -512,8 +374,5 @@ func TestAddScoreSurfacesServiceError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "forbidden") {
 		t.Errorf("error = %q, want the service error message", err)
-	}
-	if cfg, _ := loadConfig(workDir); len(cfg.Models) != 0 {
-		t.Errorf("models = %+v, want none recorded for a rejected write", cfg.Models)
 	}
 }

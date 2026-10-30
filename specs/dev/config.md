@@ -88,10 +88,10 @@ The `--config` option SHALL override the path for `set local-auth`, `set ralph`,
 
 #### Scenario: Keep other CLI config keys
 
-- GIVEN `.abnch/config.yaml` holds models and tasks
+- GIVEN `.abnch/config.yaml` holds other keys
 - WHEN `abnchctl set local-auth` finishes
 - THEN the local service URL is updated
-- AND the models and tasks are unchanged
+- AND the other keys are unchanged
 
 ### Requirement: Ralph Config Publication
 
