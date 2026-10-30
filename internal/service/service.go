@@ -124,17 +124,20 @@ type Store interface {
 // Opener opens the store described by a service config.
 type Opener func(ctx context.Context, pg devconfig.Postgres) (Store, error)
 
-// openDatabase opens the service database and creates its tables.
+// openDatabase opens the service database.
 func openDatabase(ctx context.Context, pg devconfig.Postgres) (Store, error) {
 	return store.Open(ctx, pg)
 }
 
-// Options carries what Run works with.
+// Options carries what Run and Migrate work with.
 type Options struct {
 	// ConfigPath is the service config file.
 	ConfigPath string
 	// Opener opens the database. It defaults to the service database.
 	Opener Opener
+	// Migrator creates or updates the database tables. It defaults to the
+	// service database.
+	Migrator func(ctx context.Context, pg devconfig.Postgres) error
 	// Authenticator authenticates requests. It defaults to workload
 	// authentication against the issuers in the service config.
 	Authenticator auth.Authenticator
@@ -164,20 +167,49 @@ func ApplySecretEnv(cfg devconfig.Config, getenv func(string) string) devconfig.
 	return cfg
 }
 
+// loadConfig reads the service config and applies the secret values the
+// environment supplies.
+func loadConfig(path string) (devconfig.Config, error) {
+	cfg, err := devconfig.LoadConfig(path)
+	if err != nil {
+		return devconfig.Config{}, err
+	}
+	return ApplySecretEnv(cfg, os.Getenv), nil
+}
+
+// Migrate loads the service config and creates or updates the database tables
+// the service needs. It returns a clear error when the config file is missing or
+// malformed, or when Postgres is unreachable.
+func Migrate(ctx context.Context, opts Options) error {
+	cfg, err := loadConfig(opts.ConfigPath)
+	if err != nil {
+		return err
+	}
+	if err := devconfig.CheckPostgres(cfg.Postgres); err != nil {
+		return fmt.Errorf("config file %s: %w", opts.ConfigPath, err)
+	}
+
+	migrator := opts.Migrator
+	if migrator == nil {
+		migrator = store.Migrate
+	}
+	return migrator(ctx, cfg.Postgres)
+}
+
 // Run loads the service config, connects to Postgres, and serves the service
-// until ctx is canceled. It returns a clear error when the config file is
-// missing or malformed, or when Postgres is unreachable.
+// until ctx is canceled. It does not create or change tables; Migrate does that.
+// It returns a clear error when the config file is missing or malformed, or when
+// Postgres is unreachable.
 func Run(ctx context.Context, opts Options) error {
 	opener := opts.Opener
 	if opener == nil {
 		opener = openDatabase
 	}
 
-	cfg, err := devconfig.LoadConfig(opts.ConfigPath)
+	cfg, err := loadConfig(opts.ConfigPath)
 	if err != nil {
 		return err
 	}
-	cfg = ApplySecretEnv(cfg, os.Getenv)
 
 	addr, err := serviceAddr(cfg, opts.ConfigPath)
 	if err != nil {

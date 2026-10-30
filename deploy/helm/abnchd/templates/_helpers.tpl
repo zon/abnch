@@ -31,6 +31,11 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- printf "%s-config" (include "abnchd.fullname" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
+{{/* The service image and tag the release runs. */}}
+{{- define "abnchd.image" -}}
+{{- printf "%s:%s" .Values.image.repository (.Values.image.tag | default .Chart.AppVersion) }}
+{{- end }}
+
 {{/* The service config file the container reads. */}}
 {{- define "abnchd.configPath" -}}
 /etc/abnchd/config.yaml

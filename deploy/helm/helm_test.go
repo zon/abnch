@@ -94,8 +94,9 @@ type podTemplate struct {
 
 // podSpec is the subset of a pod spec the tests read.
 type podSpec struct {
-	Containers []container `yaml:"containers"`
-	Volumes    []volume    `yaml:"volumes"`
+	InitContainers []container `yaml:"initContainers"`
+	Containers     []container `yaml:"containers"`
+	Volumes        []volume    `yaml:"volumes"`
 }
 
 // container is the subset of a container the tests read.
@@ -969,6 +970,49 @@ func TestDeploymentReadsRenderedConfig(t *testing.T) {
 	}
 	if mountPath != "" && configPath != path.Join(mountPath, "config.yaml") {
 		t.Errorf("container reads %q, want the config ConfigMap mounted at %q", configPath, mountPath)
+	}
+}
+
+// TestDeploymentMigratesBeforeServing checks that the Deployment runs
+// `abnchd migrate` as an init container with the rendered config and the
+// Postgres secret, so the schema is ready before the service starts and the
+// service container never migrates on its own.
+func TestDeploymentMigratesBeforeServing(t *testing.T) {
+	manifests := renderChart(t)
+
+	dep, ok := findKind(manifests, "Deployment")
+	if !ok {
+		t.Fatalf("chart renders no Deployment:\n%s", renderManifests(manifests))
+	}
+	if len(dep.Spec.Template.Spec.InitContainers) == 0 {
+		t.Fatalf("Deployment runs no init container:\n%s", renderManifests(manifests))
+	}
+	cm, ok := findKind(manifests, "ConfigMap")
+	if !ok {
+		t.Fatalf("chart renders no ConfigMap:\n%s", renderManifests(manifests))
+	}
+
+	c := dep.Spec.Template.Spec.InitContainers[0]
+	if got, want := c.Image, dep.Spec.Template.Spec.Containers[0].Image; got != want {
+		t.Errorf("init container image = %q, want the service image %q", got, want)
+	}
+	if len(c.Args) < 2 || c.Args[0] != "migrate" {
+		t.Fatalf("init container args = %v, want migrate and a config path", c.Args)
+	}
+	configPath := c.Args[1]
+	if path.Base(configPath) != "config.yaml" {
+		t.Errorf("init container config argument = %q, want the rendered config.yaml", configPath)
+	}
+	if _, ok := configMountPath(dep.Spec.Template.Spec.Volumes, c.VolumeMounts, cm.Metadata.Name, configPath); !ok {
+		t.Errorf("init container mounts no volume from ConfigMap %s at %s:\n%+v",
+			cm.Metadata.Name, configPath, c.VolumeMounts)
+	}
+	if _, ok := secretRef(c.Env, service.PostgresPasswordEnv); !ok {
+		t.Errorf("init container has no %s env:\n%+v", service.PostgresPasswordEnv, c.Env)
+	}
+
+	if slices.Contains(dep.Spec.Template.Spec.Containers[0].Args, "migrate") {
+		t.Errorf("service container args = %v, want no migration", dep.Spec.Template.Spec.Containers[0].Args)
 	}
 }
 

@@ -100,6 +100,53 @@ func TestRunRejectsInvalidServiceURL(t *testing.T) {
 	}
 }
 
+func TestMigrateRejectsMissingConfigFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+
+	err := Migrate(context.Background(), Options{ConfigPath: path, Migrator: unusedMigrator(t)})
+	if err == nil {
+		t.Fatal("Migrate = nil, want an error for a missing config file")
+	}
+	if !strings.Contains(err.Error(), "config.yaml") {
+		t.Errorf("error = %q, want it to name the missing file", err)
+	}
+}
+
+func TestMigrateRejectsIncompletePostgres(t *testing.T) {
+	path := writeConfig(t, "postgres:\n  host: db\n")
+
+	err := Migrate(context.Background(), Options{ConfigPath: path, Migrator: unusedMigrator(t)})
+	if err == nil {
+		t.Fatal("Migrate = nil, want an error for an incomplete postgres config")
+	}
+	if !strings.Contains(err.Error(), "postgres") {
+		t.Errorf("error = %q, want it to name the postgres config", err)
+	}
+}
+
+// TestMigrateUsesConfigPostgres checks that Migrate hands the config's Postgres
+// block, including the password the environment supplies, to the migrator. A
+// service url is not part of a migration, so its absence is allowed.
+func TestMigrateUsesConfigPostgres(t *testing.T) {
+	t.Setenv(PostgresPasswordEnv, "secret")
+	path := writeConfig(t, postgresYAML)
+
+	var got devconfig.Postgres
+	err := Migrate(context.Background(), Options{ConfigPath: path, Migrator: func(_ context.Context, pg devconfig.Postgres) error {
+		got = pg
+		return nil
+	}})
+	if err != nil {
+		t.Fatalf("Migrate = %v, want no error", err)
+	}
+
+	want := testPostgres()
+	want.Password = "secret"
+	if got != want {
+		t.Errorf("migrated postgres = %#v, want %#v", got, want)
+	}
+}
+
 // TestServiceAddrUsesListenWhenSet checks a listen address wins over the host
 // and port in url.
 func TestServiceAddrUsesListenWhenSet(t *testing.T) {
@@ -422,6 +469,16 @@ func unusedOpener(t *testing.T) Opener {
 	return func(context.Context, devconfig.Postgres) (Store, error) {
 		t.Fatal("opener called for a config that should have been rejected")
 		return nil, nil
+	}
+}
+
+// unusedMigrator fails the test when called, so a config error never reaches the
+// database.
+func unusedMigrator(t *testing.T) func(context.Context, devconfig.Postgres) error {
+	t.Helper()
+	return func(context.Context, devconfig.Postgres) error {
+		t.Fatal("migrator called for a config that should have been rejected")
+		return nil
 	}
 }
 

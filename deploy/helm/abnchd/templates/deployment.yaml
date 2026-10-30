@@ -14,9 +14,26 @@ spec:
       labels:
         {{- include "abnchd.selectorLabels" . | nindent 8 }}
     spec:
+      initContainers:
+        - name: migrate
+          image: "{{ include "abnchd.image" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - migrate
+            - {{ include "abnchd.configPath" . }}
+          env:
+            - name: ABNCHD_POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "abnchd.secretName" . }}
+                  key: {{ .Values.secrets.postgresPasswordKey }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/abnchd
+              readOnly: true
       containers:
         - name: abnchd
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: "{{ include "abnchd.image" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args:
             - {{ include "abnchd.configPath" . }}

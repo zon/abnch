@@ -2,12 +2,9 @@ package service
 
 import (
 	"context"
-	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -16,25 +13,21 @@ import (
 	"github.com/zon/abnch/internal/store"
 )
 
-// TestRunCreatesTables starts the service against the local database and checks
-// it creates the tables it needs.
-func TestRunCreatesTables(t *testing.T) {
+// TestMigrateCreatesTables runs the migration against the local database and
+// checks it creates the tables the service needs.
+func TestMigrateCreatesTables(t *testing.T) {
 	pg := localPostgres(t)
-	port := freePort(t)
 
-	cfg := devconfig.Config{URL: fmt.Sprintf("http://127.0.0.1:%d", port), Postgres: pg}
+	cfg := devconfig.Config{URL: "http://127.0.0.1:1", Postgres: pg}
 	data, err := cfg.Marshal()
 	if err != nil {
 		t.Fatal(err)
 	}
 	path := writeConfig(t, string(data))
 
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() {
-		done <- Run(ctx, Options{ConfigPath: path, Out: io.Discard})
-	}()
-	waitForService(t, fmt.Sprintf("http://127.0.0.1:%d/", port))
+	if err := Migrate(context.Background(), Options{ConfigPath: path}); err != nil {
+		t.Fatalf("Migrate = %v, want no error", err)
+	}
 
 	db, err := gorm.Open(postgres.Open(store.DSN(pg)), &gorm.Config{DisableAutomaticPing: true})
 	if err != nil {
@@ -45,18 +38,8 @@ func TestRunCreatesTables(t *testing.T) {
 	}
 	for _, model := range []any{&store.Repo{}, &store.Task{}, &store.Test{}, &store.Model{}, &store.Agent{}, &store.Grader{}, &store.Datum{}, &store.Result{}, &store.Score{}} {
 		if !db.Migrator().HasTable(model) {
-			t.Errorf("Run did not create the table for %T", model)
+			t.Errorf("Migrate did not create the table for %T", model)
 		}
-	}
-
-	cancel()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("Run = %v, want nil after cancel", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("Run did not return after its context was canceled")
 	}
 }
 

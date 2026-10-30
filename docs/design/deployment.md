@@ -18,6 +18,6 @@ The certificate Secret belongs to cert-manager, not to the chart values. The cha
 
 ## Helm Chart
 
-The service provides a Helm chart at `deploy/helm/abnchd` that installs it into a Kubernetes cluster. The chart values supply the [Service Config](app/abnchd-config.md), including the TLS certificate paths. The chart version and app version are the repo's semantic version, so a chart runs the image of the same version by default.
+The service provides a Helm chart at `deploy/helm/abnchd` that installs it into a Kubernetes cluster. The chart values supply the [Service Config](app/abnchd-config.md), including the TLS certificate paths. The chart version and app version are the repo's semantic version, so a chart runs the image of the same version by default. The chart runs `abnchd migrate` as an init container before the service container starts, so the schema is ready before the service serves and the service never migrates on its own.
 
 The same workflow that pushes the image publishes the chart as an OCI artifact at `ghcr.io/zon/abnch/charts/abnchd`, tagged with the repo version, once the image at that version is pushed. The chart package is public, like the image, so a deployment installs it with `oci://ghcr.io/zon/abnch/charts` as the repository, `abnchd` as the chart, and the repo version. A version is published once. A push to `main` that does not bump the version publishes nothing.
