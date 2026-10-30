@@ -431,6 +431,7 @@ type fakeDB struct {
 	repos          []store.Repo
 	tasks          []store.Task
 	tests          []store.Test
+	models         []store.Model
 	data           []store.Datum
 	results        []store.Result
 	scores         []store.Score
@@ -453,6 +454,7 @@ type fakeDB struct {
 	getScoreErr    error
 	listScoresErr  error
 	saveScoreErr   error
+	saveModelErr   error
 }
 
 func (f *fakeDB) GetRepo(org, stub string) (store.Repo, error) {
@@ -657,6 +659,35 @@ func (f *fakeDB) SaveTest(t store.Test) error {
 	return nil
 }
 
+func (f *fakeDB) GetModel(name, provider, variant string) (store.Model, error) {
+	for _, m := range f.models {
+		if m.Name == name && m.Provider == provider && m.Variant == variant {
+			return m, nil
+		}
+	}
+	return store.Model{}, store.ErrNotFound
+}
+
+func (f *fakeDB) ListModels() ([]store.Model, error) {
+	return f.models, nil
+}
+
+func (f *fakeDB) SaveModel(m store.Model) error {
+	if f.saveModelErr != nil {
+		return f.saveModelErr
+	}
+	if err := m.Validate(); err != nil {
+		return err
+	}
+	for _, existing := range f.models {
+		if existing == m {
+			return nil
+		}
+	}
+	f.models = append(f.models, m)
+	return nil
+}
+
 func (f *fakeDB) GetResult(org, repo, ref string) (store.Result, error) {
 	if f.getResultErr != nil {
 		return store.Result{}, f.getResultErr
@@ -688,6 +719,11 @@ func (f *fakeDB) SaveResult(r store.Result) (string, error) {
 	}
 	if err := r.Validate(); err != nil {
 		return "", err
+	}
+	if r.Model.Present() {
+		if err := f.SaveModel(r.Model); err != nil {
+			return "", err
+		}
 	}
 	r.Ref = store.ResultRef(r)
 	for i, existing := range f.results {
@@ -731,6 +767,11 @@ func (f *fakeDB) SaveScore(sc store.Score) (string, error) {
 	}
 	if err := sc.Validate(); err != nil {
 		return "", err
+	}
+	if sc.Model.Present() {
+		if err := f.SaveModel(sc.Model); err != nil {
+			return "", err
+		}
 	}
 	sc.Ref = store.ScoreRef(sc)
 	for i, existing := range f.scores {

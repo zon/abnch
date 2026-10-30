@@ -11,7 +11,7 @@ import (
 func TestMigrateCreatesTables(t *testing.T) {
 	s := newTestStore(t)
 
-	for _, model := range []any{&Repo{}, &Task{}, &Test{}, &Datum{}, &Result{}, &Score{}} {
+	for _, model := range []any{&Repo{}, &Task{}, &Test{}, &Model{}, &Datum{}, &Result{}, &Score{}} {
 		if !s.db.Migrator().HasTable(model) {
 			t.Errorf("Migrate did not create the table for %T", model)
 		}
@@ -1326,6 +1326,9 @@ func TestResultRef(t *testing.T) {
 		{"different test", func(r Result) Result { r.Test = "other"; return r }},
 		{"different task", func(r Result) Result { r.Task = "other"; return r }},
 		{"different repo", func(r Result) Result { r.Repo = "gadgets"; return r }},
+		{"different model name", func(r Result) Result { r.Model.Name = "claude-opus"; return r }},
+		{"different model provider", func(r Result) Result { r.Model.Provider = "openai"; return r }},
+		{"different model variant", func(r Result) Result { r.Model.Variant = "low"; return r }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := ResultRef(tc.change(base)); got == ref {
@@ -1666,6 +1669,278 @@ func TestGetScoreMissing(t *testing.T) {
 	}
 }
 
+// TestSaveAndGetModel checks a model round trips through the store with its
+// name, provider, and variant.
+func TestSaveAndGetModel(t *testing.T) {
+	s := newTestStore(t)
+	want := Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"}
+
+	if err := s.SaveModel(want); err != nil {
+		t.Fatalf("SaveModel: %v", err)
+	}
+
+	got, err := s.GetModel("claude-sonnet", "anthropic", "high")
+	if err != nil {
+		t.Fatalf("GetModel: %v", err)
+	}
+	if got != want {
+		t.Errorf("GetModel = %#v, want %#v", got, want)
+	}
+}
+
+// TestSaveModelReusesSameIdentity checks saving the same name, provider, and
+// variant again leaves one model.
+func TestSaveModelReusesSameIdentity(t *testing.T) {
+	s := newTestStore(t)
+	model := Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"}
+
+	for i := 0; i < 2; i++ {
+		if err := s.SaveModel(model); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	models, err := s.ListModels()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 1 {
+		t.Errorf("ListModels returned %d models, want 1", len(models))
+	}
+}
+
+// TestSaveModelSeparatesDifferentValues checks a model that differs in its
+// name, provider, or variant is a different record.
+func TestSaveModelSeparatesDifferentValues(t *testing.T) {
+	s := newTestStore(t)
+	base := Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"}
+	for _, model := range []Model{
+		base,
+		{Name: "claude-opus", Provider: base.Provider, Variant: base.Variant},
+		{Name: base.Name, Provider: "openai", Variant: base.Variant},
+		{Name: base.Name, Provider: base.Provider, Variant: "low"},
+	} {
+		if err := s.SaveModel(model); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	models, err := s.ListModels()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 4 {
+		t.Errorf("ListModels returned %d models, want 4", len(models))
+	}
+}
+
+// TestSaveModelAllowsEmptyVariant checks a model needs only its name and
+// provider, so an empty variant is a model of its own.
+func TestSaveModelAllowsEmptyVariant(t *testing.T) {
+	s := newTestStore(t)
+	want := Model{Name: "claude-sonnet", Provider: "anthropic"}
+
+	if err := s.SaveModel(want); err != nil {
+		t.Fatalf("SaveModel: %v", err)
+	}
+
+	got, err := s.GetModel("claude-sonnet", "anthropic", "")
+	if err != nil {
+		t.Fatalf("GetModel: %v", err)
+	}
+	if got != want {
+		t.Errorf("GetModel = %#v, want %#v", got, want)
+	}
+}
+
+// TestSaveModelRejectsMissingNameOrProvider checks a model without a name or
+// provider is refused and stored nowhere.
+func TestSaveModelRejectsMissingNameOrProvider(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		model Model
+	}{
+		{"missing name", Model{Provider: "anthropic", Variant: "high"}},
+		{"missing provider", Model{Name: "claude-sonnet", Variant: "high"}},
+		{"only variant", Model{Variant: "high"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTestStore(t)
+
+			if err := s.SaveModel(tc.model); !errors.Is(err, ErrInvalidModel) {
+				t.Errorf("SaveModel error = %v, want ErrInvalidModel", err)
+			}
+			models, err := s.ListModels()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(models) != 0 {
+				t.Errorf("ListModels returned %d models, want none", len(models))
+			}
+		})
+	}
+}
+
+// TestSaveResultStoresAndReusesModel checks a result creates the model it
+// carries, reuses it for the same values, and links a different model value to
+// a different record.
+func TestSaveResultStoresAndReusesModel(t *testing.T) {
+	s := newTestStore(t)
+	base := Result{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Data: "56ac1b0e4f0d", JSON: `{"answer":"hi"}`,
+		Model: Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"},
+	}
+
+	ref, err := s.SaveResult(base)
+	if err != nil {
+		t.Fatalf("SaveResult: %v", err)
+	}
+	got, err := s.GetResult("acme", "widgets", ref)
+	if err != nil {
+		t.Fatalf("GetResult: %v", err)
+	}
+	if got.Model != base.Model {
+		t.Errorf("result model = %#v, want %#v", got.Model, base.Model)
+	}
+
+	again := base
+	again.Data = "ffffffffffff"
+	if _, err := s.SaveResult(again); err != nil {
+		t.Fatal(err)
+	}
+	models, err := s.ListModels()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 1 {
+		t.Errorf("ListModels returned %d models, want 1", len(models))
+	}
+
+	other := base
+	other.Data = "eeeeeeeeeeee"
+	other.Model.Variant = "low"
+	if _, err := s.SaveResult(other); err != nil {
+		t.Fatal(err)
+	}
+	models, err = s.ListModels()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 2 {
+		t.Errorf("ListModels returned %d models, want 2", len(models))
+	}
+}
+
+// TestSaveResultRejectsIncompleteModel checks a result carrying a model without
+// a name or provider is refused and creates neither the result nor the model.
+func TestSaveResultRejectsIncompleteModel(t *testing.T) {
+	s := newTestStore(t)
+	r := Result{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Data: "56ac1b0e4f0d", JSON: `{"answer":"hi"}`,
+		Model: Model{Provider: "anthropic", Variant: "high"},
+	}
+
+	if _, err := s.SaveResult(r); !errors.Is(err, ErrInvalidModel) {
+		t.Errorf("SaveResult error = %v, want ErrInvalidModel", err)
+	}
+	results, err := s.ListResults("acme", "widgets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 0 {
+		t.Errorf("ListResults returned %d results, want none", len(results))
+	}
+	models, err := s.ListModels()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 0 {
+		t.Errorf("ListModels returned %d models, want none", len(models))
+	}
+}
+
+// TestSaveScoreStoresAndReusesModel checks a score creates the model it
+// carries, reuses it for the same values, and links a different model value to
+// a different record.
+func TestSaveScoreStoresAndReusesModel(t *testing.T) {
+	s := newTestStore(t)
+	base := Score{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Result: "56ac1b0e4f0d", Dictionary: map[string]float64{"correctness": 1},
+		Model: Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"},
+	}
+
+	ref, err := s.SaveScore(base)
+	if err != nil {
+		t.Fatalf("SaveScore: %v", err)
+	}
+	got, err := s.GetScore("acme", "widgets", ref)
+	if err != nil {
+		t.Fatalf("GetScore: %v", err)
+	}
+	if got.Model != base.Model {
+		t.Errorf("score model = %#v, want %#v", got.Model, base.Model)
+	}
+
+	again := base
+	again.Result = "ffffffffffff"
+	if _, err := s.SaveScore(again); err != nil {
+		t.Fatal(err)
+	}
+	models, err := s.ListModels()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 1 {
+		t.Errorf("ListModels returned %d models, want 1", len(models))
+	}
+
+	other := base
+	other.Result = "eeeeeeeeeeee"
+	other.Model.Variant = "low"
+	if _, err := s.SaveScore(other); err != nil {
+		t.Fatal(err)
+	}
+	models, err = s.ListModels()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 2 {
+		t.Errorf("ListModels returned %d models, want 2", len(models))
+	}
+}
+
+// TestSaveScoreRejectsIncompleteModel checks a score carrying a model without a
+// name or provider is refused and creates neither the score nor the model.
+func TestSaveScoreRejectsIncompleteModel(t *testing.T) {
+	s := newTestStore(t)
+	sc := Score{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Result: "56ac1b0e4f0d", Dictionary: map[string]float64{"correctness": 1},
+		Model: Model{Name: "claude-sonnet", Variant: "high"},
+	}
+
+	if _, err := s.SaveScore(sc); !errors.Is(err, ErrInvalidModel) {
+		t.Errorf("SaveScore error = %v, want ErrInvalidModel", err)
+	}
+	scores, err := s.ListScores("acme", "widgets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scores) != 0 {
+		t.Errorf("ListScores returned %d scores, want none", len(scores))
+	}
+	models, err := s.ListModels()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 0 {
+		t.Errorf("ListModels returned %d models, want none", len(models))
+	}
+}
+
 // TestScoreRef checks a ref is short and URL-safe, is stable for the same
 // dictionary within the same result, is independent of dictionary key order,
 // and changes when the dictionary or any part of the result identity changes.
@@ -1697,6 +1972,9 @@ func TestScoreRef(t *testing.T) {
 		{"different test", func(s Score) Score { s.Test = "other"; return s }},
 		{"different task", func(s Score) Score { s.Task = "other"; return s }},
 		{"different repo", func(s Score) Score { s.Repo = "gadgets"; return s }},
+		{"different model name", func(s Score) Score { s.Model.Name = "claude-opus"; return s }},
+		{"different model provider", func(s Score) Score { s.Model.Provider = "openai"; return s }},
+		{"different model variant", func(s Score) Score { s.Model.Variant = "low"; return s }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := ScoreRef(tc.change(base)); got == ref {

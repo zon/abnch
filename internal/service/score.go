@@ -22,6 +22,7 @@ type scoreRequest struct {
 	Task         string         `json:"task"`
 	Test         string         `json:"test"`
 	Result       string         `json:"result"`
+	Model        *store.Model   `json:"model"`
 	Dictionary   map[string]any `json:"dictionary"`
 	Logs         string         `json:"logs"`
 	InputTokens  int            `json:"inputTokens"`
@@ -36,6 +37,7 @@ type score struct {
 	Task         string             `json:"task"`
 	Test         string             `json:"test"`
 	Result       string             `json:"result"`
+	Model        store.Model        `json:"model"`
 	Dictionary   map[string]float64 `json:"dictionary"`
 	Logs         string             `json:"logs"`
 	InputTokens  int                `json:"inputTokens"`
@@ -66,6 +68,12 @@ func addScore(st Store) http.HandlerFunc {
 		if !ok {
 			httpx.WriteError(w, http.StatusUnprocessableEntity, "invalid score body")
 			return
+		}
+		if body.Model != nil {
+			if err := body.Model.Validate(); err != nil {
+				writeScoreStoreError(w, err)
+				return
+			}
 		}
 
 		if _, ok := requireTask(w, st, org, repo, body.Task); !ok {
@@ -173,7 +181,7 @@ func requireScore(w http.ResponseWriter, st Store, org, repo, ref string) (store
 // comes back as null.
 func scoreJSON(sc store.Score) score {
 	return score{
-		Ref: sc.Ref, Task: sc.Task, Test: sc.Test, Result: sc.Result,
+		Ref: sc.Ref, Task: sc.Task, Test: sc.Test, Result: sc.Result, Model: sc.Model,
 		Dictionary: sc.Dictionary, Logs: sc.Logs,
 		InputTokens: sc.InputTokens, OutputTokens: sc.OutputTokens,
 		TokenCost: sc.TokenCost, Duration: sc.Duration,
@@ -197,22 +205,30 @@ func numberDictionary(raw map[string]any) (map[string]float64, bool) {
 	return dictionary, true
 }
 
-// newScore builds the store score a body describes for the route's repo.
+// newScore builds the store score a body describes for the route's repo,
+// including the model it carries when it names one.
 func newScore(org, repo string, body scoreRequest, dictionary map[string]float64) store.Score {
-	return store.Score{
+	sc := store.Score{
 		Org: org, Repo: repo, Task: body.Task, Test: body.Test, Result: body.Result,
 		Dictionary: dictionary, Logs: body.Logs,
 		InputTokens: body.InputTokens, OutputTokens: body.OutputTokens,
 		TokenCost: body.TokenCost, Duration: body.Duration,
 	}
+	if body.Model != nil {
+		sc.Model = *body.Model
+	}
+	return sc
 }
 
 // writeScoreStoreError writes the service error response for a score store
-// failure. A score the store rejects is a client error.
+// failure. A score or model the store rejects is a client error.
 func writeScoreStoreError(w http.ResponseWriter, err error) {
-	if errors.Is(err, store.ErrInvalidScore) {
+	switch {
+	case errors.Is(err, store.ErrInvalidModel):
+		httpx.WriteError(w, http.StatusUnprocessableEntity, "model must carry a name and provider")
+	case errors.Is(err, store.ErrInvalidScore):
 		httpx.WriteError(w, http.StatusUnprocessableEntity, "score metrics must be zero or greater")
-		return
+	default:
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to save score")
 	}
-	httpx.WriteError(w, http.StatusInternalServerError, "failed to save score")
 }

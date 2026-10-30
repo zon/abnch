@@ -24,6 +24,9 @@ var ErrInvalidTest = errors.New("invalid test")
 // as two keys sharing a stub.
 var ErrInvalidSchema = errors.New("invalid schema")
 
+// ErrInvalidModel reports that a model is missing its name or provider.
+var ErrInvalidModel = errors.New("invalid model")
+
 // ErrInvalidResult reports that a result carries a negative run metric.
 var ErrInvalidResult = errors.New("invalid result")
 
@@ -42,7 +45,7 @@ func New(db *gorm.DB) *Store {
 
 // Migrate creates the tables the store needs.
 func (s *Store) Migrate() error {
-	return s.db.AutoMigrate(&Repo{}, &Task{}, &Test{}, &Datum{}, &Result{}, &Score{})
+	return s.db.AutoMigrate(&Repo{}, &Task{}, &Test{}, &Model{}, &Datum{}, &Result{}, &Score{})
 }
 
 // Close closes the store's database connection.
@@ -143,6 +146,41 @@ func (s *Store) ListTests(org, repo, task string) ([]Test, error) {
 	return tests, nil
 }
 
+// SaveModel writes a model, creating it or leaving the stored model with the
+// same name, provider, and variant. It returns ErrInvalidModel when the model
+// misses its name or provider.
+func (s *Store) SaveModel(m Model) error {
+	return saveModel(s.db, m)
+}
+
+// saveModel writes a model with db, reusing the stored model with the same
+// identity.
+func saveModel(db *gorm.DB, m Model) error {
+	if err := m.Validate(); err != nil {
+		return err
+	}
+	return db.Clauses(clause.OnConflict{DoNothing: true}).Create(&m).Error
+}
+
+// GetModel returns the model with the given name, provider, and variant, or
+// ErrNotFound.
+func (s *Store) GetModel(name, provider, variant string) (Model, error) {
+	var m Model
+	if err := s.db.First(&m, "name = ? AND provider = ? AND variant = ?", name, provider, variant).Error; err != nil {
+		return Model{}, notFound(err)
+	}
+	return m, nil
+}
+
+// ListModels returns every model, ordered by provider, name, and variant.
+func (s *Store) ListModels() ([]Model, error) {
+	var models []Model
+	if err := s.db.Order("provider, name, variant").Find(&models).Error; err != nil {
+		return nil, err
+	}
+	return models, nil
+}
+
 // SaveDatum stores the JSON a test passes to an agent and returns the datum's
 // ref. The ref is derived from the JSON, so saving the same JSON in the same
 // test again returns the same ref and leaves one datum. It stores the JSON
@@ -180,13 +218,23 @@ func (s *Store) ListData(org, repo, task, test string) ([]Datum, error) {
 // SaveResult stores the JSON an agent produced for a datum and returns the
 // result's ref. The ref is derived from the JSON within its datum, so saving
 // the same JSON for the same datum again returns the same ref and leaves one
-// result. It returns ErrInvalidResult when a run metric is negative.
+// result. It creates or reuses the model the result carries in the same write.
+// It returns ErrInvalidResult when a run metric is negative and ErrInvalidModel
+// when the carried model misses its name or provider.
 func (s *Store) SaveResult(r Result) (string, error) {
 	if err := r.Validate(); err != nil {
 		return "", err
 	}
 	r.Ref = ResultRef(r)
-	if err := s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&r).Error; err != nil {
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if r.Model.Present() {
+			if err := saveModel(tx, r.Model); err != nil {
+				return err
+			}
+		}
+		return tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&r).Error
+	})
+	if err != nil {
 		return "", err
 	}
 	return r.Ref, nil
@@ -213,14 +261,24 @@ func (s *Store) ListResults(org, repo string) ([]Result, error) {
 // SaveScore stores the key-number dictionary a grader produced for a result and
 // returns the score's ref. The ref is derived from the dictionary within its
 // result, so saving the same dictionary for the same result again returns the
-// same ref and leaves one score. It returns ErrInvalidScore when a run metric
-// is negative.
+// same ref and leaves one score. It creates or reuses the model the score
+// carries in the same write. It returns ErrInvalidScore when a run metric is
+// negative and ErrInvalidModel when the carried model misses its name or
+// provider.
 func (s *Store) SaveScore(sc Score) (string, error) {
 	if err := sc.Validate(); err != nil {
 		return "", err
 	}
 	sc.Ref = ScoreRef(sc)
-	if err := s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&sc).Error; err != nil {
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if sc.Model.Present() {
+			if err := saveModel(tx, sc.Model); err != nil {
+				return err
+			}
+		}
+		return tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&sc).Error
+	})
+	if err != nil {
 		return "", err
 	}
 	return sc.Ref, nil

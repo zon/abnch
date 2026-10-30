@@ -46,6 +46,15 @@ type Store interface {
 	// stub is taken, and store.ErrInvalidStub when the new stub is not
 	// URL-safe.
 	MoveTest(org, repo, task, stub, newStub string) (store.Test, error)
+	// GetModel returns the model with the given name, provider, and variant, or
+	// store.ErrNotFound.
+	GetModel(name, provider, variant string) (store.Model, error)
+	// ListModels returns every model, ordered by provider, name, and variant.
+	ListModels() ([]store.Model, error)
+	// SaveModel creates or reuses the model with the given name, provider, and
+	// variant. It reports store.ErrInvalidModel when the model misses its name
+	// or provider.
+	SaveModel(m store.Model) error
 	// ListData returns a test's data, ordered by ref.
 	ListData(org, repo, task, test string) ([]store.Datum, error)
 	// GetDatum returns the datum with the given ref in a test, or

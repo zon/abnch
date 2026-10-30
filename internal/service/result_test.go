@@ -69,6 +69,93 @@ func TestAddResultStoresResult(t *testing.T) {
 	}
 }
 
+// TestAddResultCreatesAndReusesModel checks a result write creates the model it
+// carries, links it to the result, and reuses it for the same model values.
+func TestAddResultCreatesAndReusesModel(t *testing.T) {
+	st := resultStore()
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+	body := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `",` +
+		`"model":{"name":"claude-sonnet","provider":"anthropic","variant":"high"},"json":{"answer":"hi"}}`
+	want := store.Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"}
+
+	for i, wantStatus := range []int{http.StatusCreated, http.StatusOK} {
+		resp := sendResultPost(t, base, "repos/acme/widgets/results", body)
+		defer resp.Body.Close()
+		if resp.StatusCode != wantStatus {
+			t.Fatalf("post %d status = %d, want %d", i, resp.StatusCode, wantStatus)
+		}
+	}
+
+	if len(st.models) != 1 {
+		t.Fatalf("store holds %d models, want 1", len(st.models))
+	}
+	if st.models[0] != want {
+		t.Errorf("stored model = %#v, want %#v", st.models[0], want)
+	}
+	if len(st.results) != 1 {
+		t.Fatalf("store holds %d results, want 1", len(st.results))
+	}
+	if st.results[0].Model != want {
+		t.Errorf("result model = %#v, want %#v", st.results[0].Model, want)
+	}
+}
+
+// TestAddResultDifferentModelVariantDifferentRecord checks a result carrying the
+// same model name and provider with another variant links to a different model
+// record.
+func TestAddResultDifferentModelVariantDifferentRecord(t *testing.T) {
+	st := resultStore()
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+	path := "repos/acme/widgets/results"
+
+	for _, variant := range []string{"high", "low"} {
+		body := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `",` +
+			`"model":{"name":"claude-sonnet","provider":"anthropic","variant":"` + variant + `"},"json":{"answer":"hi"}}`
+		resp := sendResultPost(t, base, path, body)
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("variant %s status = %d, want %d", variant, resp.StatusCode, http.StatusCreated)
+		}
+	}
+
+	if len(st.models) != 2 {
+		t.Errorf("store holds %d models, want 2", len(st.models))
+	}
+	if len(st.results) != 2 {
+		t.Errorf("store holds %d results, want 2", len(st.results))
+	}
+}
+
+// TestAddResultRejectsIncompleteModel checks a result carrying a model without a
+// name or provider returns 422 and creates neither the result nor the model.
+func TestAddResultRejectsIncompleteModel(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		model string
+	}{
+		{name: "missing name", model: `{"provider":"anthropic","variant":"high"}`},
+		{name: "missing provider", model: `{"name":"claude-sonnet","variant":"high"}`},
+		{name: "only variant", model: `{"variant":"high"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := resultStore()
+			base := startServiceWithStore(t, st, auth.RoleAdmin)
+			body := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `","model":` + tc.model + `,"json":{"answer":"hi"}}`
+
+			resp := sendResultPost(t, base, "repos/acme/widgets/results", body)
+			defer resp.Body.Close()
+
+			assertServiceError(t, resp, http.StatusUnprocessableEntity)
+			if len(st.models) != 0 {
+				t.Errorf("store holds %d models, want none", len(st.models))
+			}
+			if len(st.results) != 0 {
+				t.Errorf("store holds %d results, want none", len(st.results))
+			}
+		})
+	}
+}
+
 // TestAddResultRejectsNegativeMetrics checks a result with a negative token
 // count, cost, or duration returns 422 and creates no result.
 func TestAddResultRejectsNegativeMetrics(t *testing.T) {
@@ -337,7 +424,9 @@ func TestGetResultReturnsFields(t *testing.T) {
 	st := resultStore()
 	st.results = []store.Result{{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
-		Data: st.data[0].Ref, Ref: "aaa111", JSON: `{"answer":"hi"}`, Logs: "worked",
+		Data:  st.data[0].Ref,
+		Model: store.Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"},
+		Ref:   "aaa111", JSON: `{"answer":"hi"}`, Logs: "worked",
 		InputTokens: 12, OutputTokens: 3, TokenCost: 0.01, Duration: 1.5, Local: "main",
 	}}
 	base := startServiceWithStore(t, st, auth.RoleReader)
@@ -360,6 +449,7 @@ func TestGetResultReturnsFields(t *testing.T) {
 		Task         string          `json:"task"`
 		Test         string          `json:"test"`
 		Data         string          `json:"data"`
+		Model        store.Model     `json:"model"`
 		JSON         json.RawMessage `json:"json"`
 		Logs         string          `json:"logs"`
 		InputTokens  int             `json:"inputTokens"`
@@ -373,6 +463,9 @@ func TestGetResultReturnsFields(t *testing.T) {
 	}
 	if got.Ref != "aaa111" || got.Task != "fix-bug" || got.Test != "basic" || got.Data != st.data[0].Ref {
 		t.Errorf("result identity = %#v, want the stored ref, task, test, and datum ref", got)
+	}
+	if got.Model != st.results[0].Model {
+		t.Errorf("result model = %#v, want the stored model %#v", got.Model, st.results[0].Model)
 	}
 	if string(got.JSON) != `{"answer":"hi"}` {
 		t.Errorf("result JSON = %s, want the stored JSON", got.JSON)
