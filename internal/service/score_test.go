@@ -565,6 +565,43 @@ func TestAddScoreMissingResult(t *testing.T) {
 	}
 }
 
+// TestAddScoreRejectsMismatchedResultTaskOrTest checks a score whose task or
+// test does not match its result's task or test returns 422 and creates no
+// score, model, or grader.
+func TestAddScoreRejectsMismatchedResultTaskOrTest(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		task string
+		test string
+	}{
+		{name: "different task", task: "other-task", test: "basic"},
+		{name: "different test", task: "fix-bug", test: "other"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := scoreStore()
+			base := startServiceWithStore(t, st, auth.RoleAdmin)
+			body := `{"task":"` + tc.task + `","test":"` + tc.test + `","result":"aaa111",` +
+				`"model":{"name":"claude-sonnet","provider":"anthropic","variant":"high"},` +
+				`"grader":{"name":"llm-judge","stub":"judge","commit":"def456","branch":"main"},` +
+				`"dictionary":{"correctness":1}}`
+
+			resp := sendScorePost(t, base, "repos/acme/widgets/scores", body)
+			defer resp.Body.Close()
+
+			assertServiceError(t, resp, http.StatusUnprocessableEntity)
+			if len(st.scores) != 0 {
+				t.Errorf("store holds %d scores, want none", len(st.scores))
+			}
+			if len(st.models) != 0 {
+				t.Errorf("store holds %d models, want none", len(st.models))
+			}
+			if len(st.graders) != 0 {
+				t.Errorf("store holds %d graders, want none", len(st.graders))
+			}
+		})
+	}
+}
+
 // TestAddScoreAcceptsSchemaKeys checks a score whose keys are all in the
 // result's test score schema is created, including a score that omits a schema
 // key.

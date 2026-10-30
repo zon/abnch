@@ -54,9 +54,9 @@ type score struct {
 // its ref. It answers 201 for a new ref and 200 when the ref already exists,
 // without creating a second score. A score the store rejects is a client error,
 // so a negative run metric, a value that is not a number, a key outside the
-// test's score schema, or an incomplete model or grader is rejected with 422
-// without creating a score, and a missing result writes the service error
-// response.
+// test's score schema, an incomplete model or grader, or a task or test that
+// does not match the result's is rejected with 422 without creating a score,
+// and a missing result writes the service error response.
 func addScore(st Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		org, repo := r.PathValue("org"), r.PathValue("repo")
@@ -87,14 +87,20 @@ func addScore(st Store) http.HandlerFunc {
 			}
 		}
 
+		result, ok := requireResult(w, st, org, repo, body.Result)
+		if !ok {
+			return
+		}
+		if result.Task != body.Task || result.Test != body.Test {
+			httpx.WriteError(w, http.StatusUnprocessableEntity, "score task and test must match its result")
+			return
+		}
+
 		if _, ok := requireTask(w, st, org, repo, body.Task); !ok {
 			return
 		}
 		test, ok := requireTest(w, st, org, repo, body.Task, body.Test)
 		if !ok {
-			return
-		}
-		if _, ok := requireResult(w, st, org, repo, body.Result); !ok {
 			return
 		}
 		if !test.AllowsScore(dictionary) {
