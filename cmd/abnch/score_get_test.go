@@ -21,7 +21,9 @@ type scoreAPI struct {
 	Task         string             `json:"task"`
 	Test         string             `json:"test"`
 	Result       string             `json:"result"`
-	Dictionary   map[string]float64 `json:"dictionary"`
+	Model        store.Model        `json:"model"`
+	Grader       store.Grader       `json:"grader"`
+	Body         map[string]float64 `json:"body"`
 	Logs         string             `json:"logs"`
 	InputTokens  int                `json:"inputTokens"`
 	OutputTokens int                `json:"outputTokens"`
@@ -71,7 +73,8 @@ func (f *fakeService) serveGetScore(w http.ResponseWriter, org, repo, ref string
 	}
 	httpx.WriteJSON(w, http.StatusOK, scoreAPI{
 		Ref: sc.Ref, Task: sc.Task, Test: sc.Test, Result: sc.Result,
-		Dictionary: sc.Dictionary, Logs: sc.Logs,
+		Model: sc.Model, Grader: sc.Grader,
+		Body: sc.Body, Logs: sc.Logs,
 		InputTokens: sc.InputTokens, OutputTokens: sc.OutputTokens,
 		TokenCost: sc.TokenCost, Duration: sc.Duration,
 	})
@@ -95,8 +98,8 @@ func TestGetScoresListsScoresAsYAML(t *testing.T) {
 	addRemote(t, workDir, "git@github.com:acme/widgets.git")
 	fake := newFakeService(t)
 	refs := seedWidgetScores(t, fake,
-		store.Score{Task: "fix-bug", Test: "basic", Result: "aaaa", Dictionary: map[string]float64{"correctness": 1}},
-		store.Score{Task: "fix-bug", Test: "basic", Result: "aaaa", Dictionary: map[string]float64{"correctness": 0}},
+		store.Score{Task: "fix-bug", Test: "basic", Result: "aaaa", Body: map[string]float64{"correctness": 1}},
+		store.Score{Task: "fix-bug", Test: "basic", Result: "aaaa", Body: map[string]float64{"correctness": 0}},
 	)
 	d, out := getDeps(t, workDir, fake.url)
 
@@ -121,9 +124,9 @@ func TestGetScoresListsOnlyTheRepoScores(t *testing.T) {
 	addRemote(t, workDir, "git@github.com:acme/widgets.git")
 	fake := newFakeService(t)
 	want := seedWidgetScores(t, fake,
-		store.Score{Task: "fix-bug", Test: "basic", Result: "aaaa", Dictionary: map[string]float64{"correctness": 1}},
+		store.Score{Task: "fix-bug", Test: "basic", Result: "aaaa", Body: map[string]float64{"correctness": 1}},
 	)[0]
-	fake.seedScore(store.Score{Org: "acme", Repo: "gadgets", Task: "fix-bug", Test: "basic", Result: "aaaa", Dictionary: map[string]float64{"correctness": 1}})
+	fake.seedScore(store.Score{Org: "acme", Repo: "gadgets", Task: "fix-bug", Test: "basic", Result: "aaaa", Body: map[string]float64{"correctness": 1}})
 	d, out := getDeps(t, workDir, fake.url)
 
 	if err := runGet([]string{"scores"}, d); err != nil {
@@ -213,8 +216,8 @@ func TestGetScorePrintsScoreAsJSON(t *testing.T) {
 	fake := newFakeService(t)
 	ref := seedWidgetScores(t, fake, store.Score{
 		Task: "fix-bug", Test: "basic", Result: "aaaa",
-		Dictionary: map[string]float64{"correctness": 1, "style": 0.5},
-		Logs:       "graded\n", InputTokens: 12, OutputTokens: 3, TokenCost: 0.01, Duration: 0.5,
+		Body: map[string]float64{"correctness": 1, "style": 0.5},
+		Logs: "graded\n", InputTokens: 12, OutputTokens: 3, TokenCost: 0.01, Duration: 0.5,
 	})[0]
 	d, out := getDeps(t, workDir, fake.url)
 
@@ -227,7 +230,7 @@ func TestGetScorePrintsScoreAsJSON(t *testing.T) {
 		Task         string             `json:"task"`
 		Test         string             `json:"test"`
 		Result       string             `json:"result"`
-		Dictionary   map[string]float64 `json:"dictionary"`
+		Body         map[string]float64 `json:"body"`
 		Logs         string             `json:"logs"`
 		InputTokens  int                `json:"inputTokens"`
 		OutputTokens int                `json:"outputTokens"`
@@ -240,14 +243,50 @@ func TestGetScorePrintsScoreAsJSON(t *testing.T) {
 	if got.Ref != ref || got.Task != "fix-bug" || got.Test != "basic" || got.Result != "aaaa" {
 		t.Errorf("score = %+v, want the stored score", got)
 	}
-	if got.Dictionary["correctness"] != 1 || got.Dictionary["style"] != 0.5 {
-		t.Errorf("dictionary = %v, want the stored dictionary", got.Dictionary)
+	if got.Body["correctness"] != 1 || got.Body["style"] != 0.5 {
+		t.Errorf("body = %v, want the stored body", got.Body)
 	}
 	if got.Logs != "graded\n" || got.InputTokens != 12 || got.OutputTokens != 3 || got.TokenCost != 0.01 || got.Duration != 0.5 {
 		t.Errorf("score = %+v, want the stored logs and metrics", got)
 	}
 	if !contains(fake.methods(), "GET /repos/acme/widgets/scores/"+ref) {
 		t.Errorf("requests = %v, want the score request", fake.methods())
+	}
+}
+
+func TestGetScorePrintsLinkedModelAndGrader(t *testing.T) {
+	workDir := t.TempDir()
+	addRemote(t, workDir, "git@github.com:acme/widgets.git")
+	fake := newFakeService(t)
+	wantModel := store.Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"}
+	wantGrader := store.Grader{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Name: "llm-judge", Stub: "judge", Commit: "def456",
+		Branch: "main", Version: "2.0.0", Uncommitted: true,
+	}
+	ref := seedWidgetScores(t, fake, store.Score{
+		Task: "fix-bug", Test: "basic", Result: "aaaa",
+		Body:  map[string]float64{"correctness": 1},
+		Model: wantModel, Grader: wantGrader,
+	})[0]
+	d, out := getDeps(t, workDir, fake.url)
+
+	if err := runGet([]string{"score", ref}, d); err != nil {
+		t.Fatalf("get score = %v, want no error", err)
+	}
+
+	var got struct {
+		Model  store.Model  `json:"model"`
+		Grader store.Grader `json:"grader"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out.String())
+	}
+	if got.Model != wantModel {
+		t.Errorf("model = %+v, want the linked model %+v", got.Model, wantModel)
+	}
+	if got.Grader != wantGrader {
+		t.Errorf("grader = %+v, want the linked grader %+v", got.Grader, wantGrader)
 	}
 }
 

@@ -66,9 +66,9 @@ External code that can produce a task result. An agent record identifies the cod
 
 ## Result
 
-The JSON produced by an agent.
+The body an agent produced.
 
-* JSON
+* Body
 * Logs
 * Input tokens
 * Output tokens
@@ -92,9 +92,9 @@ External code that can score a result. A grader record identifies the code by it
 
 ## Score
 
-A key-number dictionary reporting how well an agent performed a task.
+The body a grader produced for a result. It holds a number per key of the test score schema.
 
-* Key-number dictionary
+* Body
 * Logs
 * Input tokens
 * Output tokens

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"strconv"
 	"strings"
 )
 
@@ -16,22 +17,33 @@ func DatumRef(body []byte) string {
 }
 
 // ResultRef returns a result's ref: a short, URL-safe string derived from the
-// result JSON within its datum. The same JSON for the same datum always returns
-// the same ref, and results for different data return different refs even when
-// their JSON matches.
+// result body, its datum, and its model and agent. The same body for the same
+// datum from the same model and agent always returns the same ref, and results
+// that differ in data, body, model, or agent return different refs.
 func ResultRef(r Result) string {
-	parts := []string{r.Org, r.Repo, r.Task, r.Test, r.Data, r.JSON}
+	parts := []string{
+		r.Org, r.Repo, r.Task, r.Test, r.Data, r.Body,
+		r.Model.Name, r.Model.Provider, r.Model.Variant,
+		r.Agent.Stub, r.Agent.Commit, r.Agent.Branch,
+		r.Agent.Version, strconv.FormatBool(r.Agent.Uncommitted),
+	}
 	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
 	return hex.EncodeToString(sum[:])[:12]
 }
 
 // ScoreRef returns a score's ref: a short, URL-safe string derived from the
-// score's key-number dictionary within its result. The same dictionary for the
-// same result always returns the same ref, and scores for different results
-// return different refs even when their dictionaries match.
+// score's key-number body, its result, and its model and grader. The same body
+// for the same result from the same model and grader always returns the same
+// ref, and scores that differ in result, body, model, or grader return
+// different refs.
 func ScoreRef(s Score) string {
-	dict, _ := json.Marshal(s.Dictionary)
-	parts := []string{s.Org, s.Repo, s.Task, s.Test, s.Result, string(dict)}
+	body, _ := json.Marshal(s.Body)
+	parts := []string{
+		s.Org, s.Repo, s.Task, s.Test, s.Result, string(body),
+		s.Model.Name, s.Model.Provider, s.Model.Variant,
+		s.Grader.Stub, s.Grader.Commit, s.Grader.Branch,
+		s.Grader.Version, strconv.FormatBool(s.Grader.Uncommitted),
+	}
 	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
 	return hex.EncodeToString(sum[:])[:12]
 }

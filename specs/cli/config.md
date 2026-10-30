@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Create, update, and read the local CLI config. The config at `.abnch/config.yaml` under the working directory records the service URL and the models, tasks, agents, and graders the CLI works with. Its schema is defined in the [CLI Config Design](../../docs/design/app/abnch-config.md).
+Create, update, and read the local CLI config. The config at `.abnch/config.yaml` under the working directory records the service URL. Result and score submission carry their own model, agent, and grader records, so the config holds nothing else. Its schema is defined in the [CLI Config Design](../../docs/design/app/abnch-config.md).
 
 ## Requirements
 
@@ -21,10 +21,10 @@ The command SHALL preserve every other key in the file. It SHALL fail when neith
 
 #### Scenario: Update the URL
 
-- GIVEN the config has a url and records a model
+- GIVEN the config has a url
 - WHEN the user runs `abnch set config --url https://new.example.com`
 - THEN the config's url is `https://new.example.com`
-- AND the model is unchanged
+- AND the command exits zero
 
 #### Scenario: No URL
 
@@ -47,9 +47,9 @@ The command SHALL preserve every other key in the file. It SHALL fail when neith
 
 #### Scenario: Read the config
 
-- GIVEN the config has a url and records a model and a task
+- GIVEN the config has a url
 - WHEN the user runs `abnch get config`
-- THEN the output is YAML carrying the url, the model, and the task
+- THEN the output is YAML carrying the url
 - AND the command exits zero
 
 #### Scenario: Read with no config
@@ -58,22 +58,6 @@ The command SHALL preserve every other key in the file. It SHALL fail when neith
 - WHEN the user runs `abnch get config`
 - THEN the output is empty
 - AND the command exits zero
-
-### Requirement: Config Updates Preserve the Service URL
-
-An `add result` or `add score` command that records a model, agent, or grader SHALL preserve the config's url and every key the command does not name.
-
-#### Scenario: Add a result
-
-- GIVEN the config has a url
-- WHEN the user runs `abnch add result fix-bug/basic/<ref>` with a model and an agent
-- THEN the config still holds its url
-
-#### Scenario: Add a score
-
-- GIVEN the config has a url
-- WHEN the user runs `abnch add score <ref>` with a model and a grader
-- THEN the config still holds its url
 
 ### Requirement: Missing URL Message
 

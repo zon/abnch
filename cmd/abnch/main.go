@@ -22,8 +22,6 @@ type cli struct {
 	Get     getCmd      `cmd:"" help:"Read resources from the inferred repo."`
 	Set     setCmd      `cmd:"" help:"Create or update resources in the inferred repo."`
 	Add     addCmd      `cmd:"" help:"Add resources to the inferred repo."`
-	Run     runCmd      `cmd:"" help:"Run a task's agent against a test's data."`
-	Score   scoreCmd    `cmd:"" help:"Score a result with the task's grader."`
 }
 
 // errVersion stops parsing after the version prints, so a version request is not
@@ -41,35 +39,11 @@ func (versionFlag) BeforeApply(app *kong.Kong, vars kong.Vars) error {
 	return errVersion
 }
 
-// scoreCmd scores a result with the task's grader.
-type scoreCmd struct {
-	Ref   string `arg:"" help:"Result ref."`
-	Model string `help:"Override the task's default model." optional:""`
-	Local bool   `help:"Select a local run, the only run mode."`
-}
-
-// Run runs the task's grader against the result and records a score.
-func (c scoreCmd) Run(deps deps) error {
-	return scoreResult(deps, c)
-}
-
-// runCmd runs a task's agent against the data in a test.
-type runCmd struct {
-	Path    string `arg:"" help:"Task, test, and optional datum ref as <task>/<test>[/<ref>]."`
-	Model   string `help:"Override the task's default model." optional:""`
-	Limit   int    `help:"Cap the number of data run." default:"-1"`
-	Shuffle bool   `help:"Randomize the data order."`
-	Local   bool   `help:"Select a local run, the only run mode."`
-}
-
-// Run runs the agent against the test's data and records a result for each.
-func (c runCmd) Run(deps deps) error {
-	return runTask(deps, c)
-}
-
 // addCmd groups the commands that add resources.
 type addCmd struct {
-	Data addDataCmd `cmd:"" help:"Add a datum to a test in the inferred repo."`
+	Data   addDataCmd   `cmd:"" help:"Add a datum to a test in the inferred repo."`
+	Result addResultCmd `cmd:"" help:"Add a result for a datum in the inferred repo."`
+	Score  addScoreCmd  `cmd:"" help:"Add a score for a result in the inferred repo."`
 }
 
 // addDataCmd adds a datum to a test under a task in the inferred repo.
@@ -83,6 +57,28 @@ func (c addDataCmd) Run(deps deps) error {
 	return addData(deps, c)
 }
 
+// addResultCmd adds a result for a datum in the inferred repo.
+type addResultCmd struct {
+	Path string `arg:"" help:"Task, test, and datum ref as <task>/<test>/<ref>."`
+	File string `help:"Path to a YAML or JSON file holding the result input." optional:""`
+}
+
+// Run adds the result for the datum in the inferred repo.
+func (c addResultCmd) Run(deps deps) error {
+	return addResult(deps, c)
+}
+
+// addScoreCmd adds a score for a result in the inferred repo.
+type addScoreCmd struct {
+	Ref  string `arg:"" help:"Result ref."`
+	File string `help:"Path to a YAML or JSON file holding the score input." optional:""`
+}
+
+// Run adds the score for the result in the inferred repo.
+func (c addScoreCmd) Run(deps deps) error {
+	return addScore(deps, c)
+}
+
 // getCmd groups the commands that read resources.
 type getCmd struct {
 	Config  getConfigCmd  `cmd:"" help:"Print the CLI config as YAML."`
@@ -91,10 +87,6 @@ type getCmd struct {
 	Tests   getTestsCmd   `cmd:"" help:"List a task's tests as YAML."`
 	Test    getTestCmd    `cmd:"" help:"Print one test as YAML."`
 	Data    getDataCmd    `cmd:"" help:"List a test's data refs or print one datum as JSON."`
-	Models  getModelsCmd  `cmd:"" help:"List the models in the CLI config as YAML."`
-	Model   getModelCmd   `cmd:"" help:"Print one model as YAML."`
-	Agent   getAgentCmd   `cmd:"" help:"Print a task's agent as YAML."`
-	Grader  getGraderCmd  `cmd:"" help:"Print a task's grader as YAML."`
 	Results getResultsCmd `cmd:"" help:"List the inferred repo's results as YAML."`
 	Result  getResultCmd  `cmd:"" help:"Print one result as JSON."`
 	Scores  getScoresCmd  `cmd:"" help:"List the inferred repo's scores as YAML."`
@@ -143,44 +135,6 @@ type getResultCmd struct {
 // Run prints the result as JSON.
 func (c getResultCmd) Run(deps deps) error {
 	return getResult(deps, c.Ref)
-}
-
-// getAgentCmd prints one task's agent as YAML.
-type getAgentCmd struct {
-	Stub string `arg:"" help:"Task stub."`
-}
-
-// Run prints the task's agent as YAML.
-func (c getAgentCmd) Run(deps deps) error {
-	return getAgent(deps, c.Stub)
-}
-
-// getGraderCmd prints one task's grader as YAML.
-type getGraderCmd struct {
-	Stub string `arg:"" help:"Task stub."`
-}
-
-// Run prints the task's grader as YAML.
-func (c getGraderCmd) Run(deps deps) error {
-	return getGrader(deps, c.Stub)
-}
-
-// getModelsCmd lists the models in the CLI config.
-type getModelsCmd struct{}
-
-// Run lists the models in the CLI config.
-func (c getModelsCmd) Run(deps deps) error {
-	return getModels(deps)
-}
-
-// getModelCmd prints one model as YAML.
-type getModelCmd struct {
-	Stub string `arg:"" help:"Model stub."`
-}
-
-// Run prints the model as YAML.
-func (c getModelCmd) Run(deps deps) error {
-	return getModel(deps, c.Stub)
 }
 
 // getTasksCmd lists the tasks in the inferred repo.
@@ -236,9 +190,6 @@ type setCmd struct {
 	Config setConfigCmd `cmd:"" help:"Create or update the CLI config."`
 	Task   setTaskCmd   `cmd:"" help:"Create or update a task in the inferred repo."`
 	Test   setTestCmd   `cmd:"" help:"Create or update a test in the inferred repo."`
-	Model  setModelCmd  `cmd:"" help:"Create or update a model in the CLI config."`
-	Agent  setAgentCmd  `cmd:"" help:"Create or update a task's agent in the CLI config."`
-	Grader setGraderCmd `cmd:"" help:"Create or update a task's grader in the CLI config."`
 }
 
 // setConfigCmd creates or updates the CLI config.
@@ -249,44 +200,6 @@ type setConfigCmd struct {
 // Run creates or updates the CLI config.
 func (c setConfigCmd) Run(deps deps) error {
 	return setConfig(deps, c)
-}
-
-// setAgentCmd creates or updates a task's agent in the CLI config.
-type setAgentCmd struct {
-	Stub       string `arg:"" help:"Task stub."`
-	VersionCmd string `help:"Agent version command." optional:""`
-	BuildCmd   string `help:"Agent build command." optional:""`
-	RunCmd     string `help:"Agent run command." optional:""`
-}
-
-// Run creates or updates the task's agent in the CLI config.
-func (c setAgentCmd) Run(deps deps) error {
-	return setAgent(deps, c)
-}
-
-// setGraderCmd creates or updates a task's grader in the CLI config.
-type setGraderCmd struct {
-	Stub       string `arg:"" help:"Task stub."`
-	VersionCmd string `help:"Grader version command." optional:""`
-	BuildCmd   string `help:"Grader build command." optional:""`
-	RunCmd     string `help:"Grader run command." optional:""`
-}
-
-// Run creates or updates the task's grader in the CLI config.
-func (c setGraderCmd) Run(deps deps) error {
-	return setGrader(deps, c)
-}
-
-// setModelCmd creates or updates a model in the CLI config.
-type setModelCmd struct {
-	Path    string `arg:"" help:"Model provider and name as <provider>/<name>."`
-	Stub    string `help:"Override the auto generated stub." optional:""`
-	Variant string `help:"Model variant." optional:""`
-}
-
-// Run creates or updates the model in the CLI config.
-func (c setModelCmd) Run(deps deps) error {
-	return setModel(deps, c)
 }
 
 // setTestCmd creates, updates, or renames a test under a task in the inferred
@@ -310,7 +223,6 @@ type setTaskCmd struct {
 	Name        string `help:"Task name." optional:""`
 	Description string `help:"Task description." optional:""`
 	Move        string `help:"Rename the task to this stub." optional:""`
-	Model       string `help:"Set the task's default model in config." optional:""`
 }
 
 // Run creates or updates the task in the inferred repo.

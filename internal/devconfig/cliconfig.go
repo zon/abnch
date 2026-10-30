@@ -13,8 +13,7 @@ func CLIConfigPath(repoRoot string) string {
 }
 
 // SetCLIConfigURL sets the CLI config url for a repo, creating the file when it
-// is missing. It edits the existing YAML document, so models, tasks, and other
-// keys survive.
+// is missing. It edits the existing YAML document, so other keys survive.
 func SetCLIConfigURL(repoRoot, url string) error {
 	path := CLIConfigPath(repoRoot)
 	data, err := os.ReadFile(path)

@@ -81,6 +81,25 @@ func TestVersionAdvancedForRepoConfig(t *testing.T) {
 	}
 }
 
+// TestVersionAdvancedForResultProvenance checks the version carries the Result
+// Provenance milestone's major bump, so a later change cannot silently revert it
+// below the release that changes the service API and removes the run and score
+// commands.
+func TestVersionAdvancedForResultProvenance(t *testing.T) {
+	got := parseVersion(t, Version)
+	want := [3]int{2, 0, 0}
+
+	for i := range want {
+		if got[i] == want[i] {
+			continue
+		}
+		if got[i] < want[i] {
+			t.Errorf("Version = %q, want at least 2.0.0", Version)
+		}
+		return
+	}
+}
+
 func parseVersion(t *testing.T, value string) [3]int {
 	t.Helper()
 

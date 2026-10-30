@@ -100,6 +100,53 @@ func TestRunRejectsInvalidServiceURL(t *testing.T) {
 	}
 }
 
+func TestMigrateRejectsMissingConfigFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+
+	err := Migrate(context.Background(), Options{ConfigPath: path, Migrator: unusedMigrator(t)})
+	if err == nil {
+		t.Fatal("Migrate = nil, want an error for a missing config file")
+	}
+	if !strings.Contains(err.Error(), "config.yaml") {
+		t.Errorf("error = %q, want it to name the missing file", err)
+	}
+}
+
+func TestMigrateRejectsIncompletePostgres(t *testing.T) {
+	path := writeConfig(t, "postgres:\n  host: db\n")
+
+	err := Migrate(context.Background(), Options{ConfigPath: path, Migrator: unusedMigrator(t)})
+	if err == nil {
+		t.Fatal("Migrate = nil, want an error for an incomplete postgres config")
+	}
+	if !strings.Contains(err.Error(), "postgres") {
+		t.Errorf("error = %q, want it to name the postgres config", err)
+	}
+}
+
+// TestMigrateUsesConfigPostgres checks that Migrate hands the config's Postgres
+// block, including the password the environment supplies, to the migrator. A
+// service url is not part of a migration, so its absence is allowed.
+func TestMigrateUsesConfigPostgres(t *testing.T) {
+	t.Setenv(PostgresPasswordEnv, "secret")
+	path := writeConfig(t, postgresYAML)
+
+	var got devconfig.Postgres
+	err := Migrate(context.Background(), Options{ConfigPath: path, Migrator: func(_ context.Context, pg devconfig.Postgres) error {
+		got = pg
+		return nil
+	}})
+	if err != nil {
+		t.Fatalf("Migrate = %v, want no error", err)
+	}
+
+	want := testPostgres()
+	want.Password = "secret"
+	if got != want {
+		t.Errorf("migrated postgres = %#v, want %#v", got, want)
+	}
+}
+
 // TestServiceAddrUsesListenWhenSet checks a listen address wins over the host
 // and port in url.
 func TestServiceAddrUsesListenWhenSet(t *testing.T) {
@@ -425,12 +472,25 @@ func unusedOpener(t *testing.T) Opener {
 	}
 }
 
+// unusedMigrator fails the test when called, so a config error never reaches the
+// database.
+func unusedMigrator(t *testing.T) func(context.Context, devconfig.Postgres) error {
+	t.Helper()
+	return func(context.Context, devconfig.Postgres) error {
+		t.Fatal("migrator called for a config that should have been rejected")
+		return nil
+	}
+}
+
 // fakeDB is a store a test controls without a database.
 type fakeDB struct {
 	closed         bool
 	repos          []store.Repo
 	tasks          []store.Task
 	tests          []store.Test
+	models         []store.Model
+	agents         []store.Agent
+	graders        []store.Grader
 	data           []store.Datum
 	results        []store.Result
 	scores         []store.Score
@@ -453,6 +513,13 @@ type fakeDB struct {
 	getScoreErr    error
 	listScoresErr  error
 	saveScoreErr   error
+	saveModelErr   error
+	getAgentErr    error
+	listAgentsErr  error
+	saveAgentErr   error
+	getGraderErr   error
+	listGradersErr error
+	saveGraderErr  error
 }
 
 func (f *fakeDB) GetRepo(org, stub string) (store.Repo, error) {
@@ -657,6 +724,119 @@ func (f *fakeDB) SaveTest(t store.Test) error {
 	return nil
 }
 
+func (f *fakeDB) GetModel(name, provider, variant string) (store.Model, error) {
+	for _, m := range f.models {
+		if m.Name == name && m.Provider == provider && m.Variant == variant {
+			return m, nil
+		}
+	}
+	return store.Model{}, store.ErrNotFound
+}
+
+func (f *fakeDB) ListModels() ([]store.Model, error) {
+	return f.models, nil
+}
+
+func (f *fakeDB) SaveModel(m store.Model) error {
+	if f.saveModelErr != nil {
+		return f.saveModelErr
+	}
+	if err := m.Validate(); err != nil {
+		return err
+	}
+	for _, existing := range f.models {
+		if existing == m {
+			return nil
+		}
+	}
+	f.models = append(f.models, m)
+	return nil
+}
+
+func (f *fakeDB) GetAgent(a store.Agent) (store.Agent, error) {
+	if f.getAgentErr != nil {
+		return store.Agent{}, f.getAgentErr
+	}
+	for _, existing := range f.agents {
+		if sameAgent(existing, a) {
+			return existing, nil
+		}
+	}
+	return store.Agent{}, store.ErrNotFound
+}
+
+func (f *fakeDB) ListAgents() ([]store.Agent, error) {
+	if f.listAgentsErr != nil {
+		return nil, f.listAgentsErr
+	}
+	return f.agents, nil
+}
+
+func (f *fakeDB) SaveAgent(a store.Agent) error {
+	if f.saveAgentErr != nil {
+		return f.saveAgentErr
+	}
+	if err := a.Validate(); err != nil {
+		return err
+	}
+	for _, existing := range f.agents {
+		if sameAgent(existing, a) {
+			return nil
+		}
+	}
+	f.agents = append(f.agents, a)
+	return nil
+}
+
+// sameAgent reports whether two agents share the identity fields the store
+// uses, ignoring the name.
+func sameAgent(a, b store.Agent) bool {
+	a.Name, b.Name = "", ""
+	return a == b
+}
+
+func (f *fakeDB) GetGrader(g store.Grader) (store.Grader, error) {
+	if f.getGraderErr != nil {
+		return store.Grader{}, f.getGraderErr
+	}
+	for _, existing := range f.graders {
+		if sameGrader(existing, g) {
+			return existing, nil
+		}
+	}
+	return store.Grader{}, store.ErrNotFound
+}
+
+func (f *fakeDB) ListGraders() ([]store.Grader, error) {
+	if f.listGradersErr != nil {
+		return nil, f.listGradersErr
+	}
+	return f.graders, nil
+}
+
+func (f *fakeDB) SaveGrader(g store.Grader) error {
+	if f.saveGraderErr != nil {
+		return f.saveGraderErr
+	}
+	if err := g.Validate(); err != nil {
+		return err
+	}
+	for _, existing := range f.graders {
+		if sameGrader(existing, g) {
+			return nil
+		}
+	}
+	f.graders = append(f.graders, g)
+	return nil
+}
+
+// sameGrader reports whether two graders share the identity fields the store
+// uses, ignoring the name.
+func sameGrader(a, b store.Grader) bool {
+	a.Name, b.Name = "", ""
+	return a == b
+}
+
 func (f *fakeDB) GetResult(org, repo, ref string) (store.Result, error) {
 	if f.getResultErr != nil {
 		return store.Result{}, f.getResultErr
@@ -686,8 +866,22 @@ func (f *fakeDB) SaveResult(r store.Result) (string, error) {
 	if f.saveResultErr != nil {
 		return "", f.saveResultErr
 	}
+	hasAgent := r.Agent.Present()
+	if hasAgent {
+		r.Agent.Org, r.Agent.Repo, r.Agent.Task = r.Org, r.Repo, r.Task
+	}
 	if err := r.Validate(); err != nil {
 		return "", err
+	}
+	if r.Model.Present() {
+		if err := f.SaveModel(r.Model); err != nil {
+			return "", err
+		}
+	}
+	if hasAgent {
+		if err := f.SaveAgent(r.Agent); err != nil {
+			return "", err
+		}
 	}
 	r.Ref = store.ResultRef(r)
 	for i, existing := range f.results {
@@ -729,8 +923,22 @@ func (f *fakeDB) SaveScore(sc store.Score) (string, error) {
 	if f.saveScoreErr != nil {
 		return "", f.saveScoreErr
 	}
+	hasGrader := sc.Grader.Present()
+	if hasGrader {
+		sc.Grader.Org, sc.Grader.Repo, sc.Grader.Task, sc.Grader.Test = sc.Org, sc.Repo, sc.Task, sc.Test
+	}
 	if err := sc.Validate(); err != nil {
 		return "", err
+	}
+	if sc.Model.Present() {
+		if err := f.SaveModel(sc.Model); err != nil {
+			return "", err
+		}
+	}
+	if hasGrader {
+		if err := f.SaveGrader(sc.Grader); err != nil {
+			return "", err
+		}
 	}
 	sc.Ref = store.ScoreRef(sc)
 	for i, existing := range f.scores {

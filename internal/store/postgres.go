@@ -10,21 +10,32 @@ import (
 	"github.com/zon/abnch/internal/devconfig"
 )
 
-// Open connects to Postgres, confirms it is reachable, and creates the tables
-// the store needs. It returns a clear error when the database cannot be
-// reached or its tables cannot be created.
+// Open connects to Postgres and confirms it is reachable. It does not create or
+// change tables; Migrate does that. It returns a clear error when the database
+// cannot be reached.
 func Open(ctx context.Context, pg devconfig.Postgres) (*Store, error) {
 	db, err := open(ctx, pg)
 	if err != nil {
 		return nil, err
 	}
+	return New(db), nil
+}
+
+// Migrate connects to Postgres and creates or updates the tables the store
+// needs. It returns a clear error when the database cannot be reached or its
+// tables cannot be created.
+func Migrate(ctx context.Context, pg devconfig.Postgres) error {
+	db, err := open(ctx, pg)
+	if err != nil {
+		return err
+	}
 
 	s := New(db)
+	defer s.Close()
 	if err := s.Migrate(); err != nil {
-		s.Close()
-		return nil, fmt.Errorf("failed to create tables in postgres %s:%d: %w", pg.Host, pg.Port, err)
+		return fmt.Errorf("failed to create tables in postgres %s:%d: %w", pg.Host, pg.Port, err)
 	}
-	return s, nil
+	return nil
 }
 
 // open connects to Postgres and confirms it is reachable.

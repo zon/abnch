@@ -17,38 +17,10 @@ const (
 )
 
 // cliConfig is the CLI config in `.abnch/config.yaml` under the working
-// directory.
+// directory. It holds the service URL; result and score submission carry the
+// model, agent, and grader records they use.
 type cliConfig struct {
-	URL    string                 `yaml:"url"`
-	Models map[string]configModel `yaml:"models"`
-	Tasks  map[string]configTask  `yaml:"tasks"`
-}
-
-// configTask is a task entry in the CLI config.
-type configTask struct {
-	Model  string        `yaml:"model"`
-	Agent  *configAgent  `yaml:"agent"`
-	Grader *configGrader `yaml:"grader"`
-}
-
-// loadConfigTasks reads the tasks in the CLI config under workDir. A missing
-// config holds no tasks.
-func loadConfigTasks(workDir string) (map[string]configTask, error) {
-	cfg, err := loadConfig(workDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read %s: %w", configPath(workDir), err)
-	}
-	return cfg.Tasks, nil
-}
-
-// loadConfigModels reads the models in the CLI config under workDir. A missing
-// config holds no models.
-func loadConfigModels(workDir string) (map[string]configModel, error) {
-	cfg, err := loadConfig(workDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read %s: %w", configPath(workDir), err)
-	}
-	return cfg.Models, nil
+	URL string `yaml:"url"`
 }
 
 // configPath returns the CLI config path under workDir.
@@ -133,42 +105,6 @@ func updateConfigURL(data []byte, url string) ([]byte, error) {
 	return marshalNode(&doc)
 }
 
-// setTaskModel records the task's default model in the CLI config under workDir.
-// It edits the existing YAML document, so every other key survives. A missing
-// config is created.
-func setTaskModel(workDir, stub, model string) error {
-	return editConfig(workDir, func(data []byte) ([]byte, error) {
-		return updateTaskModel(data, stub, model)
-	})
-}
-
-// setConfigModel records a model under stub in the CLI config under workDir. It
-// edits the existing YAML document, so every other key survives. A missing
-// config is created.
-func setConfigModel(workDir, stub string, model configModel) error {
-	return editConfig(workDir, func(data []byte) ([]byte, error) {
-		return updateConfigModel(data, stub, model)
-	})
-}
-
-// setTaskAgent records the task's agent in the CLI config under workDir. It
-// edits the existing YAML document, so every other key survives. A missing
-// config is created. It fails when the merged agent has no run command.
-func setTaskAgent(workDir, stub string, agent configAgent) error {
-	return editConfig(workDir, func(data []byte) ([]byte, error) {
-		return updateTaskAgent(data, stub, agent)
-	})
-}
-
-// setTaskGrader records the task's grader in the CLI config under workDir. It
-// edits the existing YAML document, so every other key survives. A missing
-// config is created. It fails when the merged grader has no run command.
-func setTaskGrader(workDir, stub string, grader configGrader) error {
-	return editConfig(workDir, func(data []byte) ([]byte, error) {
-		return updateTaskGrader(data, stub, grader)
-	})
-}
-
 // editConfig reads the CLI config under workDir, applies edit to its bytes, and
 // writes the result. A missing config is created.
 func editConfig(workDir string, edit func([]byte) ([]byte, error)) error {
@@ -187,151 +123,6 @@ func editConfig(workDir string, edit func([]byte) ([]byte, error)) error {
 		return fmt.Errorf("failed to create %s: %w", filepath.Join(workDir, configDir), err)
 	}
 	return os.WriteFile(path, updated, 0o600)
-}
-
-// updateTaskModel returns the config document with tasks.<stub>.model set to
-// model, preserving every other key and comment.
-func updateTaskModel(data []byte, stub, model string) ([]byte, error) {
-	var doc yaml.Node
-	if len(data) > 0 {
-		if err := yaml.Unmarshal(data, &doc); err != nil {
-			return nil, err
-		}
-	}
-
-	root, err := rootMapping(&doc)
-	if err != nil {
-		return nil, err
-	}
-	tasks, err := childMapping(root, "tasks")
-	if err != nil {
-		return nil, err
-	}
-	task, err := childMapping(tasks, stub)
-	if err != nil {
-		return nil, err
-	}
-	setMappingValue(task, "model", scalarNode(model))
-	return marshalNode(&doc)
-}
-
-// updateConfigModel returns the config document with models.<stub> merged with
-// model, preserving every other key and comment. The provider and name are
-// always set; the variant is set only when given.
-func updateConfigModel(data []byte, stub string, model configModel) ([]byte, error) {
-	var doc yaml.Node
-	if len(data) > 0 {
-		if err := yaml.Unmarshal(data, &doc); err != nil {
-			return nil, err
-		}
-	}
-
-	root, err := rootMapping(&doc)
-	if err != nil {
-		return nil, err
-	}
-	models, err := childMapping(root, "models")
-	if err != nil {
-		return nil, err
-	}
-	entry, err := childMapping(models, stub)
-	if err != nil {
-		return nil, err
-	}
-	setMappingValue(entry, "provider", scalarNode(model.Provider))
-	setMappingValue(entry, "name", scalarNode(model.Name))
-	if model.Variant != "" {
-		setMappingValue(entry, "variant", scalarNode(model.Variant))
-	}
-	return marshalNode(&doc)
-}
-
-// updateTaskAgent returns the config document with tasks.<stub>.agent merged
-// with agent, preserving every other key and comment. Only the commands the
-// update carries are set. It fails when the merged agent has no run command, so
-// no agent is written.
-func updateTaskAgent(data []byte, stub string, agent configAgent) ([]byte, error) {
-	var doc yaml.Node
-	if len(data) > 0 {
-		if err := yaml.Unmarshal(data, &doc); err != nil {
-			return nil, err
-		}
-	}
-
-	root, err := rootMapping(&doc)
-	if err != nil {
-		return nil, err
-	}
-	tasks, err := childMapping(root, "tasks")
-	if err != nil {
-		return nil, err
-	}
-	task, err := childMapping(tasks, stub)
-	if err != nil {
-		return nil, err
-	}
-	entry, err := childMapping(task, "agent")
-	if err != nil {
-		return nil, err
-	}
-
-	if mergeAgent(agentOf(entry), agent).RunCmd == "" {
-		return nil, fmt.Errorf("agent for task %s has no run command", stub)
-	}
-	if agent.VersionCmd != "" {
-		setMappingValue(entry, "versionCmd", scalarNode(agent.VersionCmd))
-	}
-	if agent.BuildCmd != "" {
-		setMappingValue(entry, "buildCmd", scalarNode(agent.BuildCmd))
-	}
-	if agent.RunCmd != "" {
-		setMappingValue(entry, "runCmd", scalarNode(agent.RunCmd))
-	}
-	return marshalNode(&doc)
-}
-
-// updateTaskGrader returns the config document with tasks.<stub>.grader merged
-// with grader, preserving every other key and comment. Only the commands the
-// update carries are set. It fails when the merged grader has no run command, so
-// no grader is written.
-func updateTaskGrader(data []byte, stub string, grader configGrader) ([]byte, error) {
-	var doc yaml.Node
-	if len(data) > 0 {
-		if err := yaml.Unmarshal(data, &doc); err != nil {
-			return nil, err
-		}
-	}
-
-	root, err := rootMapping(&doc)
-	if err != nil {
-		return nil, err
-	}
-	tasks, err := childMapping(root, "tasks")
-	if err != nil {
-		return nil, err
-	}
-	task, err := childMapping(tasks, stub)
-	if err != nil {
-		return nil, err
-	}
-	entry, err := childMapping(task, "grader")
-	if err != nil {
-		return nil, err
-	}
-
-	if mergeGrader(graderOf(entry), grader).RunCmd == "" {
-		return nil, fmt.Errorf("grader for task %s has no run command", stub)
-	}
-	if grader.VersionCmd != "" {
-		setMappingValue(entry, "versionCmd", scalarNode(grader.VersionCmd))
-	}
-	if grader.BuildCmd != "" {
-		setMappingValue(entry, "buildCmd", scalarNode(grader.BuildCmd))
-	}
-	if grader.RunCmd != "" {
-		setMappingValue(entry, "runCmd", scalarNode(grader.RunCmd))
-	}
-	return marshalNode(&doc)
 }
 
 // rootMapping returns the document's root mapping, creating it when the
@@ -356,41 +147,6 @@ func rootMapping(doc *yaml.Node) (*yaml.Node, error) {
 		return nil, errors.New("config is not a mapping")
 	}
 	return root, nil
-}
-
-// childMapping returns the child mapping for key, creating it when the key is
-// missing or null.
-func childMapping(parent *yaml.Node, key string) (*yaml.Node, error) {
-	child := mappingValue(parent, key)
-	if child == nil || isNull(child) {
-		child = &yaml.Node{Kind: yaml.MappingNode}
-		setMappingValue(parent, key, child)
-		return child, nil
-	}
-	if child.Kind != yaml.MappingNode {
-		return nil, fmt.Errorf("%s is not a mapping", key)
-	}
-	return child, nil
-}
-
-// mappingValue returns the value node for key in a mapping, or nil.
-func mappingValue(mapping *yaml.Node, key string) *yaml.Node {
-	for i := 0; i+1 < len(mapping.Content); i += 2 {
-		if mapping.Content[i].Value == key {
-			return mapping.Content[i+1]
-		}
-	}
-	return nil
-}
-
-// mappingString returns the string value for key in a mapping, or "" when the
-// key is missing or not a scalar.
-func mappingString(mapping *yaml.Node, key string) string {
-	value := mappingValue(mapping, key)
-	if value == nil || value.Kind != yaml.ScalarNode {
-		return ""
-	}
-	return value.Value
 }
 
 // setMappingValue sets key to value, replacing an existing entry in place so the

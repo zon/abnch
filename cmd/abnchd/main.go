@@ -18,7 +18,28 @@ import (
 // cli is the abnchd command line.
 type cli struct {
 	Version versionFlag `name:"version" help:"Print version information and quit."`
-	Config  string      `arg:"" help:"Service config file." type:"path"`
+	Migrate migrateCmd  `cmd:"" help:"Create or update the database tables and exit."`
+	Serve   serveCmd    `cmd:"" default:"withargs" help:"Serve the service."`
+}
+
+// serveCmd serves the service from a config file.
+type serveCmd struct {
+	Config string `arg:"" help:"Service config file." type:"path"`
+}
+
+// Run starts the service.
+func (c serveCmd) Run(kctx *kong.Context, ctx context.Context) error {
+	return service.Run(ctx, service.Options{ConfigPath: c.Config, Out: kctx.Stdout})
+}
+
+// migrateCmd creates or updates the database tables and exits.
+type migrateCmd struct {
+	Config string `arg:"" help:"Service config file." type:"path"`
+}
+
+// Run migrates the database.
+func (c migrateCmd) Run(ctx context.Context) error {
+	return service.Migrate(ctx, service.Options{ConfigPath: c.Config})
 }
 
 // errVersion stops parsing after the version prints, so a version request is not
@@ -46,7 +67,7 @@ func main() {
 	}
 }
 
-// run parses an abnchd invocation and starts the service.
+// run parses an abnchd invocation and runs its command.
 func run(ctx context.Context, args []string, out io.Writer) error {
 	return runCLI(ctx, args, out, os.Exit)
 }
@@ -66,16 +87,18 @@ func runCLI(ctx context.Context, args []string, out io.Writer, exit func(int)) e
 		kong.Writers(out, out),
 		kong.Exit(exit),
 		kong.Vars{"version": version.Version},
+		kong.BindTo(ctx, (*context.Context)(nil)),
 	)
 	if err != nil {
 		return err
 	}
-	if _, err := parser.Parse(args); err != nil {
+	kctx, err := parser.Parse(args)
+	if err != nil {
 		if errors.Is(err, errVersion) {
 			return nil
 		}
 		return err
 	}
 
-	return service.Run(ctx, service.Options{ConfigPath: c.Config, Out: out})
+	return kctx.Run()
 }

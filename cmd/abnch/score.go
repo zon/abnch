@@ -9,49 +9,23 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"time"
 )
-
-// graderInput is the JSON object the CLI writes to a grader's run command on
-// stdin. It carries the model, the datum that produced the result, and the
-// result.
-type graderInput struct {
-	Model  configModel     `json:"model"`
-	Data   json.RawMessage `json:"data"`
-	Result json.RawMessage `json:"result"`
-}
-
-// graderOutput is the JSON a grader's run command writes after the marker. Score
-// is the key-number dictionary the grader produced; the rest are optional run
-// metrics.
-type graderOutput struct {
-	Score        map[string]float64 `json:"score"`
-	InputTokens  int                `json:"inputTokens"`
-	OutputTokens int                `json:"outputTokens"`
-	TokenCost    float64            `json:"tokenCost"`
-}
-
-// graderRun is one grader run: the logs it wrote, its score output, and how long
-// it took.
-type graderRun struct {
-	logs     string
-	output   graderOutput
-	duration float64
-}
 
 // scoreRef is a score's ref as the service API returns it.
 type scoreRef struct {
 	Ref string `json:"ref"`
 }
 
-// scoreRequest is the JSON body a score write carries. Dictionary is the
-// key-number dictionary the grader produced; the rest are its logs and run
-// metrics.
+// scoreRequest is the JSON body a score write carries. Model and Grader are the
+// records the service creates or reuses; Body holds the key-number score the
+// grader produced; the rest are its logs and run metrics.
 type scoreRequest struct {
 	Task         string             `json:"task"`
 	Test         string             `json:"test"`
 	Result       string             `json:"result"`
-	Dictionary   map[string]float64 `json:"dictionary"`
+	Model        *modelRecord       `json:"model,omitempty"`
+	Grader       *graderRecord      `json:"grader,omitempty"`
+	Body         map[string]float64 `json:"body"`
 	Logs         string             `json:"logs"`
 	InputTokens  int                `json:"inputTokens"`
 	OutputTokens int                `json:"outputTokens"`
@@ -59,61 +33,57 @@ type scoreRequest struct {
 	Duration     float64            `json:"duration"`
 }
 
-// scoreResultView is the part of a result the score command reads: the result's
-// ref, the task and test it belongs to, the datum that produced it, and its JSON.
+// scoreInput is the YAML or JSON input an add score command reads. Model and
+// Grader are the records the service creates or reuses; Body is the score the
+// grader produced; the rest are its logs and run metrics.
+type scoreInput struct {
+	Model        *modelRecord       `json:"model" yaml:"model"`
+	Grader       *graderRecord      `json:"grader" yaml:"grader"`
+	Body         map[string]float64 `json:"body" yaml:"body"`
+	Logs         string             `json:"logs" yaml:"logs"`
+	InputTokens  int                `json:"inputTokens" yaml:"inputTokens"`
+	OutputTokens int                `json:"outputTokens" yaml:"outputTokens"`
+	TokenCost    float64            `json:"tokenCost" yaml:"tokenCost"`
+	Duration     float64            `json:"duration" yaml:"duration"`
+}
+
+// scoreResultView is the part of a result the add score command reads: the
+// result's ref, the task and test it belongs to, the datum that produced it, and
+// its body.
 type scoreResultView struct {
 	Ref  string          `json:"ref"`
 	Task string          `json:"task"`
 	Test string          `json:"test"`
 	Data string          `json:"data"`
-	JSON json.RawMessage `json:"json"`
+	Body json.RawMessage `json:"body"`
 }
 
-// scoreResult runs the grader of the task that owns the result against the
-// result and records a score, printing the score ref. It reads the result, the
-// task's grader, and the model before it builds or runs anything, so it fails
-// without running the grader when the result is missing, the task has no grader,
-// or no model is set. The model flag overrides the task's default model.
-func scoreResult(d deps, c scoreCmd) error {
+// addScore reads a score input for the result the ref names in the inferred
+// repo, posts it, and prints the score ref. It reads the input from `--file`
+// when given and from stdin otherwise. It fails without a request when the
+// input lacks a model, a grader, or a body, or when the result is missing.
+func addScore(d deps, c addScoreCmd) error {
+	input, err := readAddScoreInput(d, c.File)
+	if err != nil {
+		return err
+	}
+	request, err := scoreRequestFromInput(c.Ref, input)
+	if err != nil {
+		return err
+	}
+
 	target, err := resolveTarget(d)
 	if err != nil {
 		return err
 	}
-
 	result, err := readScoreResult(d.ctx, target, c.Ref)
 	if err != nil {
 		return err
 	}
+	request.Task = result.Task
+	request.Test = result.Test
 
-	cfg, err := loadConfig(d.workDir)
-	if err != nil {
-		return fmt.Errorf("failed to read %s: %w", configPath(d.workDir), err)
-	}
-	task, ok := cfg.Tasks[result.Task]
-	if !ok || task.Grader == nil || task.Grader.RunCmd == "" {
-		return fmt.Errorf("task %s has no grader", result.Task)
-	}
-	model, err := resolveRunModel(cfg, task, c.Model, result.Task)
-	if err != nil {
-		return err
-	}
-
-	datum, err := readDatum(d.ctx, target.client, target.org, target.stub, result.Task, result.Test, result.Data)
-	if err != nil {
-		return err
-	}
-
-	if task.Grader.BuildCmd != "" {
-		if _, _, err := runShell(d.ctx, d.workDir, task.Grader.BuildCmd, nil); err != nil {
-			return fmt.Errorf("failed to build the grader: %w", err)
-		}
-	}
-
-	run, err := runGrader(d.ctx, d.workDir, task.Grader.RunCmd, model, datum, result.JSON)
-	if err != nil {
-		return err
-	}
-	ref, err := writeScore(d.ctx, target.client, target.org, target.stub, result, run)
+	ref, err := postScore(d.ctx, target.client, target.org, target.stub, request)
 	if err != nil {
 		return err
 	}
@@ -121,8 +91,41 @@ func scoreResult(d deps, c scoreCmd) error {
 	return nil
 }
 
+// readAddScoreInput reads and parses the score input from the file the command
+// names, or from stdin when no file is given. The input may be YAML or JSON.
+func readAddScoreInput(d deps, file string) (scoreInput, error) {
+	return readInput[scoreInput](d, file, "score")
+}
+
+// scoreRequestFromInput builds the score write body from the input and the
+// result ref. It fails when the input lacks a model, a grader, or a body, or
+// when a record lacks a required field.
+func scoreRequestFromInput(ref string, input scoreInput) (scoreRequest, error) {
+	if input.Model == nil {
+		return scoreRequest{}, errors.New("score input has no model")
+	}
+	if input.Model.Name == "" || input.Model.Provider == "" {
+		return scoreRequest{}, errors.New("score model must carry a name and provider")
+	}
+	if input.Grader == nil {
+		return scoreRequest{}, errors.New("score input has no grader")
+	}
+	if input.Grader.Name == "" || input.Grader.Stub == "" || input.Grader.Commit == "" || input.Grader.Branch == "" {
+		return scoreRequest{}, errors.New("score grader must carry a name, stub, commit, and branch")
+	}
+	if input.Body == nil {
+		return scoreRequest{}, errors.New("score input has no body")
+	}
+	return scoreRequest{
+		Result: ref, Model: input.Model, Grader: input.Grader,
+		Body: input.Body, Logs: input.Logs,
+		InputTokens: input.InputTokens, OutputTokens: input.OutputTokens,
+		TokenCost: input.TokenCost, Duration: input.Duration,
+	}, nil
+}
+
 // readScoreResult reads the result the ref names in the repo and parses the
-// fields the score command needs. A missing repo or result is an error.
+// fields the add score command needs. A missing repo or result is an error.
 func readScoreResult(ctx context.Context, target repoTarget, ref string) (scoreResultView, error) {
 	body, err := readResult(ctx, target.client, target.org, target.stub, ref)
 	if err != nil {
@@ -135,46 +138,9 @@ func readScoreResult(ctx context.Context, target repoTarget, ref string) (scoreR
 	return result, nil
 }
 
-// runGrader runs the grader's run command against one result, writing the grader
-// input on stdin and measuring the run's duration. It fails when the command
-// fails, when the output carries no marker, or when the score output carries no
-// score dictionary.
-func runGrader(ctx context.Context, workDir, command string, model configModel, datum, result json.RawMessage) (graderRun, error) {
-	input, err := json.Marshal(graderInput{Model: model, Data: datum, Result: result})
-	if err != nil {
-		return graderRun{}, err
-	}
-
-	start := time.Now()
-	stdout, _, err := runShell(ctx, workDir, command, input)
-	duration := time.Since(start).Seconds()
-	if err != nil {
-		return graderRun{}, fmt.Errorf("grader run command failed: %w", err)
-	}
-
-	logs, raw, ok := splitRunOutput(stdout)
-	if !ok {
-		return graderRun{}, errors.New("grader output carries no abnch marker")
-	}
-	var output graderOutput
-	if err := json.Unmarshal(raw, &output); err != nil {
-		return graderRun{}, fmt.Errorf("failed to read the score output: %w", err)
-	}
-	if output.Score == nil {
-		return graderRun{}, errors.New("score output carries no score dictionary")
-	}
-	return graderRun{logs: logs, output: output, duration: duration}, nil
-}
-
-// writeScore records a grader run's score for its result and returns the score's
-// ref. A not-found response maps to the missing result.
-func writeScore(ctx context.Context, client *serviceClient, org, repo string, result scoreResultView, run graderRun) (string, error) {
-	body := scoreRequest{
-		Task: result.Task, Test: result.Test, Result: result.Ref,
-		Dictionary: run.output.Score, Logs: run.logs,
-		InputTokens: run.output.InputTokens, OutputTokens: run.output.OutputTokens,
-		TokenCost: run.output.TokenCost, Duration: run.duration,
-	}
+// postScore records a score and returns its ref. A not-found response maps to
+// the missing result the body names.
+func postScore(ctx context.Context, client *serviceClient, org, repo string, body scoreRequest) (string, error) {
 	payload, err := json.Marshal(body)
 	if err != nil {
 		return "", err
@@ -192,7 +158,7 @@ func writeScore(ctx context.Context, client *serviceClient, org, repo string, re
 		}
 		return ref.Ref, nil
 	case http.StatusNotFound:
-		return "", resultNotFoundError(resp, org, repo, result.Ref)
+		return "", resultNotFoundError(resp, org, repo, body.Result)
 	default:
 		return "", serviceError(resp)
 	}

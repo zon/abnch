@@ -8,39 +8,39 @@ Store and read the scores graders produce for results. A score links to the mode
 
 ### Requirement: Score Identity
 
-A score SHALL be identified by its result, model record, grader record, and a ref. The ref SHALL be a short, URL-safe string derived from the score's key-number dictionary, its result, its model record, and its grader record.
+A score SHALL be identified by its result, model record, grader record, and a ref. The ref SHALL be a short, URL-safe string derived from the score body, its result, its model record, and its grader record.
 
-Two scores with the same dictionary, result, model, and grader SHALL have the same ref and SHALL be the same score. Scores that differ in result, dictionary, model, or grader SHALL have different identities.
+Two scores with the same body, result, model, and grader SHALL have the same ref and SHALL be the same score. Scores that differ in result, body, model, or grader SHALL have different identities.
 
-#### Scenario: Same dictionary, same ref
+#### Scenario: Same body, same ref
 
-- GIVEN a score with dictionary `{"correctness": 1}`, model `anthropic/claude-sonnet`, and grader version `2.0.0` exists for a result
-- WHEN an authorized client adds the same dictionary with the same model and grader values for the same result
+- GIVEN a score with body `{"correctness": 1}`, model `anthropic/claude-sonnet`, and grader version `2.0.0` exists for a result
+- WHEN an authorized client adds the same body with the same model and grader values for the same result
 - THEN the service reports the same ref
 - AND the result still holds one score
 
-#### Scenario: Same dictionary, different model
+#### Scenario: Same body, different model
 
-- GIVEN a score with dictionary `{"correctness": 1}` and model `anthropic/claude-sonnet` exists for a result
-- WHEN an authorized client adds the same dictionary with model `anthropic/claude-opus` for the same result
+- GIVEN a score with body `{"correctness": 1}` and model `anthropic/claude-sonnet` exists for a result
+- WHEN an authorized client adds the same body with model `anthropic/claude-opus` for the same result
 - THEN the service reports a different ref
 - AND the result holds both scores
 
-#### Scenario: Same dictionary, different grader
+#### Scenario: Same body, different grader
 
-- GIVEN a score with dictionary `{"correctness": 1}` and a grader with commit `def456` exists for a result
-- WHEN an authorized client adds the same dictionary with a grader with commit `abc123` for the same result
+- GIVEN a score with body `{"correctness": 1}` and a grader with commit `def456` exists for a result
+- WHEN an authorized client adds the same body with a grader with commit `abc123` for the same result
 - THEN the service reports a different ref
 
-#### Scenario: Same dictionary, different result
+#### Scenario: Same body, different result
 
 - GIVEN a score exists for one result in a repo
-- WHEN an authorized client adds the same dictionary for another result
+- WHEN an authorized client adds the same body for another result
 - THEN the service reports a different ref
 
 ### Requirement: Score Fields
 
-A score SHALL carry its key-number dictionary, logs, input tokens, output tokens, token cost, run duration, a model record, and a grader record.
+A score SHALL carry its body, logs, input tokens, output tokens, token cost, run duration, a model record, and a grader record.
 
 The model and grader records are defined in the [Provenance Service API](provenance.md). The score SHALL include the records in its response.
 
@@ -48,9 +48,9 @@ Token counts, token cost, and run duration SHALL be numbers that are zero or gre
 
 #### Scenario: Score carries its fields
 
-- GIVEN a score exists with a dictionary, logs, token counts, a token cost, a run duration, a model record, and a grader record
+- GIVEN a score exists with a body, logs, token counts, a token cost, a run duration, a model record, and a grader record
 - WHEN an authorized client gets it
-- THEN the body includes the dictionary, the logs, the tokens, the cost, the duration, the model record, and the grader record
+- THEN the response includes the body, the logs, the tokens, the cost, the duration, the model record, and the grader record
 
 #### Scenario: Fields default to zero
 
@@ -81,9 +81,9 @@ Token counts, token cost, and run duration SHALL be numbers that are zero or gre
 
 ### Requirement: Score Schema
 
-A score SHALL match the score schema of the test that owns its result, as defined in the [Test Service API](test.md). Every key in the dictionary SHALL be a key in the schema, and every value SHALL be a number. A score MAY omit a schema key.
+A score SHALL match the score schema of the test that owns its result, as defined in the [Test Service API](test.md). Every key in the body SHALL be a key in the schema, and every value SHALL be a number. A score MAY omit a schema key.
 
-A dictionary with a key outside the schema, or a value that is not a number, SHALL be an error and the service SHALL NOT create the score.
+A body with a key outside the schema, or a value that is not a number, SHALL be an error and the service SHALL NOT create the score.
 
 #### Scenario: Known keys
 
@@ -136,24 +136,24 @@ The task and test in the score body SHALL match the result's task and test. A sc
 
 `POST /repos/{org}/{repo}/scores` SHALL add a score from the request body and return its ref.
 
-The body SHALL carry the task stub, the test stub, the result ref, the score dictionary, a model record, and a grader record. The model record SHALL be the `model` property and the grader record the `grader` property. It MAY carry logs, input tokens, output tokens, token cost, and run duration.
+The request body SHALL carry the task stub, the test stub, the result ref, the score body, a model record, and a grader record. The model record SHALL be the `model` property and the grader record the `grader` property. It MAY carry logs, input tokens, output tokens, token cost, and run duration.
 
-The service SHALL create or reuse the model and grader records and SHALL associate the grader with the result's test. It SHALL derive the ref from the result, the model record, the grader record, and the dictionary, so adding the same dictionary with the same records for the same result again returns the existing ref and creates no second score.
+The service SHALL create or reuse the model and grader records and SHALL associate the grader with the result's test. It SHALL derive the ref from the result, the model record, the grader record, and the body, so adding the same body with the same records for the same result again returns the existing ref and creates no second score.
 
 The service SHALL return `201` for a new ref and `200` when the ref already exists. A malformed body SHALL return `422`. A missing result SHALL return `404`.
 
 #### Scenario: Add a score
 
 - GIVEN a result `<ref>` exists in `acme/widgets`
-- WHEN an authorized client sends `POST /repos/acme/widgets/scores` with the task, the test, the result ref, a model record, a grader record, and a dictionary
+- WHEN an authorized client sends `POST /repos/acme/widgets/scores` with the task, the test, the result ref, a model record, a grader record, and a body
 - THEN the status is `201`
 - AND the body carries the score's ref
 - AND a later `GET` returns the score with the model and grader records
 
 #### Scenario: Add the same score twice
 
-- GIVEN a score with a dictionary, model, and grader values exists for a result
-- WHEN an authorized client posts the same dictionary with the same model and grader values for the same result
+- GIVEN a score with a body, model, and grader values exists for a result
+- WHEN an authorized client posts the same body with the same model and grader values for the same result
 - THEN the status is `200`
 - AND the service reports the existing ref
 - AND the result holds one score
@@ -161,7 +161,7 @@ The service SHALL return `201` for a new ref and `200` when the ref already exis
 #### Scenario: Malformed body
 
 - GIVEN a result exists
-- WHEN an authorized client sends `POST /repos/acme/widgets/scores` with a body that carries no dictionary
+- WHEN an authorized client sends `POST /repos/acme/widgets/scores` with a request body that omits the body property
 - THEN the status is `422`
 - AND no score is created
 
@@ -191,14 +191,14 @@ The service SHALL return `201` for a new ref and `200` when the ref already exis
 
 ### Requirement: Get Score
 
-`GET /repos/{org}/{repo}/scores/{ref}` SHALL return one score as JSON with its ref, task, test, result ref, dictionary, logs, tokens, cost, duration, model record, and grader record.
+`GET /repos/{org}/{repo}/scores/{ref}` SHALL return one score as JSON with its ref, task, test, result ref, body, logs, tokens, cost, duration, model record, and grader record.
 
 #### Scenario: Get an existing score
 
 - GIVEN a score `<ref>` exists in `acme/widgets`
 - WHEN an authorized client sends `GET /repos/acme/widgets/scores/<ref>`
 - THEN the status is `200`
-- AND the body includes the ref, the task, the test, the result ref, the dictionary, the logs, the tokens, the cost, the duration, the model record, and the grader record
+- AND the body includes the ref, the task, the test, the result ref, the body, the logs, the tokens, the cost, the duration, the model record, and the grader record
 
 #### Scenario: Get a missing score
 

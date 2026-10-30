@@ -10,13 +10,13 @@ Add a result for a test's datum and read results. A result links to the model an
 
 `abnch add result <task>/<test>/<datum ref>` SHALL add a result for the datum and print its ref.
 
-The command SHALL read a result input as YAML or JSON from stdin or `--file`. The input SHALL carry a `model` record, an `agent` record, and a `json` property holding the result. It MAY carry `logs`, `inputTokens`, `outputTokens`, `tokenCost`, and `duration`.
+The command SHALL read a result input as YAML or JSON from stdin or `--file`. The input SHALL carry a `model` record, an `agent` record, and a `body` property holding the result. It MAY carry `logs`, `inputTokens`, `outputTokens`, `tokenCost`, and `duration`.
 
 The model record SHALL carry a name, a provider, and a variant. The agent record SHALL carry a name, a stub, a commit, a branch, an optional version, and an uncommitted flag.
 
-The CLI SHALL post the input to the service, which creates or reuses the model and agent records and links them to the result. The CLI SHALL record the model and agent in the config, so `abnch get model` and `abnch get agent` can read them.
+The CLI SHALL post the input to the service, which creates or reuses the model and agent records and links them to the result.
 
-The command SHALL fail when the input carries no model, no agent, or no `json` property, when the datum is missing, or when the service rejects the write.
+The command SHALL fail when the input carries no model, no agent, or no `body` property, when the datum is missing, or when the service rejects the write.
 
 #### Scenario: Add a result
 
@@ -24,7 +24,6 @@ The command SHALL fail when the input carries no model, no agent, or no `json` p
 - WHEN the user runs `abnch add result fix-bug/basic/<ref>` with a result input
 - THEN the service creates or reuses the model and agent records
 - AND the result is recorded with the model and agent records
-- AND the CLI records the model and agent in the config
 - AND the command prints the result ref
 - AND the command exits zero
 
@@ -44,9 +43,9 @@ The command SHALL fail when the input carries no model, no agent, or no `json` p
 - AND an error is written to stderr
 - AND no result is recorded
 
-#### Scenario: Missing result JSON
+#### Scenario: Missing result body
 
-- GIVEN a result input that carries no `json` property
+- GIVEN a result input that carries no `body` property
 - WHEN the user runs `abnch add result fix-bug/basic/<ref>`
 - THEN the command exits non-zero
 - AND an error is written to stderr

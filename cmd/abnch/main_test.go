@@ -440,7 +440,7 @@ func TestLoginURLOverridesConfig(t *testing.T) {
 func TestLoginFailsWhenConfigHasNoURL(t *testing.T) {
 	home := t.TempDir()
 	workDir := t.TempDir()
-	writeCLIConfig(t, workDir, "models: {}\n")
+	writeCLIConfig(t, workDir, "other: {}\n")
 
 	err := runIn([]string{"login"}, home, workDir, unusedBrowser(t), context.Background(), io.Discard)
 	if err == nil {
@@ -477,7 +477,7 @@ func TestLogoutUsesConfigURL(t *testing.T) {
 func TestLogoutFailsWhenConfigHasNoURL(t *testing.T) {
 	home := t.TempDir()
 	workDir := t.TempDir()
-	writeCLIConfig(t, workDir, "models: {}\n")
+	writeCLIConfig(t, workDir, "other: {}\n")
 
 	err := runIn([]string{"logout"}, home, workDir, unusedBrowser(t), context.Background(), io.Discard)
 	if err == nil {

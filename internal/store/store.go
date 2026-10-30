@@ -24,6 +24,17 @@ var ErrInvalidTest = errors.New("invalid test")
 // as two keys sharing a stub.
 var ErrInvalidSchema = errors.New("invalid schema")
 
+// ErrInvalidModel reports that a model is missing its name or provider.
+var ErrInvalidModel = errors.New("invalid model")
+
+// ErrInvalidAgent reports that an agent is missing its name, stub, commit, or
+// branch.
+var ErrInvalidAgent = errors.New("invalid agent")
+
+// ErrInvalidGrader reports that a grader is missing its name, stub, commit, or
+// branch.
+var ErrInvalidGrader = errors.New("invalid grader")
+
 // ErrInvalidResult reports that a result carries a negative run metric.
 var ErrInvalidResult = errors.New("invalid result")
 
@@ -42,7 +53,7 @@ func New(db *gorm.DB) *Store {
 
 // Migrate creates the tables the store needs.
 func (s *Store) Migrate() error {
-	return s.db.AutoMigrate(&Repo{}, &Task{}, &Test{}, &Datum{}, &Result{}, &Score{})
+	return s.db.AutoMigrate(&Repo{}, &Task{}, &Test{}, &Model{}, &Agent{}, &Grader{}, &Datum{}, &Result{}, &Score{})
 }
 
 // Close closes the store's database connection.
@@ -143,6 +154,119 @@ func (s *Store) ListTests(org, repo, task string) ([]Test, error) {
 	return tests, nil
 }
 
+// SaveModel writes a model, creating it or leaving the stored model with the
+// same name, provider, and variant. It returns ErrInvalidModel when the model
+// misses its name or provider.
+func (s *Store) SaveModel(m Model) error {
+	return saveModel(s.db, m)
+}
+
+// saveModel writes a model with db, reusing the stored model with the same
+// identity.
+func saveModel(db *gorm.DB, m Model) error {
+	if err := m.Validate(); err != nil {
+		return err
+	}
+	return db.Clauses(clause.OnConflict{DoNothing: true}).Create(&m).Error
+}
+
+// GetModel returns the model with the given name, provider, and variant, or
+// ErrNotFound.
+func (s *Store) GetModel(name, provider, variant string) (Model, error) {
+	var m Model
+	if err := s.db.First(&m, "name = ? AND provider = ? AND variant = ?", name, provider, variant).Error; err != nil {
+		return Model{}, notFound(err)
+	}
+	return m, nil
+}
+
+// ListModels returns every model, ordered by provider, name, and variant.
+func (s *Store) ListModels() ([]Model, error) {
+	var models []Model
+	if err := s.db.Order("provider, name, variant").Find(&models).Error; err != nil {
+		return nil, err
+	}
+	return models, nil
+}
+
+// SaveAgent writes an agent, creating it or leaving the stored agent with the
+// same repo, task, stub, commit, branch, version, and uncommitted flag. It
+// returns ErrInvalidAgent when the agent misses its name, stub, commit, or
+// branch.
+func (s *Store) SaveAgent(a Agent) error {
+	return saveAgent(s.db, a)
+}
+
+// saveAgent writes an agent with db, reusing the stored agent with the same
+// identity.
+func saveAgent(db *gorm.DB, a Agent) error {
+	if err := a.Validate(); err != nil {
+		return err
+	}
+	return db.Clauses(clause.OnConflict{DoNothing: true}).Create(&a).Error
+}
+
+// GetAgent returns the agent with the given identity, or ErrNotFound. Its name
+// is not part of its identity.
+func (s *Store) GetAgent(a Agent) (Agent, error) {
+	var got Agent
+	err := s.db.First(&got, "org = ? AND repo = ? AND task = ? AND stub = ? AND commit = ? AND branch = ? AND version = ? AND uncommitted = ?",
+		a.Org, a.Repo, a.Task, a.Stub, a.Commit, a.Branch, a.Version, a.Uncommitted).Error
+	if err != nil {
+		return Agent{}, notFound(err)
+	}
+	return got, nil
+}
+
+// ListAgents returns every agent, ordered by org, repo, task, stub, commit,
+// branch, version, and uncommitted flag.
+func (s *Store) ListAgents() ([]Agent, error) {
+	var agents []Agent
+	if err := s.db.Order("org, repo, task, stub, commit, branch, version, uncommitted").Find(&agents).Error; err != nil {
+		return nil, err
+	}
+	return agents, nil
+}
+
+// SaveGrader writes a grader, creating it or leaving the stored grader with the
+// same repo, task, test, stub, commit, branch, version, and uncommitted flag. It
+// returns ErrInvalidGrader when the grader misses its name, stub, commit, or
+// branch.
+func (s *Store) SaveGrader(g Grader) error {
+	return saveGrader(s.db, g)
+}
+
+// saveGrader writes a grader with db, reusing the stored grader with the same
+// identity.
+func saveGrader(db *gorm.DB, g Grader) error {
+	if err := g.Validate(); err != nil {
+		return err
+	}
+	return db.Clauses(clause.OnConflict{DoNothing: true}).Create(&g).Error
+}
+
+// GetGrader returns the grader with the given identity, or ErrNotFound. Its name
+// is not part of its identity.
+func (s *Store) GetGrader(g Grader) (Grader, error) {
+	var got Grader
+	err := s.db.First(&got, "org = ? AND repo = ? AND task = ? AND test = ? AND stub = ? AND commit = ? AND branch = ? AND version = ? AND uncommitted = ?",
+		g.Org, g.Repo, g.Task, g.Test, g.Stub, g.Commit, g.Branch, g.Version, g.Uncommitted).Error
+	if err != nil {
+		return Grader{}, notFound(err)
+	}
+	return got, nil
+}
+
+// ListGraders returns every grader, ordered by org, repo, task, test, stub,
+// commit, branch, version, and uncommitted flag.
+func (s *Store) ListGraders() ([]Grader, error) {
+	var graders []Grader
+	if err := s.db.Order("org, repo, task, test, stub, commit, branch, version, uncommitted").Find(&graders).Error; err != nil {
+		return nil, err
+	}
+	return graders, nil
+}
+
 // SaveDatum stores the JSON a test passes to an agent and returns the datum's
 // ref. The ref is derived from the JSON, so saving the same JSON in the same
 // test again returns the same ref and leaves one datum. It stores the JSON
@@ -177,16 +301,38 @@ func (s *Store) ListData(org, repo, task, test string) ([]Datum, error) {
 	return data, nil
 }
 
-// SaveResult stores the JSON an agent produced for a datum and returns the
-// result's ref. The ref is derived from the JSON within its datum, so saving
-// the same JSON for the same datum again returns the same ref and leaves one
-// result. It returns ErrInvalidResult when a run metric is negative.
+// SaveResult stores the body an agent produced for a datum and returns the
+// result's ref. The ref is derived from the body within its datum and the model
+// and agent it carries, so saving the same body from the same model and agent
+// again returns the same ref and leaves one result. It creates or reuses the
+// model and agent the result carries in the same write, and associates the
+// agent with the result's task. It returns ErrInvalidResult when a run metric is
+// negative, ErrInvalidModel when the carried model misses its name or provider,
+// and ErrInvalidAgent when the carried agent misses its name, stub, commit, or
+// branch.
 func (s *Store) SaveResult(r Result) (string, error) {
+	hasAgent := r.Agent.Present()
+	if hasAgent {
+		r.Agent.Org, r.Agent.Repo, r.Agent.Task = r.Org, r.Repo, r.Task
+	}
 	if err := r.Validate(); err != nil {
 		return "", err
 	}
 	r.Ref = ResultRef(r)
-	if err := s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&r).Error; err != nil {
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if r.Model.Present() {
+			if err := saveModel(tx, r.Model); err != nil {
+				return err
+			}
+		}
+		if hasAgent {
+			if err := saveAgent(tx, r.Agent); err != nil {
+				return err
+			}
+		}
+		return tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&r).Error
+	})
+	if err != nil {
 		return "", err
 	}
 	return r.Ref, nil
@@ -210,17 +356,38 @@ func (s *Store) ListResults(org, repo string) ([]Result, error) {
 	return results, nil
 }
 
-// SaveScore stores the key-number dictionary a grader produced for a result and
-// returns the score's ref. The ref is derived from the dictionary within its
-// result, so saving the same dictionary for the same result again returns the
-// same ref and leaves one score. It returns ErrInvalidScore when a run metric
-// is negative.
+// SaveScore stores the key-number body a grader produced for a result and
+// returns the score's ref. The ref is derived from the body within its result
+// and the model and grader it carries, so saving the same body from the same
+// model and grader again returns the same ref and leaves one score. It creates
+// or reuses the model and grader the score carries in the same write, and
+// associates the grader with the result's test. It returns ErrInvalidScore when
+// a run metric is negative, ErrInvalidModel when the carried model misses its
+// name or provider, and ErrInvalidGrader when the carried grader misses its
+// name, stub, commit, or branch.
 func (s *Store) SaveScore(sc Score) (string, error) {
+	hasGrader := sc.Grader.Present()
+	if hasGrader {
+		sc.Grader.Org, sc.Grader.Repo, sc.Grader.Task, sc.Grader.Test = sc.Org, sc.Repo, sc.Task, sc.Test
+	}
 	if err := sc.Validate(); err != nil {
 		return "", err
 	}
 	sc.Ref = ScoreRef(sc)
-	if err := s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&sc).Error; err != nil {
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if sc.Model.Present() {
+			if err := saveModel(tx, sc.Model); err != nil {
+				return err
+			}
+		}
+		if hasGrader {
+			if err := saveGrader(tx, sc.Grader); err != nil {
+				return err
+			}
+		}
+		return tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&sc).Error
+	})
+	if err != nil {
 		return "", err
 	}
 	return sc.Ref, nil

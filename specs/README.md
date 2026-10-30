@@ -22,9 +22,6 @@ Behavior contracts for the Agent Benchmark system.
 - [Task](cli/task.md) — creating, updating, and reading tasks
 - [Test](cli/test.md) — creating, updating, and reading tests
 - [Data](cli/data.md) — adding and reading a test's data
-- [Model](cli/model.md) — reading the models used by results and scores
-- [Agent](cli/agent.md) — reading the agent last used for a task
-- [Grader](cli/grader.md) — reading the grader last used for a task
 - [Result](cli/result.md) — adding a result for a test's datum and reading results
 - [Score](cli/score.md) — adding a score for a result and reading scores
 

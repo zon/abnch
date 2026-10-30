@@ -46,6 +46,33 @@ type Store interface {
 	// stub is taken, and store.ErrInvalidStub when the new stub is not
 	// URL-safe.
 	MoveTest(org, repo, task, stub, newStub string) (store.Test, error)
+	// GetModel returns the model with the given name, provider, and variant, or
+	// store.ErrNotFound.
+	GetModel(name, provider, variant string) (store.Model, error)
+	// ListModels returns every model, ordered by provider, name, and variant.
+	ListModels() ([]store.Model, error)
+	// SaveModel creates or reuses the model with the given name, provider, and
+	// variant. It reports store.ErrInvalidModel when the model misses its name
+	// or provider.
+	SaveModel(m store.Model) error
+	// GetAgent returns the agent with the given identity, or store.ErrNotFound.
+	GetAgent(a store.Agent) (store.Agent, error)
+	// ListAgents returns every agent, ordered by org, repo, task, stub, commit,
+	// branch, version, and uncommitted flag.
+	ListAgents() ([]store.Agent, error)
+	// SaveAgent creates or reuses the agent with the given identity. It reports
+	// store.ErrInvalidAgent when the agent misses its name, stub, commit, or
+	// branch.
+	SaveAgent(a store.Agent) error
+	// GetGrader returns the grader with the given identity, or store.ErrNotFound.
+	GetGrader(g store.Grader) (store.Grader, error)
+	// ListGraders returns every grader, ordered by org, repo, task, test, stub,
+	// commit, branch, version, and uncommitted flag.
+	ListGraders() ([]store.Grader, error)
+	// SaveGrader creates or reuses the grader with the given identity. It reports
+	// store.ErrInvalidGrader when the grader misses its name, stub, commit, or
+	// branch.
+	SaveGrader(g store.Grader) error
 	// ListData returns a test's data, ordered by ref.
 	ListData(org, repo, task, test string) ([]store.Datum, error)
 	// GetDatum returns the datum with the given ref in a test, or
@@ -61,20 +88,25 @@ type Store interface {
 	// ListResults returns a repo's results, ordered by ref.
 	ListResults(org, repo string) ([]store.Result, error)
 	// SaveResult stores the JSON an agent produced for a datum and returns the
-	// result's ref. The ref is derived from the JSON within its datum, so saving
-	// the same JSON for the same datum again returns the same ref and leaves one
-	// result. It reports store.ErrInvalidResult when a run metric is negative.
+	// result's ref. The ref is derived from the JSON within its datum and the
+	// model and agent it carries, so saving the same JSON from the same model
+	// and agent again returns the same ref and leaves one result. It reports
+	// store.ErrInvalidResult when a run metric is negative, store.ErrInvalidModel
+	// when the carried model is incomplete, and store.ErrInvalidAgent when the
+	// carried agent is incomplete.
 	SaveResult(r store.Result) (string, error)
 	// GetScore returns the score with the given ref in a repo, or
 	// store.ErrNotFound.
 	GetScore(org, repo, ref string) (store.Score, error)
 	// ListScores returns a repo's scores, ordered by ref.
 	ListScores(org, repo string) ([]store.Score, error)
-	// SaveScore stores the key-number dictionary a grader produced for a result
-	// and returns the score's ref. The ref is derived from the dictionary within
-	// its result, so saving the same dictionary for the same result again
-	// returns the same ref and leaves one score. It reports store.ErrInvalidScore
-	// when a run metric is negative.
+	// SaveScore stores the key-number body a grader produced for a result and
+	// returns the score's ref. The ref is derived from the body within its
+	// result and the model and grader it carries, so saving the same body from
+	// the same model and grader again returns the same ref and leaves one score.
+	// It reports store.ErrInvalidScore when a run metric is negative,
+	// store.ErrInvalidModel when the carried model is incomplete, and
+	// store.ErrInvalidGrader when the carried grader is incomplete.
 	SaveScore(sc store.Score) (string, error)
 	// SaveRepo creates or replaces the repo with the given stubs.
 	SaveRepo(r store.Repo) error
@@ -92,17 +124,20 @@ type Store interface {
 // Opener opens the store described by a service config.
 type Opener func(ctx context.Context, pg devconfig.Postgres) (Store, error)
 
-// openDatabase opens the service database and creates its tables.
+// openDatabase opens the service database.
 func openDatabase(ctx context.Context, pg devconfig.Postgres) (Store, error) {
 	return store.Open(ctx, pg)
 }
 
-// Options carries what Run works with.
+// Options carries what Run and Migrate work with.
 type Options struct {
 	// ConfigPath is the service config file.
 	ConfigPath string
 	// Opener opens the database. It defaults to the service database.
 	Opener Opener
+	// Migrator creates or updates the database tables. It defaults to the
+	// service database.
+	Migrator func(ctx context.Context, pg devconfig.Postgres) error
 	// Authenticator authenticates requests. It defaults to workload
 	// authentication against the issuers in the service config.
 	Authenticator auth.Authenticator
@@ -132,20 +167,49 @@ func ApplySecretEnv(cfg devconfig.Config, getenv func(string) string) devconfig.
 	return cfg
 }
 
+// loadConfig reads the service config and applies the secret values the
+// environment supplies.
+func loadConfig(path string) (devconfig.Config, error) {
+	cfg, err := devconfig.LoadConfig(path)
+	if err != nil {
+		return devconfig.Config{}, err
+	}
+	return ApplySecretEnv(cfg, os.Getenv), nil
+}
+
+// Migrate loads the service config and creates or updates the database tables
+// the service needs. It returns a clear error when the config file is missing or
+// malformed, or when Postgres is unreachable.
+func Migrate(ctx context.Context, opts Options) error {
+	cfg, err := loadConfig(opts.ConfigPath)
+	if err != nil {
+		return err
+	}
+	if err := devconfig.CheckPostgres(cfg.Postgres); err != nil {
+		return fmt.Errorf("config file %s: %w", opts.ConfigPath, err)
+	}
+
+	migrator := opts.Migrator
+	if migrator == nil {
+		migrator = store.Migrate
+	}
+	return migrator(ctx, cfg.Postgres)
+}
+
 // Run loads the service config, connects to Postgres, and serves the service
-// until ctx is canceled. It returns a clear error when the config file is
-// missing or malformed, or when Postgres is unreachable.
+// until ctx is canceled. It does not create or change tables; Migrate does that.
+// It returns a clear error when the config file is missing or malformed, or when
+// Postgres is unreachable.
 func Run(ctx context.Context, opts Options) error {
 	opener := opts.Opener
 	if opener == nil {
 		opener = openDatabase
 	}
 
-	cfg, err := devconfig.LoadConfig(opts.ConfigPath)
+	cfg, err := loadConfig(opts.ConfigPath)
 	if err != nil {
 		return err
 	}
-	cfg = ApplySecretEnv(cfg, os.Getenv)
 
 	addr, err := serviceAddr(cfg, opts.ConfigPath)
 	if err != nil {

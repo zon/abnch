@@ -34,7 +34,7 @@ The `set test` version uses `--test-version`, so `--version` names the app versi
 
 ## `abnch set config`
 
-Create or updates an `.abnch/config.yaml` file in the repo under the working dir. See [CLI Config Design](abnch-config.md).
+Creates or updates the `.abnch/config.yaml` file in the repo under the working dir. The config holds only the service URL. See [CLI Config Design](abnch-config.md).
 
 * --url: string - abnch service url
 
@@ -107,7 +107,7 @@ agent:
   branch: string
   version: string - optional
   uncommitted: bool - optional, default false
-json: any
+body: any
 logs: string
 inputTokens: number
 outputTokens: number
@@ -143,7 +143,7 @@ grader:
   branch: string
   version: string - optional
   uncommitted: bool - optional, default false
-dictionary: key-number dictionary
+body: key-number dictionary
 logs: string
 inputTokens: number
 outputTokens: number

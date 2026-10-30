@@ -54,6 +54,25 @@ The chart SHALL read a secret value from a Kubernetes secret rather than from ch
 - THEN the rendered service config holds those secret values
 - AND the chart values hold the secret's name and keys, not the values themselves
 
+### Requirement: Schema Migration
+
+The chart SHALL run `abnchd migrate` as an init container before the service container starts. The init container SHALL use the service image, the rendered service config, and the Postgres secret. The service container SHALL NOT migrate the database.
+
+#### Scenario: Migrate before serving
+
+- GIVEN chart values for the service config and Postgres secret
+- WHEN the pod starts
+- THEN the init container migrates the database with that config
+- AND the service container starts only after the migration succeeds
+- AND the service container does not migrate the database
+
+#### Scenario: Migration fails
+
+- GIVEN a database the init container cannot reach
+- WHEN the pod starts
+- THEN the init container fails
+- AND the service container does not start
+
 ### Requirement: HTTPS Service
 
 The chart SHALL configure `abnchd` to serve HTTPS and SHALL expose only the HTTPS port through the Service. It SHALL mount the certificate Secret and SHALL set the service config's certificate and key paths to the mounted files.
