@@ -1679,6 +1679,62 @@ func TestSaveScoreIdentityIncludesResult(t *testing.T) {
 	}
 }
 
+// TestSaveScoreIdentityIncludesModelAndGrader checks the same dictionary for the
+// same result from a different model or grader is a distinct score under a
+// different ref, while saving the same model and grader values again reuses one
+// score.
+func TestSaveScoreIdentityIncludesModelAndGrader(t *testing.T) {
+	s := newTestStore(t)
+	base := Score{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Result: "56ac1b0e4f0d", Dictionary: map[string]float64{"correctness": 1},
+		Model:  Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"},
+		Grader: Grader{Name: "llm-judge", Stub: "judge", Commit: "def456", Branch: "main"},
+	}
+
+	ref, err := s.SaveScore(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again, err := s.SaveScore(base); err != nil {
+		t.Fatal(err)
+	} else if again != ref {
+		t.Errorf("SaveScore again = %q, want the ref %q", again, ref)
+	}
+
+	for _, tc := range []struct {
+		name   string
+		change func(Score) Score
+	}{
+		{"different model name", func(s Score) Score { s.Model.Name = "claude-opus"; return s }},
+		{"different model provider", func(s Score) Score { s.Model.Provider = "openai"; return s }},
+		{"different model variant", func(s Score) Score { s.Model.Variant = "low"; return s }},
+		{"different grader stub", func(s Score) Score { s.Grader.Stub = "other"; return s }},
+		{"different grader commit", func(s Score) Score { s.Grader.Commit = "abc123"; return s }},
+		{"different grader branch", func(s Score) Score { s.Grader.Branch = "dev"; return s }},
+		{"different grader version", func(s Score) Score { s.Grader.Version = "2.0.0"; return s }},
+		{"uncommitted grader", func(s Score) Score { s.Grader.Uncommitted = true; return s }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := s.SaveScore(tc.change(base))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got == ref {
+				t.Errorf("SaveScore = %q, want a different ref for %s", got, tc.name)
+			}
+		})
+	}
+
+	scores, err := s.ListScores("acme", "widgets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := 1 + 8; len(scores) != want {
+		t.Errorf("ListScores returned %d scores, want %d", len(scores), want)
+	}
+}
+
 // TestListScores checks ListScores returns only a repo's scores, ordered by ref,
 // without another repo's scores.
 func TestListScores(t *testing.T) {

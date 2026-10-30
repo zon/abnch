@@ -104,29 +104,54 @@ func TestAddScoreCreatesAndReusesModel(t *testing.T) {
 	}
 }
 
-// TestAddScoreDifferentModelVariantDifferentRecord checks a score carrying the
-// same model name and provider with another variant links to a different model
-// record.
-func TestAddScoreDifferentModelVariantDifferentRecord(t *testing.T) {
-	st := scoreStore()
-	base := startServiceWithStore(t, st, auth.RoleAdmin)
-	path := "repos/acme/widgets/scores"
+// TestAddScoreDifferentModelDifferentScore checks a score carrying a model that
+// differs in an identity field is a distinct score under a different ref and
+// links to a different model record.
+func TestAddScoreDifferentModelDifferentScore(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		model string
+	}{
+		{name: "different name", model: `{"name":"claude-opus","provider":"anthropic","variant":"high"}`},
+		{name: "different provider", model: `{"name":"claude-sonnet","provider":"openai","variant":"high"}`},
+		{name: "different variant", model: `{"name":"claude-sonnet","provider":"anthropic","variant":"low"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := scoreStore()
+			base := startServiceWithStore(t, st, auth.RoleAdmin)
+			path := "repos/acme/widgets/scores"
+			first := `{"task":"fix-bug","test":"basic","result":"aaa111",` +
+				`"model":{"name":"claude-sonnet","provider":"anthropic","variant":"high"},"dictionary":{"correctness":1}}`
+			created := sendScorePost(t, base, path, first)
+			defer created.Body.Close()
+			if created.StatusCode != http.StatusCreated {
+				t.Fatalf("first status = %d, want %d", created.StatusCode, http.StatusCreated)
+			}
+			var firstRef scoreRefBody
+			if err := json.NewDecoder(created.Body).Decode(&firstRef); err != nil {
+				t.Fatalf("decode first body: %v", err)
+			}
 
-	for _, variant := range []string{"high", "low"} {
-		body := `{"task":"fix-bug","test":"basic","result":"aaa111",` +
-			`"model":{"name":"claude-sonnet","provider":"anthropic","variant":"` + variant + `"},"dictionary":{"correctness":1}}`
-		resp := sendScorePost(t, base, path, body)
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusCreated {
-			t.Fatalf("variant %s status = %d, want %d", variant, resp.StatusCode, http.StatusCreated)
-		}
-	}
-
-	if len(st.models) != 2 {
-		t.Errorf("store holds %d models, want 2", len(st.models))
-	}
-	if len(st.scores) != 2 {
-		t.Errorf("store holds %d scores, want 2", len(st.scores))
+			body := `{"task":"fix-bug","test":"basic","result":"aaa111","model":` + tc.model + `,"dictionary":{"correctness":1}}`
+			resp := sendScorePost(t, base, path, body)
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusCreated {
+				t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusCreated)
+			}
+			var secondRef scoreRefBody
+			if err := json.NewDecoder(resp.Body).Decode(&secondRef); err != nil {
+				t.Fatalf("decode second body: %v", err)
+			}
+			if secondRef.Ref == firstRef.Ref {
+				t.Errorf("second ref = %q, want a different ref for %s", secondRef.Ref, tc.name)
+			}
+			if len(st.models) != 2 {
+				t.Errorf("store holds %d models, want 2", len(st.models))
+			}
+			if len(st.scores) != 2 {
+				t.Errorf("store holds %d scores, want 2", len(st.scores))
+			}
+		})
 	}
 }
 
@@ -370,12 +395,23 @@ func TestAddScoreDifferentGraderDifferentRecord(t *testing.T) {
 			if created.StatusCode != http.StatusCreated {
 				t.Fatalf("first status = %d, want %d", created.StatusCode, http.StatusCreated)
 			}
+			var firstRef scoreRefBody
+			if err := json.NewDecoder(created.Body).Decode(&firstRef); err != nil {
+				t.Fatalf("decode first body: %v", err)
+			}
 
 			body := `{"task":"fix-bug","test":"basic","result":"aaa111","grader":` + tc.grader + `,"dictionary":{"correctness":1}}`
 			resp := sendScorePost(t, base, path, body)
 			defer resp.Body.Close()
 			if resp.StatusCode != http.StatusCreated {
 				t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusCreated)
+			}
+			var secondRef scoreRefBody
+			if err := json.NewDecoder(resp.Body).Decode(&secondRef); err != nil {
+				t.Fatalf("decode second body: %v", err)
+			}
+			if secondRef.Ref == firstRef.Ref {
+				t.Errorf("second ref = %q, want a different ref for %s", secondRef.Ref, tc.name)
 			}
 			if len(st.graders) != 2 {
 				t.Errorf("store holds %d graders, want 2", len(st.graders))
