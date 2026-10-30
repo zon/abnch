@@ -495,6 +495,45 @@ func TestAddScoreRejectsNegativeMetrics(t *testing.T) {
 	}
 }
 
+// TestAddScoreFailedWriteCreatesNoModelOrGrader checks a score write that fails
+// after carrying a valid model and grader creates neither record.
+func TestAddScoreFailedWriteCreatesNoModelOrGrader(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		result     string
+		dictionary string
+		metric     string
+		wantStatus int
+	}{
+		{name: "negative metric", result: "aaa111", dictionary: `{"correctness":1}`, metric: `,"inputTokens":-1`, wantStatus: http.StatusUnprocessableEntity},
+		{name: "unknown schema key", result: "aaa111", dictionary: `{"speed":1}`, wantStatus: http.StatusUnprocessableEntity},
+		{name: "missing result", result: "missing", dictionary: `{"correctness":1}`, wantStatus: http.StatusNotFound},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := scoreStore()
+			base := startServiceWithStore(t, st, auth.RoleAdmin)
+			body := `{"task":"fix-bug","test":"basic","result":"` + tc.result + `",` +
+				`"model":{"name":"claude-sonnet","provider":"anthropic","variant":"high"},` +
+				`"grader":{"name":"llm-judge","stub":"judge","commit":"def456","branch":"main"},` +
+				`"dictionary":` + tc.dictionary + tc.metric + `}`
+
+			resp := sendScorePost(t, base, "repos/acme/widgets/scores", body)
+			defer resp.Body.Close()
+
+			assertServiceError(t, resp, tc.wantStatus)
+			if len(st.models) != 0 {
+				t.Errorf("store holds %d models, want none", len(st.models))
+			}
+			if len(st.graders) != 0 {
+				t.Errorf("store holds %d graders, want none", len(st.graders))
+			}
+			if len(st.scores) != 0 {
+				t.Errorf("store holds %d scores, want none", len(st.scores))
+			}
+		})
+	}
+}
+
 // TestAddScoreRejectsNegativeMetricsOverExistingScore checks a negative metric
 // is rejected with 422 even when the result already holds a score for the same
 // dictionary, leaving the stored score unchanged.

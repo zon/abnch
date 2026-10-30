@@ -336,6 +336,47 @@ func TestAddResultRejectsNegativeMetrics(t *testing.T) {
 	}
 }
 
+// TestAddResultFailedWriteCreatesNoModelOrAgent checks a result write that
+// fails after carrying a valid model and agent creates neither record.
+func TestAddResultFailedWriteCreatesNoModelOrAgent(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		missing    bool
+		metric     string
+		wantStatus int
+	}{
+		{name: "negative metric", metric: `,"inputTokens":-1`, wantStatus: http.StatusUnprocessableEntity},
+		{name: "missing datum", missing: true, wantStatus: http.StatusNotFound},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := resultStore()
+			base := startServiceWithStore(t, st, auth.RoleAdmin)
+			data := st.data[0].Ref
+			if tc.missing {
+				data = "missing"
+			}
+			body := `{"task":"fix-bug","test":"basic","data":"` + data + `",` +
+				`"model":{"name":"claude-sonnet","provider":"anthropic","variant":"high"},` +
+				`"agent":{"name":"claude-code","stub":"claude","commit":"abc123","branch":"main"},` +
+				`"json":{"answer":"hi"}` + tc.metric + `}`
+
+			resp := sendResultPost(t, base, "repos/acme/widgets/results", body)
+			defer resp.Body.Close()
+
+			assertServiceError(t, resp, tc.wantStatus)
+			if len(st.models) != 0 {
+				t.Errorf("store holds %d models, want none", len(st.models))
+			}
+			if len(st.agents) != 0 {
+				t.Errorf("store holds %d agents, want none", len(st.agents))
+			}
+			if len(st.results) != 0 {
+				t.Errorf("store holds %d results, want none", len(st.results))
+			}
+		})
+	}
+}
+
 // TestAddResultRejectsNegativeMetricsOverExistingResult checks a negative
 // metric is rejected with 422 even when the datum already holds a result for the
 // same JSON, leaving the stored result unchanged.

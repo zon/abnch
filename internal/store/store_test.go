@@ -2244,6 +2244,43 @@ func TestSaveResultRejectsIncompleteAgent(t *testing.T) {
 	}
 }
 
+// TestSaveResultWriteFailureCreatesNoModelOrAgent checks a result write that
+// fails after storing its model and agent leaves neither record behind.
+func TestSaveResultWriteFailureCreatesNoModelOrAgent(t *testing.T) {
+	s := newTestStore(t)
+	r := Result{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Data: "56ac1b0e4f0d", JSON: `{"answer":"hi"}`, Logs: "bad\x00logs",
+		Model: Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"},
+		Agent: Agent{Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main"},
+	}
+
+	if _, err := s.SaveResult(r); err == nil {
+		t.Fatal("SaveResult = nil, want an error for a write Postgres rejects")
+	}
+	results, err := s.ListResults("acme", "widgets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 0 {
+		t.Errorf("ListResults returned %d results, want none", len(results))
+	}
+	models, err := s.ListModels()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 0 {
+		t.Errorf("ListModels returned %d models, want none", len(models))
+	}
+	agents, err := s.ListAgents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agents) != 0 {
+		t.Errorf("ListAgents returned %d agents, want none", len(agents))
+	}
+}
+
 // TestSaveScoreStoresAndReusesModel checks a score creates the model it
 // carries, reuses it for the same values, and links a different model value to
 // a different record.
@@ -2426,6 +2463,44 @@ func TestSaveScoreRejectsIncompleteGrader(t *testing.T) {
 	}
 	if len(models) != 0 {
 		t.Errorf("ListModels returned %d models, want none", len(models))
+	}
+}
+
+// TestSaveScoreWriteFailureCreatesNoModelOrGrader checks a score write that
+// fails after storing its model and grader leaves neither record behind.
+func TestSaveScoreWriteFailureCreatesNoModelOrGrader(t *testing.T) {
+	s := newTestStore(t)
+	sc := Score{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Result: "56ac1b0e4f0d", Dictionary: map[string]float64{"correctness": 1},
+		Logs:  "bad\x00logs",
+		Model: Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"},
+		Grader: Grader{Name: "llm-judge", Stub: "judge", Commit: "def456", Branch: "main"},
+	}
+
+	if _, err := s.SaveScore(sc); err == nil {
+		t.Fatal("SaveScore = nil, want an error for a write Postgres rejects")
+	}
+	scores, err := s.ListScores("acme", "widgets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scores) != 0 {
+		t.Errorf("ListScores returned %d scores, want none", len(scores))
+	}
+	models, err := s.ListModels()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 0 {
+		t.Errorf("ListModels returned %d models, want none", len(models))
+	}
+	graders, err := s.ListGraders()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(graders) != 0 {
+		t.Errorf("ListGraders returned %d graders, want none", len(graders))
 	}
 }
 
