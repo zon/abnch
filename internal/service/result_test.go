@@ -156,6 +156,158 @@ func TestAddResultRejectsIncompleteModel(t *testing.T) {
 	}
 }
 
+// TestAddResultCreatesAndReusesAgent checks a result write creates the agent it
+// carries, associates it with the result's task, defaults uncommitted to false,
+// and reuses it for the same agent values.
+func TestAddResultCreatesAndReusesAgent(t *testing.T) {
+	st := resultStore()
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+	path := "repos/acme/widgets/results"
+	body := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `",` +
+		`"agent":{"name":"claude-code","stub":"claude","commit":"abc123","branch":"main"},"json":{"answer":"hi"}}`
+	want := store.Agent{
+		Org: "acme", Repo: "widgets", Task: "fix-bug",
+		Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main",
+	}
+
+	for i, wantStatus := range []int{http.StatusCreated, http.StatusOK} {
+		resp := sendResultPost(t, base, path, body)
+		defer resp.Body.Close()
+		if resp.StatusCode != wantStatus {
+			t.Fatalf("post %d status = %d, want %d", i, resp.StatusCode, wantStatus)
+		}
+	}
+
+	if len(st.agents) != 1 {
+		t.Fatalf("store holds %d agents, want 1", len(st.agents))
+	}
+	if st.agents[0] != want {
+		t.Errorf("stored agent = %#v, want %#v", st.agents[0], want)
+	}
+	if len(st.results) != 1 {
+		t.Fatalf("store holds %d results, want 1", len(st.results))
+	}
+	if st.results[0].Agent != want {
+		t.Errorf("result agent = %#v, want %#v", st.results[0].Agent, want)
+	}
+
+	other := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `",` +
+		`"agent":{"name":"claude-code","stub":"claude","commit":"abc123","branch":"main"},"json":{"answer":"bye"}}`
+	resp := sendResultPost(t, base, path, other)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("second result status = %d, want %d", resp.StatusCode, http.StatusCreated)
+	}
+	if len(st.agents) != 1 {
+		t.Errorf("store holds %d agents, want the reused agent", len(st.agents))
+	}
+	if len(st.results) != 2 {
+		t.Errorf("store holds %d results, want 2", len(st.results))
+	}
+}
+
+// TestAddResultDifferentAgentDifferentRecord checks a result carrying an agent
+// that differs in an identity field links to a different agent record, and the
+// same JSON from a different agent is a different result.
+func TestAddResultDifferentAgentDifferentRecord(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		agent string
+	}{
+		{name: "different stub", agent: `{"name":"claude-code","stub":"other","commit":"abc123","branch":"main"}`},
+		{name: "different commit", agent: `{"name":"claude-code","stub":"claude","commit":"def456","branch":"main"}`},
+		{name: "different branch", agent: `{"name":"claude-code","stub":"claude","commit":"abc123","branch":"dev"}`},
+		{name: "different version", agent: `{"name":"claude-code","stub":"claude","commit":"abc123","branch":"main","version":"1.2.3"}`},
+		{name: "uncommitted", agent: `{"name":"claude-code","stub":"claude","commit":"abc123","branch":"main","uncommitted":true}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := resultStore()
+			base := startServiceWithStore(t, st, auth.RoleAdmin)
+			path := "repos/acme/widgets/results"
+			first := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `",` +
+				`"agent":{"name":"claude-code","stub":"claude","commit":"abc123","branch":"main"},"json":{"answer":"hi"}}`
+			created := sendResultPost(t, base, path, first)
+			defer created.Body.Close()
+			if created.StatusCode != http.StatusCreated {
+				t.Fatalf("first status = %d, want %d", created.StatusCode, http.StatusCreated)
+			}
+
+			body := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `","agent":` + tc.agent + `,"json":{"answer":"hi"}}`
+			resp := sendResultPost(t, base, path, body)
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusCreated {
+				t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusCreated)
+			}
+			if len(st.agents) != 2 {
+				t.Errorf("store holds %d agents, want 2", len(st.agents))
+			}
+			if len(st.results) != 2 {
+				t.Errorf("store holds %d results, want 2", len(st.results))
+			}
+		})
+	}
+}
+
+// TestAddResultAgentNameNotIdentity checks an agent's name does not separate
+// records, so the same identity with another name reuses the stored agent.
+func TestAddResultAgentNameNotIdentity(t *testing.T) {
+	st := resultStore()
+	base := startServiceWithStore(t, st, auth.RoleAdmin)
+	path := "repos/acme/widgets/results"
+
+	first := sendResultPost(t, base, path, `{"task":"fix-bug","test":"basic","data":"`+st.data[0].Ref+`",`+
+		`"agent":{"name":"claude-code","stub":"claude","commit":"abc123","branch":"main"},"json":{"answer":"hi"}}`)
+	defer first.Body.Close()
+	if first.StatusCode != http.StatusCreated {
+		t.Fatalf("first status = %d, want %d", first.StatusCode, http.StatusCreated)
+	}
+	second := sendResultPost(t, base, path, `{"task":"fix-bug","test":"basic","data":"`+st.data[0].Ref+`",`+
+		`"agent":{"name":"renamed-agent","stub":"claude","commit":"abc123","branch":"main"},"json":{"answer":"hi"}}`)
+	defer second.Body.Close()
+	if second.StatusCode != http.StatusOK {
+		t.Fatalf("second status = %d, want %d", second.StatusCode, http.StatusOK)
+	}
+	if len(st.agents) != 1 {
+		t.Errorf("store holds %d agents, want 1", len(st.agents))
+	}
+	if len(st.results) != 1 {
+		t.Errorf("store holds %d results, want 1", len(st.results))
+	}
+}
+
+// TestAddResultRejectsIncompleteAgent checks a result carrying an agent without
+// a name, stub, commit, or branch returns 422 and creates neither the result nor
+// the agent.
+func TestAddResultRejectsIncompleteAgent(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		agent string
+	}{
+		{name: "missing name", agent: `{"stub":"claude","commit":"abc123","branch":"main"}`},
+		{name: "missing stub", agent: `{"name":"claude-code","commit":"abc123","branch":"main"}`},
+		{name: "missing commit", agent: `{"name":"claude-code","stub":"claude","branch":"main"}`},
+		{name: "missing branch", agent: `{"name":"claude-code","stub":"claude","commit":"abc123"}`},
+		{name: "empty agent", agent: `{}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := resultStore()
+			base := startServiceWithStore(t, st, auth.RoleAdmin)
+			body := `{"task":"fix-bug","test":"basic","data":"` + st.data[0].Ref + `","agent":` + tc.agent + `,"json":{"answer":"hi"}}`
+
+			resp := sendResultPost(t, base, "repos/acme/widgets/results", body)
+			defer resp.Body.Close()
+
+			assertServiceError(t, resp, http.StatusUnprocessableEntity)
+			if len(st.agents) != 0 {
+				t.Errorf("store holds %d agents, want none", len(st.agents))
+			}
+			if len(st.results) != 0 {
+				t.Errorf("store holds %d results, want none", len(st.results))
+			}
+		})
+	}
+}
+
 // TestAddResultRejectsNegativeMetrics checks a result with a negative token
 // count, cost, or duration returns 422 and creates no result.
 func TestAddResultRejectsNegativeMetrics(t *testing.T) {
@@ -426,7 +578,11 @@ func TestGetResultReturnsFields(t *testing.T) {
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
 		Data:  st.data[0].Ref,
 		Model: store.Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"},
-		Ref:   "aaa111", JSON: `{"answer":"hi"}`, Logs: "worked",
+		Agent: store.Agent{
+			Org: "acme", Repo: "widgets", Task: "fix-bug",
+			Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main",
+		},
+		Ref: "aaa111", JSON: `{"answer":"hi"}`, Logs: "worked",
 		InputTokens: 12, OutputTokens: 3, TokenCost: 0.01, Duration: 1.5, Local: "main",
 	}}
 	base := startServiceWithStore(t, st, auth.RoleReader)
@@ -450,6 +606,7 @@ func TestGetResultReturnsFields(t *testing.T) {
 		Test         string          `json:"test"`
 		Data         string          `json:"data"`
 		Model        store.Model     `json:"model"`
+		Agent        store.Agent     `json:"agent"`
 		JSON         json.RawMessage `json:"json"`
 		Logs         string          `json:"logs"`
 		InputTokens  int             `json:"inputTokens"`
@@ -466,6 +623,9 @@ func TestGetResultReturnsFields(t *testing.T) {
 	}
 	if got.Model != st.results[0].Model {
 		t.Errorf("result model = %#v, want the stored model %#v", got.Model, st.results[0].Model)
+	}
+	if got.Agent != st.results[0].Agent {
+		t.Errorf("result agent = %#v, want the stored agent %#v", got.Agent, st.results[0].Agent)
 	}
 	if string(got.JSON) != `{"answer":"hi"}` {
 		t.Errorf("result JSON = %s, want the stored JSON", got.JSON)

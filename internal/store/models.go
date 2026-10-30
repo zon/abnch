@@ -104,6 +104,39 @@ func (m Model) Present() bool {
 	return m != Model{}
 }
 
+// Agent is the external code that produced a result. It is identified by its
+// repo, task stub, stub, commit, branch, version, and uncommitted flag, so two
+// agents with the same values are the same record. Its name may differ without
+// making a new record. A version may be empty, and an omitted uncommitted flag
+// records false.
+type Agent struct {
+	Org         string `gorm:"primaryKey" json:"org"`
+	Repo        string `gorm:"primaryKey" json:"repo"`
+	Task        string `gorm:"primaryKey" json:"task"`
+	Name        string `json:"name"`
+	Stub        string `gorm:"primaryKey" json:"stub"`
+	Commit      string `gorm:"primaryKey" json:"commit"`
+	Branch      string `gorm:"primaryKey" json:"branch"`
+	Version     string `gorm:"primaryKey" json:"version"`
+	Uncommitted bool   `gorm:"primaryKey" json:"uncommitted"`
+}
+
+// Validate reports whether the agent carries the fields it needs: a non-empty
+// name, stub, commit, and branch. An empty version or a false uncommitted flag
+// is allowed.
+func (a Agent) Validate() error {
+	if a.Name == "" || a.Stub == "" || a.Commit == "" || a.Branch == "" {
+		return ErrInvalidAgent
+	}
+	return nil
+}
+
+// Present reports whether the agent carries any value. An absent agent is the
+// zero value, so a result that omits its agent creates no record.
+func (a Agent) Present() bool {
+	return a != Agent{}
+}
+
 // Datum is the JSON a test passes to an agent, one per case. It is identified by
 // its repo, task stub, test stub, and ref, so two data with the same identity
 // are the same datum.
@@ -128,6 +161,7 @@ type Result struct {
 	Data         string `gorm:"primaryKey"`
 	Ref          string `gorm:"primaryKey"`
 	Model        Model  `gorm:"embedded"`
+	Agent        Agent  `gorm:"embedded;embeddedPrefix:agent_"`
 	JSON         string
 	Logs         string
 	InputTokens  int
@@ -138,14 +172,19 @@ type Result struct {
 }
 
 // Validate reports whether the result's run metrics are zero or greater and its
-// model, when carried, has a name and provider. A result that omits a metric
-// records zero. Its JSON, logs, and local branch may be empty.
+// model and agent, when carried, carry their required fields. A result that
+// omits a metric records zero. Its JSON, logs, and local branch may be empty.
 func (r Result) Validate() error {
 	if r.InputTokens < 0 || r.OutputTokens < 0 || r.TokenCost < 0 || r.Duration < 0 {
 		return ErrInvalidResult
 	}
 	if r.Model.Present() {
-		return r.Model.Validate()
+		if err := r.Model.Validate(); err != nil {
+			return err
+		}
+	}
+	if r.Agent.Present() {
+		return r.Agent.Validate()
 	}
 	return nil
 }

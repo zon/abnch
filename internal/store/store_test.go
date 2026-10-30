@@ -11,7 +11,7 @@ import (
 func TestMigrateCreatesTables(t *testing.T) {
 	s := newTestStore(t)
 
-	for _, model := range []any{&Repo{}, &Task{}, &Test{}, &Model{}, &Datum{}, &Result{}, &Score{}} {
+	for _, model := range []any{&Repo{}, &Task{}, &Test{}, &Model{}, &Agent{}, &Datum{}, &Result{}, &Score{}} {
 		if !s.db.Migrator().HasTable(model) {
 			t.Errorf("Migrate did not create the table for %T", model)
 		}
@@ -1302,12 +1302,14 @@ func TestGetResultMissing(t *testing.T) {
 }
 
 // TestResultRef checks a ref is short and URL-safe, is stable for the same
-// result JSON in the same datum, and changes when the JSON or any part of the
-// datum's identity changes.
+// result JSON in the same datum from the same model and agent, and changes when
+// the JSON or any part of the datum's, model's, or agent's identity changes.
 func TestResultRef(t *testing.T) {
 	base := Result{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
 		Data: "56ac1b0e4f0d", JSON: `{"answer":"hi"}`,
+		Model: Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"},
+		Agent: Agent{Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main"},
 	}
 	ref := ResultRef(base)
 	if ref != ResultRef(base) {
@@ -1329,6 +1331,11 @@ func TestResultRef(t *testing.T) {
 		{"different model name", func(r Result) Result { r.Model.Name = "claude-opus"; return r }},
 		{"different model provider", func(r Result) Result { r.Model.Provider = "openai"; return r }},
 		{"different model variant", func(r Result) Result { r.Model.Variant = "low"; return r }},
+		{"different agent stub", func(r Result) Result { r.Agent.Stub = "other"; return r }},
+		{"different agent commit", func(r Result) Result { r.Agent.Commit = "def456"; return r }},
+		{"different agent branch", func(r Result) Result { r.Agent.Branch = "dev"; return r }},
+		{"different agent version", func(r Result) Result { r.Agent.Version = "1.2.3"; return r }},
+		{"uncommitted agent", func(r Result) Result { r.Agent.Uncommitted = true; return r }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := ResultRef(tc.change(base)); got == ref {
@@ -1781,6 +1788,145 @@ func TestSaveModelRejectsMissingNameOrProvider(t *testing.T) {
 	}
 }
 
+// TestSaveAndGetAgent checks an agent round trips through the store with its
+// name, stub, commit, branch, version, uncommitted flag, and task.
+func TestSaveAndGetAgent(t *testing.T) {
+	s := newTestStore(t)
+	want := Agent{
+		Org: "acme", Repo: "widgets", Task: "fix-bug",
+		Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main",
+		Version: "1.2.3", Uncommitted: true,
+	}
+
+	if err := s.SaveAgent(want); err != nil {
+		t.Fatalf("SaveAgent: %v", err)
+	}
+
+	got, err := s.GetAgent(want)
+	if err != nil {
+		t.Fatalf("GetAgent: %v", err)
+	}
+	if got != want {
+		t.Errorf("GetAgent = %#v, want %#v", got, want)
+	}
+}
+
+// TestSaveAgentDefaultsUncommittedAndAllowsEmptyVersion checks an agent needs no
+// version, and an omitted uncommitted flag records false.
+func TestSaveAgentDefaultsUncommittedAndAllowsEmptyVersion(t *testing.T) {
+	s := newTestStore(t)
+	want := Agent{
+		Org: "acme", Repo: "widgets", Task: "fix-bug",
+		Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main",
+	}
+
+	if err := s.SaveAgent(want); err != nil {
+		t.Fatalf("SaveAgent: %v", err)
+	}
+
+	got, err := s.GetAgent(want)
+	if err != nil {
+		t.Fatalf("GetAgent: %v", err)
+	}
+	if got.Uncommitted || got.Version != "" {
+		t.Errorf("GetAgent = %#v, want a false uncommitted flag and an empty version", got)
+	}
+}
+
+// TestSaveAgentReusesSameIdentityIgnoringName checks saving the same identity
+// again leaves one agent and keeps the stored name, because a name is not part
+// of an agent's identity.
+func TestSaveAgentReusesSameIdentityIgnoringName(t *testing.T) {
+	s := newTestStore(t)
+	agent := Agent{
+		Org: "acme", Repo: "widgets", Task: "fix-bug",
+		Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main",
+	}
+
+	if err := s.SaveAgent(agent); err != nil {
+		t.Fatal(err)
+	}
+	renamed := agent
+	renamed.Name = "renamed-agent"
+	if err := s.SaveAgent(renamed); err != nil {
+		t.Fatal(err)
+	}
+
+	agents, err := s.ListAgents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agents) != 1 {
+		t.Fatalf("ListAgents returned %d agents, want 1", len(agents))
+	}
+	if agents[0].Name != agent.Name {
+		t.Errorf("agent name = %q, want the stored name %q", agents[0].Name, agent.Name)
+	}
+}
+
+// TestSaveAgentSeparatesDifferentValues checks an agent that differs in its
+// repo, task, stub, commit, branch, version, or uncommitted flag is a different
+// record.
+func TestSaveAgentSeparatesDifferentValues(t *testing.T) {
+	s := newTestStore(t)
+	base := Agent{
+		Org: "acme", Repo: "widgets", Task: "fix-bug",
+		Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main",
+	}
+	for _, agent := range []Agent{
+		base,
+		{Org: "other", Repo: base.Repo, Task: base.Task, Name: base.Name, Stub: base.Stub, Commit: base.Commit, Branch: base.Branch},
+		{Org: base.Org, Repo: "gadgets", Task: base.Task, Name: base.Name, Stub: base.Stub, Commit: base.Commit, Branch: base.Branch},
+		{Org: base.Org, Repo: base.Repo, Task: "ship-it", Name: base.Name, Stub: base.Stub, Commit: base.Commit, Branch: base.Branch},
+		{Org: base.Org, Repo: base.Repo, Task: base.Task, Name: base.Name, Stub: "other", Commit: base.Commit, Branch: base.Branch},
+		{Org: base.Org, Repo: base.Repo, Task: base.Task, Name: base.Name, Stub: base.Stub, Commit: "def456", Branch: base.Branch},
+		{Org: base.Org, Repo: base.Repo, Task: base.Task, Name: base.Name, Stub: base.Stub, Commit: base.Commit, Branch: "dev"},
+		{Org: base.Org, Repo: base.Repo, Task: base.Task, Name: base.Name, Stub: base.Stub, Commit: base.Commit, Branch: base.Branch, Version: "1.2.3"},
+		{Org: base.Org, Repo: base.Repo, Task: base.Task, Name: base.Name, Stub: base.Stub, Commit: base.Commit, Branch: base.Branch, Uncommitted: true},
+	} {
+		if err := s.SaveAgent(agent); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	agents, err := s.ListAgents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agents) != 9 {
+		t.Errorf("ListAgents returned %d agents, want 9", len(agents))
+	}
+}
+
+// TestSaveAgentRejectsIncomplete checks an agent without a name, stub, commit,
+// or branch is refused and stored nowhere.
+func TestSaveAgentRejectsIncomplete(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		agent Agent
+	}{
+		{"missing name", Agent{Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "claude", Commit: "abc123", Branch: "main"}},
+		{"missing stub", Agent{Org: "acme", Repo: "widgets", Task: "fix-bug", Name: "claude-code", Commit: "abc123", Branch: "main"}},
+		{"missing commit", Agent{Org: "acme", Repo: "widgets", Task: "fix-bug", Name: "claude-code", Stub: "claude", Branch: "main"}},
+		{"missing branch", Agent{Org: "acme", Repo: "widgets", Task: "fix-bug", Name: "claude-code", Stub: "claude", Commit: "abc123"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTestStore(t)
+
+			if err := s.SaveAgent(tc.agent); !errors.Is(err, ErrInvalidAgent) {
+				t.Errorf("SaveAgent error = %v, want ErrInvalidAgent", err)
+			}
+			agents, err := s.ListAgents()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(agents) != 0 {
+				t.Errorf("ListAgents returned %d agents, want none", len(agents))
+			}
+		})
+	}
+}
+
 // TestSaveResultStoresAndReusesModel checks a result creates the model it
 // carries, reuses it for the same values, and links a different model value to
 // a different record.
@@ -1858,6 +2004,103 @@ func TestSaveResultRejectsIncompleteModel(t *testing.T) {
 	}
 	if len(models) != 0 {
 		t.Errorf("ListModels returned %d models, want none", len(models))
+	}
+}
+
+// TestSaveResultStoresAndReusesAgent checks a result creates the agent it
+// carries, associates it with the result's task, reuses it for the same values,
+// and links a different agent value or task to a different record.
+func TestSaveResultStoresAndReusesAgent(t *testing.T) {
+	s := newTestStore(t)
+	base := Result{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Data: "56ac1b0e4f0d", JSON: `{"answer":"hi"}`,
+		Agent: Agent{Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main"},
+	}
+	want := base.Agent
+	want.Org, want.Repo, want.Task = base.Org, base.Repo, base.Task
+
+	ref, err := s.SaveResult(base)
+	if err != nil {
+		t.Fatalf("SaveResult: %v", err)
+	}
+	got, err := s.GetResult("acme", "widgets", ref)
+	if err != nil {
+		t.Fatalf("GetResult: %v", err)
+	}
+	if got.Agent != want {
+		t.Errorf("result agent = %#v, want %#v", got.Agent, want)
+	}
+
+	again := base
+	again.Data = "ffffffffffff"
+	if _, err := s.SaveResult(again); err != nil {
+		t.Fatal(err)
+	}
+	agents, err := s.ListAgents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agents) != 1 {
+		t.Errorf("ListAgents returned %d agents, want 1", len(agents))
+	}
+
+	otherTask := base
+	otherTask.Task = "ship-it"
+	otherTask.Data = "eeeeeeeeeeee"
+	if _, err := s.SaveResult(otherTask); err != nil {
+		t.Fatal(err)
+	}
+	agents, err = s.ListAgents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agents) != 2 {
+		t.Errorf("ListAgents returned %d agents, want 2", len(agents))
+	}
+
+	otherAgent := base
+	otherAgent.Data = "dddddddddddd"
+	otherAgent.Agent.Version = "1.2.3"
+	if _, err := s.SaveResult(otherAgent); err != nil {
+		t.Fatal(err)
+	}
+	agents, err = s.ListAgents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agents) != 3 {
+		t.Errorf("ListAgents returned %d agents, want 3", len(agents))
+	}
+}
+
+// TestSaveResultRejectsIncompleteAgent checks a result carrying an agent without
+// a name, stub, commit, or branch is refused and creates neither the result nor
+// the agent.
+func TestSaveResultRejectsIncompleteAgent(t *testing.T) {
+	s := newTestStore(t)
+	r := Result{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Data: "56ac1b0e4f0d", JSON: `{"answer":"hi"}`,
+		Agent: Agent{Name: "claude-code", Stub: "claude", Commit: "abc123"},
+	}
+
+	if _, err := s.SaveResult(r); !errors.Is(err, ErrInvalidAgent) {
+		t.Errorf("SaveResult error = %v, want ErrInvalidAgent", err)
+	}
+	results, err := s.ListResults("acme", "widgets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 0 {
+		t.Errorf("ListResults returned %d results, want none", len(results))
+	}
+	agents, err := s.ListAgents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agents) != 0 {
+		t.Errorf("ListAgents returned %d agents, want none", len(agents))
 	}
 }
 

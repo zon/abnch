@@ -55,6 +55,15 @@ type Store interface {
 	// variant. It reports store.ErrInvalidModel when the model misses its name
 	// or provider.
 	SaveModel(m store.Model) error
+	// GetAgent returns the agent with the given identity, or store.ErrNotFound.
+	GetAgent(a store.Agent) (store.Agent, error)
+	// ListAgents returns every agent, ordered by org, repo, task, stub, commit,
+	// branch, version, and uncommitted flag.
+	ListAgents() ([]store.Agent, error)
+	// SaveAgent creates or reuses the agent with the given identity. It reports
+	// store.ErrInvalidAgent when the agent misses its name, stub, commit, or
+	// branch.
+	SaveAgent(a store.Agent) error
 	// ListData returns a test's data, ordered by ref.
 	ListData(org, repo, task, test string) ([]store.Datum, error)
 	// GetDatum returns the datum with the given ref in a test, or
@@ -70,9 +79,12 @@ type Store interface {
 	// ListResults returns a repo's results, ordered by ref.
 	ListResults(org, repo string) ([]store.Result, error)
 	// SaveResult stores the JSON an agent produced for a datum and returns the
-	// result's ref. The ref is derived from the JSON within its datum, so saving
-	// the same JSON for the same datum again returns the same ref and leaves one
-	// result. It reports store.ErrInvalidResult when a run metric is negative.
+	// result's ref. The ref is derived from the JSON within its datum and the
+	// model and agent it carries, so saving the same JSON from the same model
+	// and agent again returns the same ref and leaves one result. It reports
+	// store.ErrInvalidResult when a run metric is negative, store.ErrInvalidModel
+	// when the carried model is incomplete, and store.ErrInvalidAgent when the
+	// carried agent is incomplete.
 	SaveResult(r store.Result) (string, error)
 	// GetScore returns the score with the given ref in a repo, or
 	// store.ErrNotFound.

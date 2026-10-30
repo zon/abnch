@@ -21,6 +21,7 @@ type result struct {
 	Test         string          `json:"test"`
 	Data         string          `json:"data"`
 	Model        store.Model     `json:"model"`
+	Agent        store.Agent     `json:"agent"`
 	JSON         json.RawMessage `json:"json"`
 	Logs         string          `json:"logs"`
 	InputTokens  int             `json:"inputTokens"`
@@ -31,14 +32,17 @@ type result struct {
 }
 
 // resultRequest is the JSON body a result write carries. Model is the model the
-// agent used, JSON is the result it produced; the rest are its logs and run
-// metrics. A request that omits its model creates no model record; a model it
-// carries must have a name and provider.
+// agent used, Agent is the agent that produced the result, and JSON is the
+// result it produced; the rest are its logs and run metrics. A request that
+// omits its model or agent creates no such record; a model it carries must have
+// a name and provider, and an agent it carries must have a name, stub, commit,
+// and branch.
 type resultRequest struct {
 	Task         string          `json:"task"`
 	Test         string          `json:"test"`
 	Data         string          `json:"data"`
 	Model        *store.Model    `json:"model"`
+	Agent        *store.Agent    `json:"agent"`
 	JSON         json.RawMessage `json:"json"`
 	Logs         string          `json:"logs"`
 	InputTokens  int             `json:"inputTokens"`
@@ -67,6 +71,12 @@ func addResult(st Store) http.HandlerFunc {
 		}
 		if body.Model != nil {
 			if err := body.Model.Validate(); err != nil {
+				writeResultStoreError(w, err)
+				return
+			}
+		}
+		if body.Agent != nil {
+			if err := body.Agent.Validate(); err != nil {
 				writeResultStoreError(w, err)
 				return
 			}
@@ -166,7 +176,7 @@ func resultJSON(r store.Result) result {
 		body = json.RawMessage("null")
 	}
 	return result{
-		Ref: r.Ref, Task: r.Task, Test: r.Test, Data: r.Data, Model: r.Model,
+		Ref: r.Ref, Task: r.Task, Test: r.Test, Data: r.Data, Model: r.Model, Agent: r.Agent,
 		JSON: body, Logs: r.Logs,
 		InputTokens: r.InputTokens, OutputTokens: r.OutputTokens,
 		TokenCost: r.TokenCost, Duration: r.Duration, Local: r.Local,
@@ -184,7 +194,7 @@ func resultRefs(results []store.Result) []string {
 }
 
 // newResult builds the store result a body describes for the route's repo,
-// including the model it carries when it names one.
+// including the model and agent it carries when it names them.
 func newResult(org, repo string, body resultRequest) store.Result {
 	r := store.Result{
 		Org: org, Repo: repo, Task: body.Task, Test: body.Test, Data: body.Data,
@@ -195,6 +205,9 @@ func newResult(org, repo string, body resultRequest) store.Result {
 	if body.Model != nil {
 		r.Model = *body.Model
 	}
+	if body.Agent != nil {
+		r.Agent = *body.Agent
+	}
 	return r
 }
 
@@ -204,6 +217,8 @@ func writeResultStoreError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, store.ErrInvalidModel):
 		httpx.WriteError(w, http.StatusUnprocessableEntity, "model must carry a name and provider")
+	case errors.Is(err, store.ErrInvalidAgent):
+		httpx.WriteError(w, http.StatusUnprocessableEntity, "agent must carry a name, stub, commit, and branch")
 	case errors.Is(err, store.ErrInvalidResult):
 		httpx.WriteError(w, http.StatusUnprocessableEntity, "result metrics must be zero or greater")
 	default:

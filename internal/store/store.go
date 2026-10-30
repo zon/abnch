@@ -27,6 +27,10 @@ var ErrInvalidSchema = errors.New("invalid schema")
 // ErrInvalidModel reports that a model is missing its name or provider.
 var ErrInvalidModel = errors.New("invalid model")
 
+// ErrInvalidAgent reports that an agent is missing its name, stub, commit, or
+// branch.
+var ErrInvalidAgent = errors.New("invalid agent")
+
 // ErrInvalidResult reports that a result carries a negative run metric.
 var ErrInvalidResult = errors.New("invalid result")
 
@@ -45,7 +49,7 @@ func New(db *gorm.DB) *Store {
 
 // Migrate creates the tables the store needs.
 func (s *Store) Migrate() error {
-	return s.db.AutoMigrate(&Repo{}, &Task{}, &Test{}, &Model{}, &Datum{}, &Result{}, &Score{})
+	return s.db.AutoMigrate(&Repo{}, &Task{}, &Test{}, &Model{}, &Agent{}, &Datum{}, &Result{}, &Score{})
 }
 
 // Close closes the store's database connection.
@@ -181,6 +185,45 @@ func (s *Store) ListModels() ([]Model, error) {
 	return models, nil
 }
 
+// SaveAgent writes an agent, creating it or leaving the stored agent with the
+// same repo, task, stub, commit, branch, version, and uncommitted flag. It
+// returns ErrInvalidAgent when the agent misses its name, stub, commit, or
+// branch.
+func (s *Store) SaveAgent(a Agent) error {
+	return saveAgent(s.db, a)
+}
+
+// saveAgent writes an agent with db, reusing the stored agent with the same
+// identity.
+func saveAgent(db *gorm.DB, a Agent) error {
+	if err := a.Validate(); err != nil {
+		return err
+	}
+	return db.Clauses(clause.OnConflict{DoNothing: true}).Create(&a).Error
+}
+
+// GetAgent returns the agent with the given identity, or ErrNotFound. Its name
+// is not part of its identity.
+func (s *Store) GetAgent(a Agent) (Agent, error) {
+	var got Agent
+	err := s.db.First(&got, "org = ? AND repo = ? AND task = ? AND stub = ? AND commit = ? AND branch = ? AND version = ? AND uncommitted = ?",
+		a.Org, a.Repo, a.Task, a.Stub, a.Commit, a.Branch, a.Version, a.Uncommitted).Error
+	if err != nil {
+		return Agent{}, notFound(err)
+	}
+	return got, nil
+}
+
+// ListAgents returns every agent, ordered by org, repo, task, stub, commit,
+// branch, version, and uncommitted flag.
+func (s *Store) ListAgents() ([]Agent, error) {
+	var agents []Agent
+	if err := s.db.Order("org, repo, task, stub, commit, branch, version, uncommitted").Find(&agents).Error; err != nil {
+		return nil, err
+	}
+	return agents, nil
+}
+
 // SaveDatum stores the JSON a test passes to an agent and returns the datum's
 // ref. The ref is derived from the JSON, so saving the same JSON in the same
 // test again returns the same ref and leaves one datum. It stores the JSON
@@ -216,12 +259,19 @@ func (s *Store) ListData(org, repo, task, test string) ([]Datum, error) {
 }
 
 // SaveResult stores the JSON an agent produced for a datum and returns the
-// result's ref. The ref is derived from the JSON within its datum, so saving
-// the same JSON for the same datum again returns the same ref and leaves one
-// result. It creates or reuses the model the result carries in the same write.
-// It returns ErrInvalidResult when a run metric is negative and ErrInvalidModel
-// when the carried model misses its name or provider.
+// result's ref. The ref is derived from the JSON within its datum and the model
+// and agent it carries, so saving the same JSON from the same model and agent
+// again returns the same ref and leaves one result. It creates or reuses the
+// model and agent the result carries in the same write, and associates the
+// agent with the result's task. It returns ErrInvalidResult when a run metric is
+// negative, ErrInvalidModel when the carried model misses its name or provider,
+// and ErrInvalidAgent when the carried agent misses its name, stub, commit, or
+// branch.
 func (s *Store) SaveResult(r Result) (string, error) {
+	hasAgent := r.Agent.Present()
+	if hasAgent {
+		r.Agent.Org, r.Agent.Repo, r.Agent.Task = r.Org, r.Repo, r.Task
+	}
 	if err := r.Validate(); err != nil {
 		return "", err
 	}
@@ -229,6 +279,11 @@ func (s *Store) SaveResult(r Result) (string, error) {
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		if r.Model.Present() {
 			if err := saveModel(tx, r.Model); err != nil {
+				return err
+			}
+		}
+		if hasAgent {
+			if err := saveAgent(tx, r.Agent); err != nil {
 				return err
 			}
 		}

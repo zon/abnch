@@ -432,6 +432,7 @@ type fakeDB struct {
 	tasks          []store.Task
 	tests          []store.Test
 	models         []store.Model
+	agents         []store.Agent
 	data           []store.Datum
 	results        []store.Result
 	scores         []store.Score
@@ -455,6 +456,9 @@ type fakeDB struct {
 	listScoresErr  error
 	saveScoreErr   error
 	saveModelErr   error
+	getAgentErr    error
+	listAgentsErr  error
+	saveAgentErr   error
 }
 
 func (f *fakeDB) GetRepo(org, stub string) (store.Repo, error) {
@@ -688,6 +692,48 @@ func (f *fakeDB) SaveModel(m store.Model) error {
 	return nil
 }
 
+func (f *fakeDB) GetAgent(a store.Agent) (store.Agent, error) {
+	if f.getAgentErr != nil {
+		return store.Agent{}, f.getAgentErr
+	}
+	for _, existing := range f.agents {
+		if sameAgent(existing, a) {
+			return existing, nil
+		}
+	}
+	return store.Agent{}, store.ErrNotFound
+}
+
+func (f *fakeDB) ListAgents() ([]store.Agent, error) {
+	if f.listAgentsErr != nil {
+		return nil, f.listAgentsErr
+	}
+	return f.agents, nil
+}
+
+func (f *fakeDB) SaveAgent(a store.Agent) error {
+	if f.saveAgentErr != nil {
+		return f.saveAgentErr
+	}
+	if err := a.Validate(); err != nil {
+		return err
+	}
+	for _, existing := range f.agents {
+		if sameAgent(existing, a) {
+			return nil
+		}
+	}
+	f.agents = append(f.agents, a)
+	return nil
+}
+
+// sameAgent reports whether two agents share the identity fields the store
+// uses, ignoring the name.
+func sameAgent(a, b store.Agent) bool {
+	a.Name, b.Name = "", ""
+	return a == b
+}
+
 func (f *fakeDB) GetResult(org, repo, ref string) (store.Result, error) {
 	if f.getResultErr != nil {
 		return store.Result{}, f.getResultErr
@@ -717,11 +763,20 @@ func (f *fakeDB) SaveResult(r store.Result) (string, error) {
 	if f.saveResultErr != nil {
 		return "", f.saveResultErr
 	}
+	hasAgent := r.Agent.Present()
+	if hasAgent {
+		r.Agent.Org, r.Agent.Repo, r.Agent.Task = r.Org, r.Repo, r.Task
+	}
 	if err := r.Validate(); err != nil {
 		return "", err
 	}
 	if r.Model.Present() {
 		if err := f.SaveModel(r.Model); err != nil {
+			return "", err
+		}
+	}
+	if hasAgent {
+		if err := f.SaveAgent(r.Agent); err != nil {
 			return "", err
 		}
 	}

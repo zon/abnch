@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"strconv"
 	"strings"
 )
 
@@ -16,13 +17,15 @@ func DatumRef(body []byte) string {
 }
 
 // ResultRef returns a result's ref: a short, URL-safe string derived from the
-// result JSON, its datum, and its model. The same JSON for the same datum from
-// the same model always returns the same ref, and results that differ in data,
-// JSON, or model return different refs.
+// result JSON, its datum, and its model and agent. The same JSON for the same
+// datum from the same model and agent always returns the same ref, and results
+// that differ in data, JSON, model, or agent return different refs.
 func ResultRef(r Result) string {
 	parts := []string{
 		r.Org, r.Repo, r.Task, r.Test, r.Data, r.JSON,
 		r.Model.Name, r.Model.Provider, r.Model.Variant,
+		r.Agent.Stub, r.Agent.Commit, r.Agent.Branch,
+		r.Agent.Version, strconv.FormatBool(r.Agent.Uncommitted),
 	}
 	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
 	return hex.EncodeToString(sum[:])[:12]
