@@ -6,7 +6,7 @@
 ## Zpecs
 
 * [Milestones](docs/milestones.md) - High level objectives
-* [Regressions](regressions.md) - How to organize and resolve bugs and problems found during other work
+* [Regressions](docs/zpecs/regressions.md) - How to organize and resolve bugs and problems found during other work
 * [Code](docs/zpecs/code.md) - Read before writing code
   * [Architecture](docs/zpecs/architecture.md) - Read before planning code structure
   * [Dependencies](docs/zpecs/dependencies.md) - Read before adding or changing code dependencies
@@ -33,7 +33,6 @@ Read [Service Config](docs/design/app/abnchd-config.md) when setting up a local 
 * [Dev Config](docs/design/dev-config.md) - Local service config, collected by `just config`
 * [Dev Tooling](docs/design/app/abnchctl.md) - The `abnchctl` developer CLI
 * [Schema](docs/design/schema.md) - Repos, tasks, tests, data, models, agents, results, graders, and scores
-* [Run](docs/design/run.md) - How a run executes an agent and records a result
 * [Service App](docs/design/app/abnchd.md) - The `abnchd` service application
 * [Service Config](docs/design/app/abnchd-config.md) - The service configuration file, including OIDC integration
 

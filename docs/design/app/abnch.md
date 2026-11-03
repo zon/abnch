@@ -2,11 +2,11 @@
 
 ## Credentials
 
-Commands that reach the service authenticate a caller. The caller signs in with `abnch login`, which stores a session for the service URL. Later commands read the session and present it to the service. See the [Auth Design](auth.md).
+Commands that reach the service authenticate a caller. The caller signs in with `abnch login`, which stores a session for the service URL. Later commands read the session and present it to the service. See the [Auth Design](../auth.md).
 
 Sessions live in a user-level `~/.abnch/credentials.yaml` file, keyed by service URL, outside any repo. A command that needs a session and finds none, or finds an expired one, fails and tells the user to run `abnch login`.
 
-A service running locally trusts a dev issuer. `just config` writes a local CLI credential, which the CLI reads like a session. See the [Dev Config Design](dev-config.md).
+A service running locally trusts a dev issuer. `just config` writes a local CLI credential, which the CLI reads like a session. See the [Dev Config Design](../dev-config.md).
 
 ## `abnch login`
 
@@ -89,7 +89,7 @@ Adds test data. Expects stdin or `--file` containing valid JSON.
 
 ## `abnch add result <task stub>/<test stub>/<data ref>`
 
-Adds a result for a datum. Expects stdin or `--file` containing a result input as YAML or JSON. See [Result Design](result.md).
+Adds a result for a datum. Expects stdin or `--file` containing a result input as YAML or JSON. See [Result Design](../result.md).
 
 * --file: relative path - a result input file
 
@@ -125,7 +125,7 @@ Outputs a result as JSON.
 
 ## `abnch add score <result ref>`
 
-Adds a score for a result. Expects stdin or `--file` containing a score input as YAML or JSON. See [Score Design](score.md).
+Adds a score for a result. Expects stdin or `--file` containing a score input as YAML or JSON. See [Score Design](../score.md).
 
 * --file: relative path - a score input file
 
@@ -158,19 +158,3 @@ Lists scores.
 ## `abnch get score <score ref>`
 
 Outputs a score as JSON.
-
-## `abnch get models` | `abnch get model`
-
-Lists models in the config.
-
-## `abnch get model <stub>`
-
-Outputs a model as YAML.
-
-## `abnch get agent <task stub>`
-
-Outputs the task's agent config as YAML.
-
-## `abnch get grader <task stub>`
-
-Outputs the task's grader config as YAML.
