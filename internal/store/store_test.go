@@ -1332,6 +1332,8 @@ func TestSaveResultIdentityIncludesDatum(t *testing.T) {
 // ref, while saving the same model and agent values again reuses one result.
 func TestSaveResultIdentityIncludesModelAndAgent(t *testing.T) {
 	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
 	base := Result{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
 		Data: "56ac1b0e4f0d", Body: `{"answer":"hi"}`,
@@ -1757,6 +1759,9 @@ func TestSaveScoreIdentityIncludesResult(t *testing.T) {
 // score.
 func TestSaveScoreIdentityIncludesModelAndGrader(t *testing.T) {
 	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
+	saveTest(t, s, "acme", "widgets", "fix-bug", "basic")
 	base := Score{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
 		Result: "56ac1b0e4f0d", Body: map[string]float64{"correctness": 1},
@@ -1873,6 +1878,7 @@ func TestSaveAndGetModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetModel: %v", err)
 	}
+	want.ID = got.ID
 	if got != want {
 		t.Errorf("GetModel = %#v, want %#v", got, want)
 	}
@@ -1938,6 +1944,7 @@ func TestSaveModelAllowsEmptyVariant(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetModel: %v", err)
 	}
+	want.ID = got.ID
 	if got != want {
 		t.Errorf("GetModel = %#v, want %#v", got, want)
 	}
@@ -1975,6 +1982,8 @@ func TestSaveModelRejectsMissingNameOrProvider(t *testing.T) {
 // name, stub, commit, branch, version, uncommitted flag, and task.
 func TestSaveAndGetAgent(t *testing.T) {
 	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
 	want := Agent{
 		Org: "acme", Repo: "widgets", Task: "fix-bug",
 		Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main",
@@ -1989,6 +1998,7 @@ func TestSaveAndGetAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetAgent: %v", err)
 	}
+	want.ID, want.TaskID = got.ID, got.TaskID
 	if got != want {
 		t.Errorf("GetAgent = %#v, want %#v", got, want)
 	}
@@ -1998,6 +2008,8 @@ func TestSaveAndGetAgent(t *testing.T) {
 // version, and an omitted uncommitted flag records false.
 func TestSaveAgentDefaultsUncommittedAndAllowsEmptyVersion(t *testing.T) {
 	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
 	want := Agent{
 		Org: "acme", Repo: "widgets", Task: "fix-bug",
 		Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main",
@@ -2021,6 +2033,8 @@ func TestSaveAgentDefaultsUncommittedAndAllowsEmptyVersion(t *testing.T) {
 // of an agent's identity.
 func TestSaveAgentReusesSameIdentityIgnoringName(t *testing.T) {
 	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
 	agent := Agent{
 		Org: "acme", Repo: "widgets", Task: "fix-bug",
 		Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main",
@@ -2052,6 +2066,13 @@ func TestSaveAgentReusesSameIdentityIgnoringName(t *testing.T) {
 // record.
 func TestSaveAgentSeparatesDifferentValues(t *testing.T) {
 	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveRepo(t, s, "acme", "gadgets")
+	saveRepo(t, s, "other", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
+	saveTask(t, s, "acme", "widgets", "ship-it")
+	saveTask(t, s, "acme", "gadgets", "fix-bug")
+	saveTask(t, s, "other", "widgets", "fix-bug")
 	base := Agent{
 		Org: "acme", Repo: "widgets", Task: "fix-bug",
 		Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main",
@@ -2114,6 +2135,9 @@ func TestSaveAgentRejectsIncomplete(t *testing.T) {
 // name, stub, commit, branch, version, uncommitted flag, and test.
 func TestSaveAndGetGrader(t *testing.T) {
 	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
+	saveTest(t, s, "acme", "widgets", "fix-bug", "basic")
 	want := Grader{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
 		Name: "llm-judge", Stub: "judge", Commit: "def456", Branch: "main",
@@ -2128,6 +2152,7 @@ func TestSaveAndGetGrader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetGrader: %v", err)
 	}
+	want.ID, want.TestID = got.ID, got.TestID
 	if got != want {
 		t.Errorf("GetGrader = %#v, want %#v", got, want)
 	}
@@ -2137,6 +2162,9 @@ func TestSaveAndGetGrader(t *testing.T) {
 // no version, and an omitted uncommitted flag records false.
 func TestSaveGraderDefaultsUncommittedAndAllowsEmptyVersion(t *testing.T) {
 	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
+	saveTest(t, s, "acme", "widgets", "fix-bug", "basic")
 	want := Grader{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
 		Name: "llm-judge", Stub: "judge", Commit: "def456", Branch: "main",
@@ -2160,6 +2188,9 @@ func TestSaveGraderDefaultsUncommittedAndAllowsEmptyVersion(t *testing.T) {
 // of a grader's identity.
 func TestSaveGraderReusesSameIdentityIgnoringName(t *testing.T) {
 	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
+	saveTest(t, s, "acme", "widgets", "fix-bug", "basic")
 	grader := Grader{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
 		Name: "llm-judge", Stub: "judge", Commit: "def456", Branch: "main",
@@ -2191,6 +2222,18 @@ func TestSaveGraderReusesSameIdentityIgnoringName(t *testing.T) {
 // different record.
 func TestSaveGraderSeparatesDifferentValues(t *testing.T) {
 	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveRepo(t, s, "acme", "gadgets")
+	saveRepo(t, s, "other", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
+	saveTask(t, s, "acme", "widgets", "ship-it")
+	saveTask(t, s, "acme", "gadgets", "fix-bug")
+	saveTask(t, s, "other", "widgets", "fix-bug")
+	saveTest(t, s, "acme", "widgets", "fix-bug", "basic")
+	saveTest(t, s, "acme", "widgets", "fix-bug", "other")
+	saveTest(t, s, "acme", "widgets", "ship-it", "basic")
+	saveTest(t, s, "acme", "gadgets", "fix-bug", "basic")
+	saveTest(t, s, "other", "widgets", "fix-bug", "basic")
 	base := Grader{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
 		Name: "llm-judge", Stub: "judge", Commit: "def456", Branch: "main",
@@ -2335,6 +2378,9 @@ func TestSaveResultRejectsIncompleteModel(t *testing.T) {
 // and links a different agent value or task to a different record.
 func TestSaveResultStoresAndReusesAgent(t *testing.T) {
 	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
+	saveTask(t, s, "acme", "widgets", "ship-it")
 	base := Result{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
 		Data: "56ac1b0e4f0d", Body: `{"answer":"hi"}`,
@@ -2431,6 +2477,8 @@ func TestSaveResultRejectsIncompleteAgent(t *testing.T) {
 // fails after storing its model and agent leaves neither record behind.
 func TestSaveResultWriteFailureCreatesNoModelOrAgent(t *testing.T) {
 	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
 	r := Result{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
 		Data: "56ac1b0e4f0d", Body: `{"answer":"hi"}`, Logs: "bad\x00logs",
@@ -2549,6 +2597,10 @@ func TestSaveScoreRejectsIncompleteModel(t *testing.T) {
 // and links a different grader value or test to a different record.
 func TestSaveScoreStoresAndReusesGrader(t *testing.T) {
 	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
+	saveTest(t, s, "acme", "widgets", "fix-bug", "basic")
+	saveTest(t, s, "acme", "widgets", "fix-bug", "other")
 	base := Score{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
 		Result: "56ac1b0e4f0d", Body: map[string]float64{"correctness": 1},
@@ -2653,6 +2705,9 @@ func TestSaveScoreRejectsIncompleteGrader(t *testing.T) {
 // fails after storing its model and grader leaves neither record behind.
 func TestSaveScoreWriteFailureCreatesNoModelOrGrader(t *testing.T) {
 	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
+	saveTest(t, s, "acme", "widgets", "fix-bug", "basic")
 	sc := Score{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
 		Result: "56ac1b0e4f0d", Body: map[string]float64{"correctness": 1},

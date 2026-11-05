@@ -129,6 +129,8 @@ func TestParentLinksUseIds(t *testing.T) {
 		{&Task{}, "repo_id", []string{"org", "repo"}},
 		{&Test{}, "task_id", []string{"org", "repo", "task"}},
 		{&Datum{}, "test_id", []string{"org", "repo", "task", "test"}},
+		{&Agent{}, "task_id", []string{"org", "repo", "task"}},
+		{&Grader{}, "test_id", []string{"org", "repo", "task", "test"}},
 	} {
 		if !s.db.Migrator().HasColumn(tc.model, tc.present) {
 			t.Errorf("%T has no %q column", tc.model, tc.present)
@@ -138,6 +140,9 @@ func TestParentLinksUseIds(t *testing.T) {
 				t.Errorf("%T has a %q column, want no parent stub column", tc.model, column)
 			}
 		}
+	}
+	if !s.db.Migrator().HasColumn(&Model{}, "id") {
+		t.Error("Model has no id column")
 	}
 }
 
@@ -155,6 +160,12 @@ func TestChildrenRequireParents(t *testing.T) {
 	if _, err := s.SaveDatum("acme", "missing", "missing", "missing", []byte(`{}`)); !errors.Is(err, ErrNotFound) {
 		t.Errorf("SaveDatum error = %v, want ErrNotFound", err)
 	}
+	if err := s.SaveAgent(Agent{Org: "acme", Repo: "missing", Task: "missing", Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main"}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("SaveAgent error = %v, want ErrNotFound", err)
+	}
+	if err := s.SaveGrader(Grader{Org: "acme", Repo: "missing", Task: "missing", Test: "missing", Name: "llm-judge", Stub: "judge", Commit: "def456", Branch: "main"}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("SaveGrader error = %v, want ErrNotFound", err)
+	}
 
 	if err := s.db.Create(&Task{RepoID: 999999, Stub: "orphan", Name: "Orphan"}).Error; err == nil {
 		t.Error("database accepted a task whose repo is missing")
@@ -164,6 +175,12 @@ func TestChildrenRequireParents(t *testing.T) {
 	}
 	if err := s.db.Create(&Datum{TestID: 999999, Ref: "orphan", JSON: "{}"}).Error; err == nil {
 		t.Error("database accepted a datum whose test is missing")
+	}
+	if err := s.db.Create(&Agent{TaskID: 999999, Name: "Orphan", Stub: "orphan", Commit: "abc123", Branch: "main"}).Error; err == nil {
+		t.Error("database accepted an agent whose task is missing")
+	}
+	if err := s.db.Create(&Grader{TestID: 999999, Name: "Orphan", Stub: "orphan", Commit: "def456", Branch: "main"}).Error; err == nil {
+		t.Error("database accepted a grader whose test is missing")
 	}
 }
 
@@ -344,5 +361,272 @@ func TestMigrateMovesLegacyStubSchema(t *testing.T) {
 	}
 	if !s.db.Migrator().HasColumn(&Task{}, "repo_id") || s.db.Migrator().HasColumn(&Task{}, "org") {
 		t.Error("tasks after migration do not have the id-linked columns only")
+	}
+}
+
+// TestModelsAgentsAndGradersKeepIds checks the service assigns each provenance
+// record an id and keeps it when the same identity is written again.
+func TestModelsAgentsAndGradersKeepIds(t *testing.T) {
+	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
+	saveTest(t, s, "acme", "widgets", "fix-bug", "basic")
+	task, err := s.GetTask("acme", "widgets", "fix-bug")
+	if err != nil {
+		t.Fatal(err)
+	}
+	test, err := s.GetTest("acme", "widgets", "fix-bug", "basic")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	model := Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"}
+	if err := s.SaveModel(model); err != nil {
+		t.Fatal(err)
+	}
+	savedModel, err := s.GetModel(model.Name, model.Provider, model.Variant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if savedModel.ID == 0 {
+		t.Fatal("model id = 0, want a service-assigned id")
+	}
+	if err := s.SaveModel(savedModel); err != nil {
+		t.Fatal(err)
+	}
+	againModel, err := s.GetModel(model.Name, model.Provider, model.Variant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if againModel.ID != savedModel.ID {
+		t.Errorf("model id after a second write = %d, want %d", againModel.ID, savedModel.ID)
+	}
+
+	agent := Agent{
+		Org: "acme", Repo: "widgets", Task: "fix-bug",
+		Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main",
+	}
+	if err := s.SaveAgent(agent); err != nil {
+		t.Fatal(err)
+	}
+	savedAgent, err := s.GetAgent(agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if savedAgent.ID == 0 || savedAgent.TaskID != task.ID {
+		t.Errorf("agent id = %d, task id = %d, want an id and task %d", savedAgent.ID, savedAgent.TaskID, task.ID)
+	}
+	if err := s.SaveAgent(savedAgent); err != nil {
+		t.Fatal(err)
+	}
+	againAgent, err := s.GetAgent(agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if againAgent.ID != savedAgent.ID {
+		t.Errorf("agent id after a second write = %d, want %d", againAgent.ID, savedAgent.ID)
+	}
+
+	grader := Grader{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Name: "llm-judge", Stub: "judge", Commit: "def456", Branch: "main",
+	}
+	if err := s.SaveGrader(grader); err != nil {
+		t.Fatal(err)
+	}
+	savedGrader, err := s.GetGrader(grader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if savedGrader.ID == 0 || savedGrader.TestID != test.ID {
+		t.Errorf("grader id = %d, test id = %d, want an id and test %d", savedGrader.ID, savedGrader.TestID, test.ID)
+	}
+	if err := s.SaveGrader(savedGrader); err != nil {
+		t.Fatal(err)
+	}
+	againGrader, err := s.GetGrader(grader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if againGrader.ID != savedGrader.ID {
+		t.Errorf("grader id after a second write = %d, want %d", againGrader.ID, savedGrader.ID)
+	}
+}
+
+// TestAgentAndGraderIdentitiesFollowTheirParents checks agents and graders are
+// unique within their parent, ignore their name, and keep their link when the
+// parent is renamed.
+func TestAgentAndGraderIdentitiesFollowTheirParents(t *testing.T) {
+	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
+	saveTask(t, s, "acme", "widgets", "ship-it")
+	saveTest(t, s, "acme", "widgets", "fix-bug", "basic")
+	saveTest(t, s, "acme", "widgets", "fix-bug", "other")
+
+	agent := Agent{
+		Org: "acme", Repo: "widgets", Task: "fix-bug",
+		Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main",
+	}
+	if err := s.SaveAgent(agent); err != nil {
+		t.Fatal(err)
+	}
+	fixBugAgent, err := s.GetAgent(agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherTaskAgent := agent
+	otherTaskAgent.Task = "ship-it"
+	if err := s.SaveAgent(otherTaskAgent); err != nil {
+		t.Fatal(err)
+	}
+	renamedAgent := agent
+	renamedAgent.Name = "renamed-agent"
+	if err := s.SaveAgent(renamedAgent); err != nil {
+		t.Fatal(err)
+	}
+	agents, err := s.ListAgents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agents) != 2 {
+		t.Fatalf("ListAgents returned %d agents, want 2", len(agents))
+	}
+
+	grader := Grader{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Name: "llm-judge", Stub: "judge", Commit: "def456", Branch: "main",
+	}
+	if err := s.SaveGrader(grader); err != nil {
+		t.Fatal(err)
+	}
+	basicGrader, err := s.GetGrader(grader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherTestGrader := grader
+	otherTestGrader.Test = "other"
+	if err := s.SaveGrader(otherTestGrader); err != nil {
+		t.Fatal(err)
+	}
+	renamedGrader := grader
+	renamedGrader.Name = "renamed-judge"
+	if err := s.SaveGrader(renamedGrader); err != nil {
+		t.Fatal(err)
+	}
+	graders, err := s.ListGraders()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(graders) != 2 {
+		t.Fatalf("ListGraders returned %d graders, want 2", len(graders))
+	}
+
+	if _, err := s.MoveTask("acme", "widgets", "fix-bug", "fix-typo"); err != nil {
+		t.Fatal(err)
+	}
+	movedAgent := agent
+	movedAgent.Task = "fix-typo"
+	gotAgent, err := s.GetAgent(movedAgent)
+	if err != nil {
+		t.Fatalf("GetAgent under the renamed task: %v", err)
+	}
+	if gotAgent.ID != fixBugAgent.ID {
+		t.Errorf("agent id after the task rename = %d, want %d", gotAgent.ID, fixBugAgent.ID)
+	}
+	if gotAgent.Task != "fix-typo" {
+		t.Errorf("agent task = %q, want the renamed task", gotAgent.Task)
+	}
+	if err := s.SaveAgent(movedAgent); err != nil {
+		t.Fatal(err)
+	}
+	agents, err = s.ListAgents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agents) != 2 {
+		t.Errorf("ListAgents after the task rename returned %d agents, want 2", len(agents))
+	}
+
+	if _, err := s.MoveTest("acme", "widgets", "fix-typo", "basic", "smoke"); err != nil {
+		t.Fatal(err)
+	}
+	movedGrader := grader
+	movedGrader.Task = "fix-typo"
+	movedGrader.Test = "smoke"
+	gotGrader, err := s.GetGrader(movedGrader)
+	if err != nil {
+		t.Fatalf("GetGrader under the renamed test: %v", err)
+	}
+	if gotGrader.ID != basicGrader.ID {
+		t.Errorf("grader id after the test rename = %d, want %d", gotGrader.ID, basicGrader.ID)
+	}
+	if gotGrader.Task != "fix-typo" || gotGrader.Test != "smoke" {
+		t.Errorf("grader task and test = %q/%q, want the renamed ones", gotGrader.Task, gotGrader.Test)
+	}
+	if err := s.SaveGrader(movedGrader); err != nil {
+		t.Fatal(err)
+	}
+	graders, err = s.ListGraders()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(graders) != 2 {
+		t.Errorf("ListGraders after the test rename returned %d graders, want 2", len(graders))
+	}
+}
+
+// TestMigrateMovesLegacyModelsAgentsAndGraders checks migration carries models,
+// agents, and graders from a database whose other records already link by id.
+func TestMigrateMovesLegacyModelsAgentsAndGraders(t *testing.T) {
+	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
+	saveTest(t, s, "acme", "widgets", "fix-bug", "basic")
+
+	for _, stmt := range []string{
+		`DROP TABLE "agents", "graders", "models"`,
+		`create table models (name text not null, provider text not null, variant text not null, primary key (name, provider, variant))`,
+		`create table agents (org text not null, repo text not null, task text not null, name text, stub text not null, commit text not null, branch text not null, version text not null, uncommitted boolean not null, primary key (org, repo, task, stub, commit, branch, version, uncommitted))`,
+		`create table graders (org text not null, repo text not null, task text not null, test text not null, name text, stub text not null, commit text not null, branch text not null, version text not null, uncommitted boolean not null, primary key (org, repo, task, test, stub, commit, branch, version, uncommitted))`,
+		`insert into models values ('claude-sonnet', 'anthropic', 'high')`,
+		`insert into agents values ('acme', 'widgets', 'fix-bug', 'claude-code', 'claude', 'abc123', 'main', '', false)`,
+		`insert into graders values ('acme', 'widgets', 'fix-bug', 'basic', 'llm-judge', 'judge', 'def456', 'main', '', false)`,
+	} {
+		if err := s.db.Exec(stmt).Error; err != nil {
+			t.Fatalf("%s: %v", stmt, err)
+		}
+	}
+
+	if err := s.Migrate(); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+
+	task, err := s.GetTask("acme", "widgets", "fix-bug")
+	if err != nil {
+		t.Fatal(err)
+	}
+	test, err := s.GetTest("acme", "widgets", "fix-bug", "basic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	model, err := s.GetModel("claude-sonnet", "anthropic", "high")
+	if err != nil {
+		t.Fatalf("GetModel after migration: %v", err)
+	}
+	agent, err := s.GetAgent(Agent{Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "claude", Commit: "abc123", Branch: "main"})
+	if err != nil {
+		t.Fatalf("GetAgent after migration: %v", err)
+	}
+	grader, err := s.GetGrader(Grader{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Stub: "judge", Commit: "def456", Branch: "main"})
+	if err != nil {
+		t.Fatalf("GetGrader after migration: %v", err)
+	}
+	if model.ID == 0 || agent.TaskID != task.ID || grader.TestID != test.ID {
+		t.Errorf("migrated ids = model %d, agent %d/%d, grader %d/%d, want them linked",
+			model.ID, agent.ID, agent.TaskID, grader.ID, grader.TestID)
+	}
+	if agent.Name != "claude-code" || grader.Name != "llm-judge" {
+		t.Errorf("migrated names = %q and %q, want them preserved", agent.Name, grader.Name)
 	}
 }

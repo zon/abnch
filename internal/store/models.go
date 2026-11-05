@@ -88,13 +88,15 @@ type SchemaKey struct {
 	Name string `json:"name"`
 }
 
-// Model is the model a result or score used. It is identified by its name,
+// Model is the model a result or score used. It is unique by its name,
 // provider, and variant, so two models with the same values are the same
-// record. A model may have an empty variant.
+// record. The service assigns its id, which never changes. A model may have an
+// empty variant.
 type Model struct {
-	Name     string `gorm:"primaryKey" json:"name"`
-	Provider string `gorm:"primaryKey" json:"provider"`
-	Variant  string `gorm:"primaryKey" json:"variant"`
+	ID       uint   `gorm:"primaryKey" json:"-"`
+	Name     string `json:"name"`
+	Provider string `json:"provider"`
+	Variant  string `json:"variant"`
 }
 
 // Validate reports whether the model carries the fields it needs: a non-empty
@@ -112,21 +114,25 @@ func (m Model) Present() bool {
 	return m != Model{}
 }
 
-// Agent is the external code that produced a result. It is identified by its
-// repo, task stub, stub, commit, branch, version, and uncommitted flag, so two
-// agents with the same values are the same record. Its name may differ without
-// making a new record. A version may be empty, and an omitted uncommitted flag
-// records false.
+// Agent is the external code that produced a result. It links to its task by
+// id and is unique by that id, its stub, commit, branch, version, and
+// uncommitted flag, so two agents with the same values are the same record. The
+// service assigns its id, which never changes. Its name may differ without
+// making a new record. Org, Repo, and Task carry the parent stubs for callers;
+// the store does not persist them. A version may be empty, and an omitted
+// uncommitted flag records false.
 type Agent struct {
-	Org         string `gorm:"primaryKey" json:"org"`
-	Repo        string `gorm:"primaryKey" json:"repo"`
-	Task        string `gorm:"primaryKey" json:"task"`
+	ID          uint   `gorm:"primaryKey" json:"-"`
+	TaskID      uint   `json:"-"`
+	Org         string `gorm:"-" json:"org"`
+	Repo        string `gorm:"-" json:"repo"`
+	Task        string `gorm:"-" json:"task"`
 	Name        string `json:"name"`
-	Stub        string `gorm:"primaryKey" json:"stub"`
-	Commit      string `gorm:"primaryKey" json:"commit"`
-	Branch      string `gorm:"primaryKey" json:"branch"`
-	Version     string `gorm:"primaryKey" json:"version"`
-	Uncommitted bool   `gorm:"primaryKey" json:"uncommitted"`
+	Stub        string `json:"stub"`
+	Commit      string `json:"commit"`
+	Branch      string `json:"branch"`
+	Version     string `json:"version"`
+	Uncommitted bool   `json:"uncommitted"`
 }
 
 // Validate reports whether the agent carries the fields it needs: a non-empty
@@ -145,22 +151,26 @@ func (a Agent) Present() bool {
 	return a != Agent{}
 }
 
-// Grader is the external code that scored a result. It is identified by its
-// repo, task stub, test stub, stub, commit, branch, version, and uncommitted
-// flag, so two graders with the same values are the same record. Its name may
-// differ without making a new record. A version may be empty, and an omitted
+// Grader is the external code that scored a result. It links to its test by id
+// and is unique by that id, its stub, commit, branch, version, and uncommitted
+// flag, so two graders with the same values are the same record. The service
+// assigns its id, which never changes. Its name may differ without making a new
+// record. Org, Repo, Task, and Test carry the parent stubs for callers; the
+// store does not persist them. A version may be empty, and an omitted
 // uncommitted flag records false.
 type Grader struct {
-	Org         string `gorm:"primaryKey" json:"org"`
-	Repo        string `gorm:"primaryKey" json:"repo"`
-	Task        string `gorm:"primaryKey" json:"task"`
-	Test        string `gorm:"primaryKey" json:"test"`
+	ID          uint   `gorm:"primaryKey" json:"-"`
+	TestID      uint   `json:"-"`
+	Org         string `gorm:"-" json:"org"`
+	Repo        string `gorm:"-" json:"repo"`
+	Task        string `gorm:"-" json:"task"`
+	Test        string `gorm:"-" json:"test"`
 	Name        string `json:"name"`
-	Stub        string `gorm:"primaryKey" json:"stub"`
-	Commit      string `gorm:"primaryKey" json:"commit"`
-	Branch      string `gorm:"primaryKey" json:"branch"`
-	Version     string `gorm:"primaryKey" json:"version"`
-	Uncommitted bool   `gorm:"primaryKey" json:"uncommitted"`
+	Stub        string `json:"stub"`
+	Commit      string `json:"commit"`
+	Branch      string `json:"branch"`
+	Version     string `json:"version"`
+	Uncommitted bool   `json:"uncommitted"`
 }
 
 // Validate reports whether the grader carries the fields it needs: a non-empty
@@ -206,8 +216,8 @@ type Result struct {
 	Test         string `gorm:"primaryKey"`
 	Data         string `gorm:"primaryKey"`
 	Ref          string `gorm:"primaryKey"`
-	Model        Model  `gorm:"embedded"`
-	Agent        Agent  `gorm:"embedded;embeddedPrefix:agent_"`
+	Model        Model  `gorm:"-"`
+	Agent        Agent  `gorm:"-"`
 	Body         string
 	Logs         string
 	InputTokens  int
@@ -246,8 +256,8 @@ type Score struct {
 	Test         string             `gorm:"primaryKey"`
 	Result       string             `gorm:"primaryKey"`
 	Ref          string             `gorm:"primaryKey"`
-	Model        Model              `gorm:"embedded"`
-	Grader       Grader             `gorm:"embedded;embeddedPrefix:grader_"`
+	Model        Model              `gorm:"-"`
+	Grader       Grader             `gorm:"-"`
 	Body         map[string]float64 `gorm:"serializer:json;type:jsonb"`
 	Logs         string
 	InputTokens  int

@@ -52,15 +52,16 @@ func New(db *gorm.DB) *Store {
 }
 
 // Migrate creates the tables the store needs and the links between their
-// parents. It carries repos, tasks, tests, and data from the schema that
-// identified them by stubs to the one that links them by id.
+// parents. It carries repos, tasks, tests, data, models, agents, and graders
+// from the schema that identified them by stubs to the one that links them by
+// id.
 func (s *Store) Migrate() error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		legacy, err := renameLegacyTables(tx)
 		if err != nil {
 			return err
 		}
-		if err := tx.AutoMigrate(&Repo{}, &Task{}, &Test{}, &Model{}, &Agent{}, &Grader{}, &Datum{}, &Result{}, &Score{}); err != nil {
+		if err := tx.AutoMigrate(&Repo{}, &Task{}, &Test{}, &Model{}, &Agent{}, &Grader{}, &Datum{}, &resultRow{}, &scoreRow{}); err != nil {
 			return err
 		}
 		for _, fk := range []struct {
@@ -69,37 +70,40 @@ func (s *Store) Migrate() error {
 			{"tasks", "fk_tasks_repo", "repo_id", "repos"},
 			{"tests", "fk_tests_task", "task_id", "tasks"},
 			{"data", "fk_data_test", "test_id", "tests"},
+			{"agents", "fk_agents_task", "task_id", "tasks"},
+			{"graders", "fk_graders_test", "test_id", "tests"},
 		} {
 			if err := addForeignKey(tx, fk.table, fk.name, fk.column, fk.parent); err != nil {
 				return err
 			}
 		}
-		return moveLegacyData(tx, legacy)
+		if err := moveLegacyData(tx, legacy); err != nil {
+			return err
+		}
+		return addIdentityIndexes(tx)
 	})
 }
 
 // legacyTables records which tables the migration renamed from the stub-keyed
 // schema.
 type legacyTables struct {
-	repos, tasks, tests, data bool
+	repos, tasks, tests, data, models, agents, graders bool
 }
 
-// renameLegacyTables renames the tables that still identify repos, tasks,
-// tests, and data by stubs, so AutoMigrate creates the id-linked tables. It
-// reports no tables on a new database.
+// renameLegacyTables renames the tables that still identify their records by
+// stubs, so AutoMigrate creates the id-linked tables. It reports no tables on a
+// new database.
 func renameLegacyTables(tx *gorm.DB) (legacyTables, error) {
-	var legacy legacyTables
-	if !tx.Migrator().HasTable("repos") || tx.Migrator().HasColumn(&Repo{}, "id") {
-		return legacy, nil
+	legacy := legacyTables{
+		repos:   tableWithoutID(tx, &Repo{}),
+		tasks:   tableWithoutID(tx, &Task{}),
+		tests:   tableWithoutID(tx, &Test{}),
+		data:    tableWithoutID(tx, &Datum{}),
+		models:  tableWithoutID(tx, &Model{}),
+		agents:  tableWithoutID(tx, &Agent{}),
+		graders: tableWithoutID(tx, &Grader{}),
 	}
-
-	legacy = legacyTables{
-		repos: tx.Migrator().HasTable("repos"),
-		tasks: tx.Migrator().HasTable("tasks"),
-		tests: tx.Migrator().HasTable("tests"),
-		data:  tx.Migrator().HasTable("data"),
-	}
-	for _, table := range []string{"data", "tests", "tasks", "repos"} {
+	for _, table := range []string{"data", "tests", "tasks", "repos", "graders", "agents", "models"} {
 		if !hasLegacyTable(legacy, table) {
 			continue
 		}
@@ -108,6 +112,12 @@ func renameLegacyTables(tx *gorm.DB) (legacyTables, error) {
 		}
 	}
 	return legacy, nil
+}
+
+// tableWithoutID reports whether the model's table exists without the id column
+// the id-linked schema adds.
+func tableWithoutID(tx *gorm.DB, model any) bool {
+	return tx.Migrator().HasTable(model) && !tx.Migrator().HasColumn(model, "id")
 }
 
 // hasLegacyTable reports whether the table is one the migration renamed.
@@ -121,6 +131,12 @@ func hasLegacyTable(legacy legacyTables, table string) bool {
 		return legacy.tests
 	case "data":
 		return legacy.data
+	case "models":
+		return legacy.models
+	case "agents":
+		return legacy.agents
+	case "graders":
+		return legacy.graders
 	}
 	return false
 }
@@ -150,16 +166,49 @@ func moveLegacyData(tx *gorm.DB, legacy legacyTables) error {
 			JOIN "repos" r ON r."org" = d."org" AND r."stub" = d."repo"
 			JOIN "tasks" t ON t."repo_id" = r."id" AND t."stub" = d."task"
 			JOIN "tests" s ON s."task_id" = t."id" AND s."stub" = d."test"`},
+		{legacy.models, `INSERT INTO "models" ("name", "provider", "variant")
+			SELECT "name", "provider", "variant" FROM "models_legacy"`},
+		{legacy.agents, `INSERT INTO "agents" ("task_id", "name", "stub", "commit", "branch", "version", "uncommitted")
+			SELECT t."id", a."name", a."stub", a."commit", a."branch", a."version", a."uncommitted"
+			FROM "agents_legacy" a
+			JOIN "repos" r ON r."org" = a."org" AND r."stub" = a."repo"
+			JOIN "tasks" t ON t."repo_id" = r."id" AND t."stub" = a."task"`},
+		{legacy.graders, `INSERT INTO "graders" ("test_id", "name", "stub", "commit", "branch", "version", "uncommitted")
+			SELECT s."id", g."name", g."stub", g."commit", g."branch", g."version", g."uncommitted"
+			FROM "graders_legacy" g
+			JOIN "repos" r ON r."org" = g."org" AND r."stub" = g."repo"
+			JOIN "tasks" t ON t."repo_id" = r."id" AND t."stub" = g."task"
+			JOIN "tests" s ON s."task_id" = t."id" AND s."stub" = g."test"`},
 		{legacy.data, `DROP TABLE "data_legacy"`},
 		{legacy.tests, `DROP TABLE "tests_legacy"`},
 		{legacy.tasks, `DROP TABLE "tasks_legacy"`},
 		{legacy.repos, `DROP TABLE "repos_legacy"`},
+		{legacy.graders, `DROP TABLE "graders_legacy"`},
+		{legacy.agents, `DROP TABLE "agents_legacy"`},
+		{legacy.models, `DROP TABLE "models_legacy"`},
 	}
 	for _, step := range steps {
 		if !step.moved {
 			continue
 		}
 		if err := tx.Exec(step.sql).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// addIdentityIndexes adds the unique identities of models, agents, and graders
+// and makes each agent's task and grader's test required.
+func addIdentityIndexes(tx *gorm.DB) error {
+	for _, stmt := range []string{
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_models_identity ON "models" ("name", "provider", "variant")`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_agents_identity ON "agents" ("task_id", "stub", "commit", "branch", "version", "uncommitted")`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_graders_identity ON "graders" ("test_id", "stub", "commit", "branch", "version", "uncommitted")`,
+		`ALTER TABLE "agents" ALTER COLUMN "task_id" SET NOT NULL`,
+		`ALTER TABLE "graders" ALTER COLUMN "test_id" SET NOT NULL`,
+	} {
+		if err := tx.Exec(stmt).Error; err != nil {
 			return err
 		}
 	}
@@ -224,7 +273,7 @@ func (s *Store) SaveTask(t Task) error {
 		return ErrInvalidStub
 	}
 	if t.RepoID == 0 {
-		id, err := s.parentID(&Repo{}, "org = ? AND stub = ?", t.Org, t.Repo)
+		id, err := parentID(s.db, &Repo{}, "org = ? AND stub = ?", t.Org, t.Repo)
 		if err != nil {
 			return err
 		}
@@ -250,7 +299,7 @@ func (s *Store) GetTask(org, repo, stub string) (Task, error) {
 
 // ListTasks returns a repo's tasks, ordered by stub.
 func (s *Store) ListTasks(org, repo string) ([]Task, error) {
-	repoID, err := s.parentID(&Repo{}, "org = ? AND stub = ?", org, repo)
+	repoID, err := parentID(s.db, &Repo{}, "org = ? AND stub = ?", org, repo)
 	if errors.Is(err, ErrNotFound) {
 		return nil, nil
 	}
@@ -268,9 +317,9 @@ func (s *Store) ListTasks(org, repo string) ([]Task, error) {
 }
 
 // parentID returns the id of the parent record that matches the query.
-func (s *Store) parentID(parent any, query string, args ...any) (uint, error) {
+func parentID(db *gorm.DB, parent any, query string, args ...any) (uint, error) {
 	var got struct{ ID uint }
-	err := s.db.Model(parent).Select("id").Where(query, args...).Take(&got).Error
+	err := db.Model(parent).Select("id").Where(query, args...).Take(&got).Error
 	if err != nil {
 		return 0, notFound(err)
 	}
@@ -290,7 +339,7 @@ func (s *Store) SaveTest(t Test) error {
 		return err
 	}
 	if t.TaskID == 0 {
-		id, err := s.parentID(&Task{}, "repo_id = (SELECT id FROM repos WHERE org = ? AND stub = ?) AND stub = ?", t.Org, t.Repo, t.Task)
+		id, err := parentID(s.db, &Task{}, "repo_id = (SELECT id FROM repos WHERE org = ? AND stub = ?) AND stub = ?", t.Org, t.Repo, t.Task)
 		if err != nil {
 			return err
 		}
@@ -317,7 +366,7 @@ func (s *Store) GetTest(org, repo, task, stub string) (Test, error) {
 
 // ListTests returns a task's tests, ordered by stub.
 func (s *Store) ListTests(org, repo, task string) ([]Test, error) {
-	taskID, err := s.parentID(&Task{}, "repo_id = (SELECT id FROM repos WHERE org = ? AND stub = ?) AND stub = ?", org, repo, task)
+	taskID, err := parentID(s.db, &Task{}, "repo_id = (SELECT id FROM repos WHERE org = ? AND stub = ?) AND stub = ?", org, repo, task)
 	if errors.Is(err, ErrNotFound) {
 		return nil, nil
 	}
@@ -370,9 +419,9 @@ func (s *Store) ListModels() ([]Model, error) {
 }
 
 // SaveAgent writes an agent, creating it or leaving the stored agent with the
-// same repo, task, stub, commit, branch, version, and uncommitted flag. It
-// returns ErrInvalidAgent when the agent misses its name, stub, commit, or
-// branch.
+// same task, stub, commit, branch, version, and uncommitted flag. It returns
+// ErrInvalidAgent when the agent misses its name, stub, commit, or branch and
+// ErrNotFound when its task does not exist.
 func (s *Store) SaveAgent(a Agent) error {
 	return saveAgent(s.db, a)
 }
@@ -383,17 +432,41 @@ func saveAgent(db *gorm.DB, a Agent) error {
 	if err := a.Validate(); err != nil {
 		return err
 	}
-	return db.Clauses(clause.OnConflict{DoNothing: true}).Create(&a).Error
+	if a.TaskID == 0 {
+		id, err := parentID(db, &Task{}, "repo_id = (SELECT id FROM repos WHERE org = ? AND stub = ?) AND stub = ?", a.Org, a.Repo, a.Task)
+		if err != nil {
+			return err
+		}
+		a.TaskID = id
+	}
+	return db.Clauses(clause.OnConflict{
+		Columns: []clause.Column{
+			{Name: "task_id"}, {Name: "stub"}, {Name: "commit"},
+			{Name: "branch"}, {Name: "version"}, {Name: "uncommitted"},
+		},
+		DoNothing: true,
+	}).Create(&a).Error
 }
 
 // GetAgent returns the agent with the given identity, or ErrNotFound. Its name
 // is not part of its identity.
 func (s *Store) GetAgent(a Agent) (Agent, error) {
+	taskID := a.TaskID
+	if taskID == 0 {
+		id, err := parentID(s.db, &Task{}, "repo_id = (SELECT id FROM repos WHERE org = ? AND stub = ?) AND stub = ?", a.Org, a.Repo, a.Task)
+		if err != nil {
+			return Agent{}, err
+		}
+		taskID = id
+	}
 	var got Agent
-	err := s.db.First(&got, "org = ? AND repo = ? AND task = ? AND stub = ? AND commit = ? AND branch = ? AND version = ? AND uncommitted = ?",
-		a.Org, a.Repo, a.Task, a.Stub, a.Commit, a.Branch, a.Version, a.Uncommitted).Error
+	err := s.db.First(&got, "task_id = ? AND stub = ? AND commit = ? AND branch = ? AND version = ? AND uncommitted = ?",
+		taskID, a.Stub, a.Commit, a.Branch, a.Version, a.Uncommitted).Error
 	if err != nil {
 		return Agent{}, notFound(err)
+	}
+	if err := fillAgentParent(s.db, &got); err != nil {
+		return Agent{}, err
 	}
 	return got, nil
 }
@@ -402,16 +475,42 @@ func (s *Store) GetAgent(a Agent) (Agent, error) {
 // branch, version, and uncommitted flag.
 func (s *Store) ListAgents() ([]Agent, error) {
 	var agents []Agent
-	if err := s.db.Order("org, repo, task, stub, commit, branch, version, uncommitted").Find(&agents).Error; err != nil {
+	err := s.db.Table(`"agents"`).
+		Select(`"agents".*`).
+		Joins(`JOIN "tasks" ON "tasks"."id" = "agents"."task_id"`).
+		Joins(`JOIN "repos" ON "repos"."id" = "tasks"."repo_id"`).
+		Order(`"repos"."org", "repos"."stub", "tasks"."stub", "agents"."stub", "agents"."commit", "agents"."branch", "agents"."version", "agents"."uncommitted"`).
+		Find(&agents).Error
+	if err != nil {
 		return nil, err
+	}
+	for i := range agents {
+		if err := fillAgentParent(s.db, &agents[i]); err != nil {
+			return nil, err
+		}
 	}
 	return agents, nil
 }
 
+// fillAgentParent loads an agent's parent stubs from its task.
+func fillAgentParent(db *gorm.DB, a *Agent) error {
+	var parent struct{ Org, Repo, Task string }
+	err := db.Table(`"tasks"`).
+		Select(`"repos"."org" AS "org", "repos"."stub" AS "repo", "tasks"."stub" AS "task"`).
+		Joins(`JOIN "repos" ON "repos"."id" = "tasks"."repo_id"`).
+		Where(`"tasks"."id" = ?`, a.TaskID).
+		Take(&parent).Error
+	if err != nil {
+		return notFound(err)
+	}
+	a.Org, a.Repo, a.Task = parent.Org, parent.Repo, parent.Task
+	return nil
+}
+
 // SaveGrader writes a grader, creating it or leaving the stored grader with the
-// same repo, task, test, stub, commit, branch, version, and uncommitted flag. It
-// returns ErrInvalidGrader when the grader misses its name, stub, commit, or
-// branch.
+// same test, stub, commit, branch, version, and uncommitted flag. It returns
+// ErrInvalidGrader when the grader misses its name, stub, commit, or branch and
+// ErrNotFound when its test does not exist.
 func (s *Store) SaveGrader(g Grader) error {
 	return saveGrader(s.db, g)
 }
@@ -422,17 +521,43 @@ func saveGrader(db *gorm.DB, g Grader) error {
 	if err := g.Validate(); err != nil {
 		return err
 	}
-	return db.Clauses(clause.OnConflict{DoNothing: true}).Create(&g).Error
+	if g.TestID == 0 {
+		id, err := parentID(db, &Test{}, "task_id = (SELECT id FROM tasks WHERE repo_id = (SELECT id FROM repos WHERE org = ? AND stub = ?) AND stub = ?) AND stub = ?",
+			g.Org, g.Repo, g.Task, g.Test)
+		if err != nil {
+			return err
+		}
+		g.TestID = id
+	}
+	return db.Clauses(clause.OnConflict{
+		Columns: []clause.Column{
+			{Name: "test_id"}, {Name: "stub"}, {Name: "commit"},
+			{Name: "branch"}, {Name: "version"}, {Name: "uncommitted"},
+		},
+		DoNothing: true,
+	}).Create(&g).Error
 }
 
 // GetGrader returns the grader with the given identity, or ErrNotFound. Its name
 // is not part of its identity.
 func (s *Store) GetGrader(g Grader) (Grader, error) {
+	testID := g.TestID
+	if testID == 0 {
+		id, err := parentID(s.db, &Test{}, "task_id = (SELECT id FROM tasks WHERE repo_id = (SELECT id FROM repos WHERE org = ? AND stub = ?) AND stub = ?) AND stub = ?",
+			g.Org, g.Repo, g.Task, g.Test)
+		if err != nil {
+			return Grader{}, err
+		}
+		testID = id
+	}
 	var got Grader
-	err := s.db.First(&got, "org = ? AND repo = ? AND task = ? AND test = ? AND stub = ? AND commit = ? AND branch = ? AND version = ? AND uncommitted = ?",
-		g.Org, g.Repo, g.Task, g.Test, g.Stub, g.Commit, g.Branch, g.Version, g.Uncommitted).Error
+	err := s.db.First(&got, "test_id = ? AND stub = ? AND commit = ? AND branch = ? AND version = ? AND uncommitted = ?",
+		testID, g.Stub, g.Commit, g.Branch, g.Version, g.Uncommitted).Error
 	if err != nil {
 		return Grader{}, notFound(err)
+	}
+	if err := fillGraderParent(s.db, &got); err != nil {
+		return Grader{}, err
 	}
 	return got, nil
 }
@@ -441,10 +566,38 @@ func (s *Store) GetGrader(g Grader) (Grader, error) {
 // commit, branch, version, and uncommitted flag.
 func (s *Store) ListGraders() ([]Grader, error) {
 	var graders []Grader
-	if err := s.db.Order("org, repo, task, test, stub, commit, branch, version, uncommitted").Find(&graders).Error; err != nil {
+	err := s.db.Table(`"graders"`).
+		Select(`"graders".*`).
+		Joins(`JOIN "tests" ON "tests"."id" = "graders"."test_id"`).
+		Joins(`JOIN "tasks" ON "tasks"."id" = "tests"."task_id"`).
+		Joins(`JOIN "repos" ON "repos"."id" = "tasks"."repo_id"`).
+		Order(`"repos"."org", "repos"."stub", "tasks"."stub", "tests"."stub", "graders"."stub", "graders"."commit", "graders"."branch", "graders"."version", "graders"."uncommitted"`).
+		Find(&graders).Error
+	if err != nil {
 		return nil, err
 	}
+	for i := range graders {
+		if err := fillGraderParent(s.db, &graders[i]); err != nil {
+			return nil, err
+		}
+	}
 	return graders, nil
+}
+
+// fillGraderParent loads a grader's parent stubs from its test.
+func fillGraderParent(db *gorm.DB, g *Grader) error {
+	var parent struct{ Org, Repo, Task, Test string }
+	err := db.Table(`"tests"`).
+		Select(`"repos"."org" AS "org", "repos"."stub" AS "repo", "tasks"."stub" AS "task", "tests"."stub" AS "test"`).
+		Joins(`JOIN "tasks" ON "tasks"."id" = "tests"."task_id"`).
+		Joins(`JOIN "repos" ON "repos"."id" = "tasks"."repo_id"`).
+		Where(`"tests"."id" = ?`, g.TestID).
+		Take(&parent).Error
+	if err != nil {
+		return notFound(err)
+	}
+	g.Org, g.Repo, g.Task, g.Test = parent.Org, parent.Repo, parent.Task, parent.Test
+	return nil
 }
 
 // SaveDatum stores the JSON a test passes to an agent and returns the datum's
@@ -452,7 +605,7 @@ func (s *Store) ListGraders() ([]Grader, error) {
 // test again returns the same ref and leaves one datum. It stores the JSON
 // unchanged.
 func (s *Store) SaveDatum(org, repo, task, test string, body []byte) (string, error) {
-	testID, err := s.parentID(&Test{}, "task_id = (SELECT id FROM tasks WHERE repo_id = (SELECT id FROM repos WHERE org = ? AND stub = ?) AND stub = ?) AND stub = ?",
+	testID, err := parentID(s.db, &Test{}, "task_id = (SELECT id FROM tasks WHERE repo_id = (SELECT id FROM repos WHERE org = ? AND stub = ?) AND stub = ?) AND stub = ?",
 		org, repo, task, test)
 	if err != nil {
 		return "", err
@@ -486,7 +639,7 @@ func (s *Store) GetDatum(org, repo, task, test, ref string) (Datum, error) {
 
 // ListData returns a test's data, ordered by ref.
 func (s *Store) ListData(org, repo, task, test string) ([]Datum, error) {
-	testID, err := s.parentID(&Test{}, "task_id = (SELECT id FROM tasks WHERE repo_id = (SELECT id FROM repos WHERE org = ? AND stub = ?) AND stub = ?) AND stub = ?",
+	testID, err := parentID(s.db, &Test{}, "task_id = (SELECT id FROM tasks WHERE repo_id = (SELECT id FROM repos WHERE org = ? AND stub = ?) AND stub = ?) AND stub = ?",
 		org, repo, task, test)
 	if errors.Is(err, ErrNotFound) {
 		return nil, nil
@@ -533,7 +686,8 @@ func (s *Store) SaveResult(r Result) (string, error) {
 				return err
 			}
 		}
-		return tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&r).Error
+		row := r.row()
+		return tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&row).Error
 	})
 	if err != nil {
 		return "", err
@@ -543,20 +697,34 @@ func (s *Store) SaveResult(r Result) (string, error) {
 
 // GetResult returns the result with the given ref in a repo, or ErrNotFound.
 func (s *Store) GetResult(org, repo, ref string) (Result, error) {
-	var r Result
-	if err := s.db.First(&r, "org = ? AND repo = ? AND ref = ?", org, repo, ref).Error; err != nil {
+	var row resultRow
+	if err := s.db.First(&row, "org = ? AND repo = ? AND ref = ?", org, repo, ref).Error; err != nil {
 		return Result{}, notFound(err)
 	}
+	r := row.result()
+	fillResultParents(&r)
 	return r, nil
 }
 
 // ListResults returns a repo's results, ordered by ref.
 func (s *Store) ListResults(org, repo string) ([]Result, error) {
-	var results []Result
-	if err := s.db.Where("org = ? AND repo = ?", org, repo).Order("ref").Find(&results).Error; err != nil {
+	var rows []resultRow
+	if err := s.db.Where("org = ? AND repo = ?", org, repo).Order("ref").Find(&rows).Error; err != nil {
 		return nil, err
 	}
+	results := make([]Result, len(rows))
+	for i, row := range rows {
+		results[i] = row.result()
+		fillResultParents(&results[i])
+	}
 	return results, nil
+}
+
+// fillResultParents sets the parent stubs an embedded result agent carries.
+func fillResultParents(r *Result) {
+	if r.Agent.Present() {
+		r.Agent.Org, r.Agent.Repo, r.Agent.Task = r.Org, r.Repo, r.Task
+	}
 }
 
 // SaveScore stores the key-number body a grader produced for a result and
@@ -588,7 +756,8 @@ func (s *Store) SaveScore(sc Score) (string, error) {
 				return err
 			}
 		}
-		return tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&sc).Error
+		row := sc.row()
+		return tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&row).Error
 	})
 	if err != nil {
 		return "", err
@@ -598,20 +767,34 @@ func (s *Store) SaveScore(sc Score) (string, error) {
 
 // GetScore returns the score with the given ref in a repo, or ErrNotFound.
 func (s *Store) GetScore(org, repo, ref string) (Score, error) {
-	var sc Score
-	if err := s.db.First(&sc, "org = ? AND repo = ? AND ref = ?", org, repo, ref).Error; err != nil {
+	var row scoreRow
+	if err := s.db.First(&row, "org = ? AND repo = ? AND ref = ?", org, repo, ref).Error; err != nil {
 		return Score{}, notFound(err)
 	}
+	sc := row.score()
+	fillScoreParents(&sc)
 	return sc, nil
 }
 
 // ListScores returns a repo's scores, ordered by ref.
 func (s *Store) ListScores(org, repo string) ([]Score, error) {
-	var scores []Score
-	if err := s.db.Where("org = ? AND repo = ?", org, repo).Order("ref").Find(&scores).Error; err != nil {
+	var rows []scoreRow
+	if err := s.db.Where("org = ? AND repo = ?", org, repo).Order("ref").Find(&rows).Error; err != nil {
 		return nil, err
 	}
+	scores := make([]Score, len(rows))
+	for i, row := range rows {
+		scores[i] = row.score()
+		fillScoreParents(&scores[i])
+	}
 	return scores, nil
+}
+
+// fillScoreParents sets the parent stubs an embedded score grader carries.
+func fillScoreParents(sc *Score) {
+	if sc.Grader.Present() {
+		sc.Grader.Org, sc.Grader.Repo, sc.Grader.Task, sc.Grader.Test = sc.Org, sc.Repo, sc.Task, sc.Test
+	}
 }
 
 // MoveTask renames the task with the given stub to newStub and returns the
