@@ -466,6 +466,200 @@ func TestResultAfterTaskRenameReusesAgent(t *testing.T) {
 	}
 }
 
+// TestRenameTestKeepsResultsAndScoresLinked checks renaming a test keeps its
+// data, results, scores, and grader linked and returns the same records under
+// the new stub.
+func TestRenameTestKeepsResultsAndScoresLinked(t *testing.T) {
+	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
+	saveTest(t, s, "acme", "widgets", "fix-bug", "basic")
+	data := saveDatum(t, s, "acme", "widgets", "fix-bug", "basic", `{"prompt":"hi"}`)
+	result := Result{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Data: data,
+		Body:  `{"answer":"hi"}`,
+		Model: Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"},
+		Agent: Agent{Org: "acme", Repo: "widgets", Task: "fix-bug", Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main"},
+	}
+	score := Score{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Body:   map[string]float64{"correctness": 1},
+		Model:  Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"},
+		Grader: Grader{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Name: "llm-judge", Stub: "judge", Commit: "def456", Branch: "main"},
+	}
+	resultRef, err := s.SaveResult(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	score.Result = resultRef
+	scoreRef, err := s.SaveScore(score)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeResult, err := s.GetResult("acme", "widgets", resultRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeScore, err := s.GetScore("acme", "widgets", scoreRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	test, err := s.GetTest("acme", "widgets", "fix-bug", "basic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	datum, err := s.GetDatum("acme", "widgets", "fix-bug", "basic", data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grader, err := s.GetGrader(score.Grader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	moved, err := s.MoveTest("acme", "widgets", "fix-bug", "basic", "smoke")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if moved.ID != test.ID {
+		t.Errorf("moved test id = %d, want %d", moved.ID, test.ID)
+	}
+	movedTest, err := s.GetTest("acme", "widgets", "fix-bug", "smoke")
+	if err != nil {
+		t.Fatalf("GetTest under the new stub: %v", err)
+	}
+	if movedTest.ID != test.ID || movedTest.Name != test.Name || movedTest.Version != test.Version {
+		t.Errorf("test after the rename = %#v, want %#v", movedTest, test)
+	}
+	movedData, err := s.ListData("acme", "widgets", "fix-bug", "smoke")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(movedData) != 1 || movedData[0].ID != datum.ID || movedData[0].Ref != datum.Ref {
+		t.Errorf("data after the test rename = %#v, want the datum %#v", movedData, datum)
+	}
+
+	afterResult, err := s.GetResult("acme", "widgets", resultRef)
+	if err != nil {
+		t.Fatalf("GetResult after the test rename: %v", err)
+	}
+	if afterResult.ID != beforeResult.ID || afterResult.DatumID != beforeResult.DatumID ||
+		afterResult.ModelID != beforeResult.ModelID || afterResult.AgentID != beforeResult.AgentID ||
+		afterResult.Body != beforeResult.Body || afterResult.Data != beforeResult.Data ||
+		afterResult.Test != "smoke" {
+		t.Errorf("result after the test rename = %#v, want %#v under the new stub", afterResult, beforeResult)
+	}
+	afterScore, err := s.GetScore("acme", "widgets", scoreRef)
+	if err != nil {
+		t.Fatalf("GetScore after the test rename: %v", err)
+	}
+	if afterScore.ID != beforeScore.ID || afterScore.ResultID != beforeScore.ResultID ||
+		afterScore.ModelID != beforeScore.ModelID || afterScore.GraderID != beforeScore.GraderID ||
+		afterScore.Body["correctness"] != beforeScore.Body["correctness"] ||
+		afterScore.Test != "smoke" {
+		t.Errorf("score after the test rename = %#v, want %#v under the new stub", afterScore, beforeScore)
+	}
+
+	movedGrader := score.Grader
+	movedGrader.Test = "smoke"
+	gotGrader, err := s.GetGrader(movedGrader)
+	if err != nil {
+		t.Fatalf("GetGrader under the new stub: %v", err)
+	}
+	if gotGrader.ID != grader.ID {
+		t.Errorf("grader id after the test rename = %d, want %d", gotGrader.ID, grader.ID)
+	}
+	for _, tc := range []struct {
+		name  string
+		model any
+	}{
+		{"data", &Datum{}},
+		{"results", &resultRow{}},
+		{"scores", &scoreRow{}},
+		{"graders", &Grader{}},
+	} {
+		var count int64
+		if err := s.db.Model(tc.model).Count(&count).Error; err != nil {
+			t.Fatal(err)
+		}
+		if count != 1 {
+			t.Errorf("%s after the test rename = %d, want 1", tc.name, count)
+		}
+	}
+}
+
+// TestScoreAfterTestRenameReusesGrader checks a later score for a renamed test
+// with the same grader values reuses the stored grader record.
+func TestScoreAfterTestRenameReusesGrader(t *testing.T) {
+	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
+	saveTest(t, s, "acme", "widgets", "fix-bug", "basic")
+	firstData := saveDatum(t, s, "acme", "widgets", "fix-bug", "basic", `{"prompt":"hi"}`)
+	model := Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"}
+	grader := Grader{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Name: "llm-judge", Stub: "judge", Commit: "def456", Branch: "main"}
+	firstRef, err := s.SaveResult(Result{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Data: firstData,
+		Body:  `{"answer":"hi"}`,
+		Model: model,
+		Agent: Agent{Org: "acme", Repo: "widgets", Task: "fix-bug", Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SaveScore(Score{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Result: firstRef,
+		Body: map[string]float64{"correctness": 1}, Model: model, Grader: grader,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	savedGrader, err := s.GetGrader(grader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.MoveTest("acme", "widgets", "fix-bug", "basic", "smoke"); err != nil {
+		t.Fatal(err)
+	}
+
+	secondData := saveDatum(t, s, "acme", "widgets", "fix-bug", "smoke", `{"prompt":"bye"}`)
+	secondRef, err := s.SaveResult(Result{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "smoke", Data: secondData,
+		Body:  `{"answer":"bye"}`,
+		Model: model,
+		Agent: Agent{Org: "acme", Repo: "widgets", Task: "fix-bug", Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	renamedGrader := grader
+	renamedGrader.Test = "smoke"
+	renamedGrader.Name = "renamed-judge"
+	secondScoreRef, err := s.SaveScore(Score{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "smoke", Result: secondRef,
+		Body: map[string]float64{"correctness": 0}, Model: model, Grader: renamedGrader,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.GetScore("acme", "widgets", secondScoreRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.GraderID != savedGrader.ID || second.Grader.ID != savedGrader.ID {
+		t.Errorf("second score grader = %d/%d, want the stored grader %d", second.GraderID, second.Grader.ID, savedGrader.ID)
+	}
+	if second.Test != "smoke" {
+		t.Errorf("second score test = %q, want the renamed test", second.Test)
+	}
+	var count int64
+	if err := s.db.Model(&Grader{}).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Errorf("graders after the second score = %d, want 1", count)
+	}
+}
+
 // TestMigrateMovesLegacyStubSchema checks migration carries the records of a
 // database that identified repos, tasks, tests, and data by stubs into the
 // id-linked tables.
