@@ -21,9 +21,21 @@ Routes SHALL be relative to the service URL in the [config](../../docs/design/ap
 - THEN the status is `404`
 - AND the body is `{ "error": { "message": "..." } }`
 
+### Requirement: Record Ids
+
+Every record SHALL have an id the service assigns. The id SHALL never change. Records SHALL link to each other by id.
+
+The API SHALL identify records by stubs and refs. It SHALL NOT accept ids in routes or bodies, and it SHALL NOT return them.
+
+#### Scenario: Responses omit ids
+
+- GIVEN a repo `acme/widgets` exists
+- WHEN an authorized client sends `GET /repos/acme/widgets`
+- THEN the body has no id
+
 ### Requirement: Repo Identity
 
-A repo SHALL be identified by an org stub and a repo stub. Both SHALL be non-empty, URL-safe strings.
+A repo SHALL be unique by its org stub and repo stub. Both SHALL be non-empty, URL-safe strings.
 
 Two repos with the same org stub and repo stub SHALL be the same repo, regardless of URL.
 

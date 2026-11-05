@@ -8,7 +8,7 @@ Manage tests over the service API. A test belongs to a task and groups the data 
 
 ### Requirement: Test Identity
 
-A test SHALL be identified by its repo, task stub, and test stub. The test stub SHALL be non-empty and URL-safe.
+A test SHALL be unique by its task and a test stub. The test stub SHALL be non-empty and URL-safe. Ids follow the [Repo Service API](repo.md).
 
 Two tests in the same task with the same stub SHALL be the same test.
 
@@ -134,6 +134,14 @@ The service SHALL return `201` on create and `200` on update.
 `POST /repos/{org}/{repo}/tasks/{task}/tests/{stub}/move` SHALL rename a test. The body SHALL carry the new test stub.
 
 The service SHALL return `200` on success, `404` when the test is missing, and `409` when a test with the new stub already exists.
+
+A rename SHALL change only the stub. The test keeps its id, so its data, results, scores, and graders stay linked.
+
+#### Scenario: Rename keeps links
+
+- GIVEN a test `acme/widgets/fix-bug/basic` has a datum
+- WHEN an authorized client moves `basic` to `smoke`
+- THEN `GET /repos/acme/widgets/tasks/fix-bug/tests/smoke/data` lists the datum
 
 #### Scenario: Rename a test
 

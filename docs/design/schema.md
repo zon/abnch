@@ -1,6 +1,8 @@
 # Schema Design
 
-All records contain primary key ids. User experience should use stubs and refs instead of ids when possible.
+All records contain primary key ids. The service assigns them and they never change. Records link to each other by id, so renaming a stub keeps its links.
+
+Ids stay internal. The API and CLI use stubs and refs instead.
 
 ## Repo
 

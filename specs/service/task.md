@@ -8,7 +8,7 @@ Manage tasks over the service API. A task belongs to a repo and describes a use 
 
 ### Requirement: Task Identity
 
-A task SHALL be identified by its repo and a task stub. The task stub SHALL be non-empty and URL-safe.
+A task SHALL be unique by its repo and a task stub. The task stub SHALL be non-empty and URL-safe. Ids follow the [Repo Service API](repo.md).
 
 Two tasks in the same repo with the same stub SHALL be the same task.
 
@@ -117,6 +117,14 @@ The service SHALL return `201` on create and `200` on update.
 `POST /repos/{org}/{repo}/tasks/{stub}/move` SHALL rename a task. The body SHALL carry the new task stub.
 
 The service SHALL return `200` on success, `404` when the task is missing, and `409` when a task with the new stub already exists.
+
+A rename SHALL change only the stub. The task keeps its id, so its tests, data, results, scores, and agents stay linked.
+
+#### Scenario: Rename keeps links
+
+- GIVEN a task `acme/widgets/fix-bug` has a test `basic`
+- WHEN an authorized client moves `fix-bug` to `fix-typo`
+- THEN `GET /repos/acme/widgets/tasks/fix-typo/tests/basic` returns the test
 
 #### Scenario: Rename a task
 

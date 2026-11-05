@@ -104,11 +104,20 @@ The service SHALL create or reuse the grader record from the grader a score carr
 
 ### Requirement: Record Links
 
-A result SHALL link to one model record and one agent record. A score SHALL link to one model record and one grader record.
+A result SHALL link to one model record and one agent record. A score SHALL link to one model record and one grader record. Each record has an id, and links use ids, as defined in the [Repo Service API](repo.md).
 
 The result body SHALL carry the model and agent records. The score body SHALL carry the model and grader records. The service SHALL create or reuse the records as part of the write.
 
 A response carrying one result or one score SHALL include the linked records.
+
+An agent record SHALL stay linked to its task, and a grader record to its test, when the task or test is renamed.
+
+#### Scenario: Rename keeps agent links
+
+- GIVEN a result links to an agent record for task `fix-bug`
+- WHEN an authorized client renames the task to `fix-typo`
+- THEN the result still returns the same agent record
+- AND a later result with the same agent values for `fix-typo` links to that record
 
 #### Scenario: Result links to its records
 

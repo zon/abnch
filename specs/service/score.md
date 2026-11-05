@@ -8,7 +8,7 @@ Store and read the scores graders produce for results. A score links to the mode
 
 ### Requirement: Score Identity
 
-A score SHALL be identified by its result, model record, grader record, and a ref. The ref SHALL be a short, URL-safe string derived from the score body, its result, its model record, and its grader record.
+A score SHALL be unique by its result, model record, grader record, and a ref. The ref SHALL be a short, URL-safe string derived from the score body, its result, its model record, and its grader record. Ids follow the [Repo Service API](repo.md).
 
 Two scores with the same body, result, model, and grader SHALL have the same ref and SHALL be the same score. Scores that differ in result, body, model, or grader SHALL have different identities.
 

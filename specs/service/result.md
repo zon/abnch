@@ -8,7 +8,7 @@ Store and read the results an agent produces for a test's datum. A result links 
 
 ### Requirement: Result Identity
 
-A result SHALL be identified by its data record, model record, agent record, and a ref. The ref SHALL be a short, URL-safe string derived from the result body, the data record, the model record, and the agent record.
+A result SHALL be unique by its data record, model record, agent record, and a ref. The ref SHALL be a short, URL-safe string derived from the result body, the data record, the model record, and the agent record. Ids follow the [Repo Service API](repo.md).
 
 Two results with the same body, data, model, and agent SHALL have the same ref and SHALL be the same result. Results that differ in data, body, model, or agent SHALL have different identities.
 

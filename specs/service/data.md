@@ -8,7 +8,7 @@ Manage a test's data over the service API. A datum is the JSON a test passes to 
 
 ### Requirement: Data Identity
 
-A datum SHALL be identified by its repo, task stub, test stub, and ref. The ref SHALL be a short, URL-safe string derived from the datum's JSON.
+A datum SHALL be unique by its test and ref. The ref SHALL be a short, URL-safe string derived from the datum's JSON. Ids follow the [Repo Service API](repo.md).
 
 Two data with the same JSON in the same test SHALL have the same ref and SHALL be the same datum. Two data with different JSON SHALL have different refs.
 
