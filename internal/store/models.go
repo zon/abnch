@@ -2,30 +2,38 @@ package store
 
 // Repo is a repository the service tracks. It is identified by its org stub and
 // repo stub, so two repos with the same stubs are the same repo whatever their
-// URL.
+// URL. The service assigns its id, which never changes.
 type Repo struct {
-	Org  string `gorm:"primaryKey"`
-	Stub string `gorm:"primaryKey"`
+	ID   uint   `gorm:"primaryKey" json:"-"`
+	Org  string `gorm:"uniqueIndex:idx_repos_org_stub;not null"`
+	Stub string `gorm:"uniqueIndex:idx_repos_org_stub;not null"`
 	URL  string
 }
 
-// Task is a use case within a repo. It is identified by its repo and its stub.
+// Task is a use case within a repo. It links to its repo by id and is unique by
+// that id and its stub. The service assigns its id, which never changes. Org and
+// Repo carry the parent stubs for callers; the store does not persist them.
 type Task struct {
-	Org         string `gorm:"primaryKey"`
-	Repo        string `gorm:"primaryKey"`
-	Stub        string `gorm:"primaryKey"`
+	ID          uint   `gorm:"primaryKey" json:"-"`
+	RepoID      uint   `gorm:"not null;uniqueIndex:idx_tasks_repo_stub"`
+	Org         string `gorm:"-"`
+	Repo        string `gorm:"-"`
+	Stub        string `gorm:"not null;uniqueIndex:idx_tasks_repo_stub"`
 	Name        string
 	Description string
 }
 
-// Test is a group of data and a score schema within a task. It is identified by
-// its repo, task stub, and test stub, so two tests with the same stubs are the
-// same test.
+// Test is a group of data and a score schema within a task. It links to its task
+// by id and is unique by that id and its stub, so two tests with the same stubs
+// are the same test. The service assigns its id, which never changes. Org, Repo,
+// and Task carry the parent stubs for callers; the store does not persist them.
 type Test struct {
-	Org         string `gorm:"primaryKey"`
-	Repo        string `gorm:"primaryKey"`
-	Task        string `gorm:"primaryKey"`
-	Stub        string `gorm:"primaryKey"`
+	ID          uint   `gorm:"primaryKey" json:"-"`
+	TaskID      uint   `gorm:"not null;uniqueIndex:idx_tests_task_stub"`
+	Org         string `gorm:"-"`
+	Repo        string `gorm:"-"`
+	Task        string `gorm:"-"`
+	Stub        string `gorm:"not null;uniqueIndex:idx_tests_task_stub"`
 	Name        string
 	Description string
 	Version     string
@@ -171,16 +179,20 @@ func (g Grader) Present() bool {
 	return g != Grader{}
 }
 
-// Datum is the JSON a test passes to an agent, one per case. It is identified by
-// its repo, task stub, test stub, and ref, so two data with the same identity
-// are the same datum.
+// Datum is the JSON a test passes to an agent, one per case. It links to its
+// test by id and is unique by that id and its ref, so two data with the same
+// identity are the same datum. The service assigns its id, which never changes.
+// Org, Repo, Task, and Test carry the parent stubs for callers; the store does
+// not persist them.
 type Datum struct {
-	Org  string `gorm:"primaryKey"`
-	Repo string `gorm:"primaryKey"`
-	Task string `gorm:"primaryKey"`
-	Test string `gorm:"primaryKey"`
-	Ref  string `gorm:"primaryKey"`
-	JSON string
+	ID     uint   `gorm:"primaryKey" json:"-"`
+	TestID uint   `gorm:"not null;uniqueIndex:idx_data_test_ref"`
+	Org    string `gorm:"-"`
+	Repo   string `gorm:"-"`
+	Task   string `gorm:"-"`
+	Test   string `gorm:"-"`
+	Ref    string `gorm:"not null;uniqueIndex:idx_data_test_ref"`
+	JSON   string
 }
 
 // Result is the body an agent produced for a datum, with the logs and run

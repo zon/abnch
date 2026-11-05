@@ -51,9 +51,129 @@ func New(db *gorm.DB) *Store {
 	return &Store{db: db}
 }
 
-// Migrate creates the tables the store needs.
+// Migrate creates the tables the store needs and the links between their
+// parents. It carries repos, tasks, tests, and data from the schema that
+// identified them by stubs to the one that links them by id.
 func (s *Store) Migrate() error {
-	return s.db.AutoMigrate(&Repo{}, &Task{}, &Test{}, &Model{}, &Agent{}, &Grader{}, &Datum{}, &Result{}, &Score{})
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		legacy, err := renameLegacyTables(tx)
+		if err != nil {
+			return err
+		}
+		if err := tx.AutoMigrate(&Repo{}, &Task{}, &Test{}, &Model{}, &Agent{}, &Grader{}, &Datum{}, &Result{}, &Score{}); err != nil {
+			return err
+		}
+		for _, fk := range []struct {
+			table, name, column, parent string
+		}{
+			{"tasks", "fk_tasks_repo", "repo_id", "repos"},
+			{"tests", "fk_tests_task", "task_id", "tasks"},
+			{"data", "fk_data_test", "test_id", "tests"},
+		} {
+			if err := addForeignKey(tx, fk.table, fk.name, fk.column, fk.parent); err != nil {
+				return err
+			}
+		}
+		return moveLegacyData(tx, legacy)
+	})
+}
+
+// legacyTables records which tables the migration renamed from the stub-keyed
+// schema.
+type legacyTables struct {
+	repos, tasks, tests, data bool
+}
+
+// renameLegacyTables renames the tables that still identify repos, tasks,
+// tests, and data by stubs, so AutoMigrate creates the id-linked tables. It
+// reports no tables on a new database.
+func renameLegacyTables(tx *gorm.DB) (legacyTables, error) {
+	var legacy legacyTables
+	if !tx.Migrator().HasTable("repos") || tx.Migrator().HasColumn(&Repo{}, "id") {
+		return legacy, nil
+	}
+
+	legacy = legacyTables{
+		repos: tx.Migrator().HasTable("repos"),
+		tasks: tx.Migrator().HasTable("tasks"),
+		tests: tx.Migrator().HasTable("tests"),
+		data:  tx.Migrator().HasTable("data"),
+	}
+	for _, table := range []string{"data", "tests", "tasks", "repos"} {
+		if !hasLegacyTable(legacy, table) {
+			continue
+		}
+		if err := tx.Exec(`ALTER TABLE "` + table + `" RENAME TO "` + table + `_legacy"`).Error; err != nil {
+			return legacy, err
+		}
+	}
+	return legacy, nil
+}
+
+// hasLegacyTable reports whether the table is one the migration renamed.
+func hasLegacyTable(legacy legacyTables, table string) bool {
+	switch table {
+	case "repos":
+		return legacy.repos
+	case "tasks":
+		return legacy.tasks
+	case "tests":
+		return legacy.tests
+	case "data":
+		return legacy.data
+	}
+	return false
+}
+
+// moveLegacyData copies the renamed tables into the id-linked tables, assigning
+// each record a new id and linking it to its parent. It drops the renamed tables
+// once their records are copied.
+func moveLegacyData(tx *gorm.DB, legacy legacyTables) error {
+	steps := []struct {
+		moved bool
+		sql   string
+	}{
+		{legacy.repos, `INSERT INTO "repos" ("org", "stub", "url")
+			SELECT "org", "stub", "url" FROM "repos_legacy"`},
+		{legacy.tasks, `INSERT INTO "tasks" ("repo_id", "stub", "name", "description")
+			SELECT r."id", t."stub", t."name", t."description"
+			FROM "tasks_legacy" t
+			JOIN "repos" r ON r."org" = t."org" AND r."stub" = t."repo"`},
+		{legacy.tests, `INSERT INTO "tests" ("task_id", "stub", "name", "description", "version", "schema")
+			SELECT t."id", s."stub", s."name", s."description", s."version", s."schema"
+			FROM "tests_legacy" s
+			JOIN "repos" r ON r."org" = s."org" AND r."stub" = s."repo"
+			JOIN "tasks" t ON t."repo_id" = r."id" AND t."stub" = s."task"`},
+		{legacy.data, `INSERT INTO "data" ("test_id", "ref", "json")
+			SELECT s."id", d."ref", d."json"
+			FROM "data_legacy" d
+			JOIN "repos" r ON r."org" = d."org" AND r."stub" = d."repo"
+			JOIN "tasks" t ON t."repo_id" = r."id" AND t."stub" = d."task"
+			JOIN "tests" s ON s."task_id" = t."id" AND s."stub" = d."test"`},
+		{legacy.data, `DROP TABLE "data_legacy"`},
+		{legacy.tests, `DROP TABLE "tests_legacy"`},
+		{legacy.tasks, `DROP TABLE "tasks_legacy"`},
+		{legacy.repos, `DROP TABLE "repos_legacy"`},
+	}
+	for _, step := range steps {
+		if !step.moved {
+			continue
+		}
+		if err := tx.Exec(step.sql).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// addForeignKey adds a foreign key constraint unless the table already holds
+// one with its name, so the database rejects rows whose parent is missing.
+func addForeignKey(db *gorm.DB, table, name, column, parent string) error {
+	if db.Migrator().HasConstraint(table, name) {
+		return nil
+	}
+	return db.Exec("ALTER TABLE " + table + " ADD CONSTRAINT " + name +
+		" FOREIGN KEY (" + column + ") REFERENCES " + parent + " (id)").Error
 }
 
 // Close closes the store's database connection.
@@ -72,7 +192,10 @@ func (s *Store) SaveRepo(r Repo) error {
 	if !ValidStub(r.Org) || !ValidStub(r.Stub) {
 		return ErrInvalidStub
 	}
-	return s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&r).Error
+	return s.db.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "org"}, {Name: "stub"}},
+		DoUpdates: clause.AssignmentColumns([]string{"url"}),
+	}).Create(&r).Error
 }
 
 // GetRepo returns the repo with the given stubs, or ErrNotFound.
@@ -95,36 +218,70 @@ func (s *Store) ListRepos() ([]Repo, error) {
 
 // SaveTask writes a task, creating it or replacing the stored task with the
 // same repo and stub. It returns ErrInvalidStub when the task stub is empty or
-// not URL-safe.
+// not URL-safe and ErrNotFound when the repo does not exist.
 func (s *Store) SaveTask(t Task) error {
 	if !ValidStub(t.Stub) {
 		return ErrInvalidStub
 	}
-	return s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&t).Error
+	if t.RepoID == 0 {
+		id, err := s.parentID(&Repo{}, "org = ? AND stub = ?", t.Org, t.Repo)
+		if err != nil {
+			return err
+		}
+		t.RepoID = id
+	}
+	return s.db.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "repo_id"}, {Name: "stub"}},
+		DoUpdates: clause.AssignmentColumns([]string{"name", "description"}),
+	}).Create(&t).Error
 }
 
 // GetTask returns the task with the given repo and stub, or ErrNotFound.
 func (s *Store) GetTask(org, repo, stub string) (Task, error) {
 	var t Task
-	if err := s.db.First(&t, "org = ? AND repo = ? AND stub = ?", org, repo, stub).Error; err != nil {
+	err := s.db.Where("repo_id = (SELECT id FROM repos WHERE org = ? AND stub = ?) AND stub = ?", org, repo, stub).
+		First(&t).Error
+	if err != nil {
 		return Task{}, notFound(err)
 	}
+	t.Org, t.Repo = org, repo
 	return t, nil
 }
 
 // ListTasks returns a repo's tasks, ordered by stub.
 func (s *Store) ListTasks(org, repo string) ([]Task, error) {
-	var tasks []Task
-	if err := s.db.Where("org = ? AND repo = ?", org, repo).Order("stub").Find(&tasks).Error; err != nil {
+	repoID, err := s.parentID(&Repo{}, "org = ? AND stub = ?", org, repo)
+	if errors.Is(err, ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
 		return nil, err
 	}
+	var tasks []Task
+	if err := s.db.Where("repo_id = ?", repoID).Order("stub").Find(&tasks).Error; err != nil {
+		return nil, err
+	}
+	for i := range tasks {
+		tasks[i].Org, tasks[i].Repo = org, repo
+	}
 	return tasks, nil
+}
+
+// parentID returns the id of the parent record that matches the query.
+func (s *Store) parentID(parent any, query string, args ...any) (uint, error) {
+	var got struct{ ID uint }
+	err := s.db.Model(parent).Select("id").Where(query, args...).Take(&got).Error
+	if err != nil {
+		return 0, notFound(err)
+	}
+	return got.ID, nil
 }
 
 // SaveTest writes a test, creating it or replacing the stored test with the
 // same repo, task stub, and test stub. It returns ErrInvalidStub when the test
 // stub is empty or not URL-safe, ErrInvalidTest when the test misses a required
-// field, and ErrInvalidSchema when the score schema breaks its contract.
+// field, ErrInvalidSchema when the score schema breaks its contract, and
+// ErrNotFound when the task does not exist.
 func (s *Store) SaveTest(t Test) error {
 	if !ValidStub(t.Stub) {
 		return ErrInvalidStub
@@ -132,24 +289,47 @@ func (s *Store) SaveTest(t Test) error {
 	if err := t.Validate(); err != nil {
 		return err
 	}
-	return s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&t).Error
+	if t.TaskID == 0 {
+		id, err := s.parentID(&Task{}, "repo_id = (SELECT id FROM repos WHERE org = ? AND stub = ?) AND stub = ?", t.Org, t.Repo, t.Task)
+		if err != nil {
+			return err
+		}
+		t.TaskID = id
+	}
+	return s.db.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "task_id"}, {Name: "stub"}},
+		DoUpdates: clause.AssignmentColumns([]string{"name", "description", "version", "schema"}),
+	}).Create(&t).Error
 }
 
 // GetTest returns the test with the given repo, task stub, and test stub, or
 // ErrNotFound.
 func (s *Store) GetTest(org, repo, task, stub string) (Test, error) {
 	var t Test
-	if err := s.db.First(&t, "org = ? AND repo = ? AND task = ? AND stub = ?", org, repo, task, stub).Error; err != nil {
+	err := s.db.Where("task_id = (SELECT id FROM tasks WHERE repo_id = (SELECT id FROM repos WHERE org = ? AND stub = ?) AND stub = ?) AND stub = ?",
+		org, repo, task, stub).First(&t).Error
+	if err != nil {
 		return Test{}, notFound(err)
 	}
+	t.Org, t.Repo, t.Task = org, repo, task
 	return t, nil
 }
 
 // ListTests returns a task's tests, ordered by stub.
 func (s *Store) ListTests(org, repo, task string) ([]Test, error) {
-	var tests []Test
-	if err := s.db.Where("org = ? AND repo = ? AND task = ?", org, repo, task).Order("stub").Find(&tests).Error; err != nil {
+	taskID, err := s.parentID(&Task{}, "repo_id = (SELECT id FROM repos WHERE org = ? AND stub = ?) AND stub = ?", org, repo, task)
+	if errors.Is(err, ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
 		return nil, err
+	}
+	var tests []Test
+	if err := s.db.Where("task_id = ?", taskID).Order("stub").Find(&tests).Error; err != nil {
+		return nil, err
+	}
+	for i := range tests {
+		tests[i].Org, tests[i].Repo, tests[i].Task = org, repo, task
 	}
 	return tests, nil
 }
@@ -272,12 +452,21 @@ func (s *Store) ListGraders() ([]Grader, error) {
 // test again returns the same ref and leaves one datum. It stores the JSON
 // unchanged.
 func (s *Store) SaveDatum(org, repo, task, test string, body []byte) (string, error) {
+	testID, err := s.parentID(&Test{}, "task_id = (SELECT id FROM tasks WHERE repo_id = (SELECT id FROM repos WHERE org = ? AND stub = ?) AND stub = ?) AND stub = ?",
+		org, repo, task, test)
+	if err != nil {
+		return "", err
+	}
 	d := Datum{
-		Org: org, Repo: repo, Task: task, Test: test,
+		TestID: testID,
+		Org:    org, Repo: repo, Task: task, Test: test,
 		Ref:  DatumRef(body),
 		JSON: string(body),
 	}
-	if err := s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&d).Error; err != nil {
+	if err := s.db.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "test_id"}, {Name: "ref"}},
+		DoUpdates: clause.AssignmentColumns([]string{"json"}),
+	}).Create(&d).Error; err != nil {
 		return "", err
 	}
 	return d.Ref, nil
@@ -286,17 +475,31 @@ func (s *Store) SaveDatum(org, repo, task, test string, body []byte) (string, er
 // GetDatum returns the datum with the given ref in a test, or ErrNotFound.
 func (s *Store) GetDatum(org, repo, task, test, ref string) (Datum, error) {
 	var d Datum
-	if err := s.db.First(&d, "org = ? AND repo = ? AND task = ? AND test = ? AND ref = ?", org, repo, task, test, ref).Error; err != nil {
+	err := s.db.Where("test_id = (SELECT id FROM tests WHERE task_id = (SELECT id FROM tasks WHERE repo_id = (SELECT id FROM repos WHERE org = ? AND stub = ?) AND stub = ?) AND stub = ?) AND ref = ?",
+		org, repo, task, test, ref).First(&d).Error
+	if err != nil {
 		return Datum{}, notFound(err)
 	}
+	d.Org, d.Repo, d.Task, d.Test = org, repo, task, test
 	return d, nil
 }
 
 // ListData returns a test's data, ordered by ref.
 func (s *Store) ListData(org, repo, task, test string) ([]Datum, error) {
-	var data []Datum
-	if err := s.db.Where("org = ? AND repo = ? AND task = ? AND test = ?", org, repo, task, test).Order("ref").Find(&data).Error; err != nil {
+	testID, err := s.parentID(&Test{}, "task_id = (SELECT id FROM tasks WHERE repo_id = (SELECT id FROM repos WHERE org = ? AND stub = ?) AND stub = ?) AND stub = ?",
+		org, repo, task, test)
+	if errors.Is(err, ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
 		return nil, err
+	}
+	var data []Datum
+	if err := s.db.Where("test_id = ?", testID).Order("ref").Find(&data).Error; err != nil {
+		return nil, err
+	}
+	for i := range data {
+		data[i].Org, data[i].Repo, data[i].Task, data[i].Test = org, repo, task, test
 	}
 	return data, nil
 }
@@ -430,7 +633,7 @@ func (s *Store) MoveTask(org, repo, stub, newStub string) (Task, error) {
 	}
 
 	err = s.db.Model(&Task{}).
-		Where("org = ? AND repo = ? AND stub = ?", org, repo, stub).
+		Where("id = ?", t.ID).
 		Update("stub", newStub).Error
 	if err != nil {
 		return Task{}, err
@@ -458,7 +661,7 @@ func (s *Store) MoveTest(org, repo, task, stub, newStub string) (Test, error) {
 	}
 
 	err = s.db.Model(&Test{}).
-		Where("org = ? AND repo = ? AND task = ? AND stub = ?", org, repo, task, stub).
+		Where("id = ?", t.ID).
 		Update("stub", newStub).Error
 	if err != nil {
 		return Test{}, err

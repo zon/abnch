@@ -30,6 +30,7 @@ func TestSaveAndGetRepo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetRepo: %v", err)
 	}
+	want.ID = got.ID
 	if got != want {
 		t.Errorf("GetRepo = %#v, want %#v", got, want)
 	}
@@ -129,6 +130,7 @@ func TestListRepos(t *testing.T) {
 		t.Fatalf("ListRepos returned %d repos, want %d", len(repos), len(want))
 	}
 	for i := range want {
+		want[i].ID = repos[i].ID
 		if repos[i] != want[i] {
 			t.Errorf("repo %d = %#v, want %#v", i, repos[i], want[i])
 		}
@@ -145,6 +147,7 @@ func TestGetRepoMissing(t *testing.T) {
 
 func TestSaveAndGetTask(t *testing.T) {
 	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
 	want := Task{Org: "acme", Repo: "widgets", Stub: "fix-bug", Name: "Fix a bug", Description: "A broken widget"}
 
 	if err := s.SaveTask(want); err != nil {
@@ -155,6 +158,7 @@ func TestSaveAndGetTask(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetTask: %v", err)
 	}
+	want.ID, want.RepoID = got.ID, got.RepoID
 	if got != want {
 		t.Errorf("GetTask = %#v, want %#v", got, want)
 	}
@@ -164,6 +168,7 @@ func TestSaveAndGetTask(t *testing.T) {
 // replaces the task instead of creating another one.
 func TestSaveTaskUpdatesExistingTask(t *testing.T) {
 	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
 	if err := s.SaveTask(Task{Org: "acme", Repo: "widgets", Stub: "fix-bug", Name: "Fix a bug", Description: "old"}); err != nil {
 		t.Fatal(err)
 	}
@@ -196,6 +201,7 @@ func TestSaveTaskRejectsInvalidStub(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := newTestStore(t)
+			saveRepo(t, s, "acme", "widgets")
 
 			task := Task{Org: "acme", Repo: "widgets", Stub: tc.stub, Name: "Fix a bug"}
 			if err := s.SaveTask(task); !errors.Is(err, ErrInvalidStub) {
@@ -214,6 +220,8 @@ func TestSaveTaskRejectsInvalidStub(t *testing.T) {
 
 func TestListTasks(t *testing.T) {
 	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveRepo(t, s, "acme", "gadgets")
 	for _, task := range []Task{
 		{Org: "acme", Repo: "widgets", Stub: "two", Name: "Two"},
 		{Org: "acme", Repo: "widgets", Stub: "one", Name: "One"},
@@ -248,6 +256,7 @@ func TestGetTaskMissing(t *testing.T) {
 // makes the old stub miss.
 func TestMoveTaskRenamesTask(t *testing.T) {
 	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
 	if err := s.SaveTask(Task{Org: "acme", Repo: "widgets", Stub: "fix-bug", Name: "Fix a bug", Description: "A broken widget"}); err != nil {
 		t.Fatal(err)
 	}
@@ -257,6 +266,7 @@ func TestMoveTaskRenamesTask(t *testing.T) {
 		t.Fatalf("MoveTask: %v", err)
 	}
 	want := Task{Org: "acme", Repo: "widgets", Stub: "fix-typo", Name: "Fix a bug", Description: "A broken widget"}
+	want.ID, want.RepoID = got.ID, got.RepoID
 	if got != want {
 		t.Errorf("MoveTask = %#v, want %#v", got, want)
 	}
@@ -285,6 +295,7 @@ func TestMoveTaskMissing(t *testing.T) {
 // leaves the repo's other tasks alone.
 func TestMoveTaskLeavesOtherTasks(t *testing.T) {
 	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
 	for _, task := range []Task{
 		{Org: "acme", Repo: "widgets", Stub: "fix-bug", Name: "Fix a bug"},
 		{Org: "acme", Repo: "widgets", Stub: "other", Name: "Other"},
@@ -318,6 +329,7 @@ func TestMoveTaskLeavesOtherTasks(t *testing.T) {
 // stub and leaves both tasks unchanged.
 func TestMoveTaskConflict(t *testing.T) {
 	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
 	for _, task := range []Task{
 		{Org: "acme", Repo: "widgets", Stub: "fix-bug", Name: "Fix a bug", Description: "A broken widget"},
 		{Org: "acme", Repo: "widgets", Stub: "fix-typo", Name: "Fix a typo", Description: "A typed word"},
@@ -355,6 +367,7 @@ func TestMoveTaskRejectsInvalidStub(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := newTestStore(t)
+			saveRepo(t, s, "acme", "widgets")
 			want := Task{Org: "acme", Repo: "widgets", Stub: "fix-bug", Name: "Fix a bug", Description: "A broken widget"}
 			if err := s.SaveTask(want); err != nil {
 				t.Fatal(err)
@@ -367,6 +380,7 @@ func TestMoveTaskRejectsInvalidStub(t *testing.T) {
 			if err != nil {
 				t.Fatalf("GetTask: %v", err)
 			}
+			want.ID, want.RepoID = got.ID, got.RepoID
 			if got != want {
 				t.Errorf("task = %#v, want the unchanged task %#v", got, want)
 			}
@@ -378,6 +392,8 @@ func TestMoveTaskRejectsInvalidStub(t *testing.T) {
 // description, version, and schema.
 func TestSaveAndGetTest(t *testing.T) {
 	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
 	want := Test{
 		Org:         "acme",
 		Repo:        "widgets",
@@ -397,6 +413,7 @@ func TestSaveAndGetTest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetTest: %v", err)
 	}
+	want.ID, want.TaskID = got.ID, got.TaskID
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("GetTest = %#v, want %#v", got, want)
 	}
@@ -406,6 +423,8 @@ func TestSaveAndGetTest(t *testing.T) {
 // and stub replaces the test instead of creating another one.
 func TestSaveTestUpdatesExistingTest(t *testing.T) {
 	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
 	if err := s.SaveTest(Test{Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic", Name: "Basic", Version: "1"}); err != nil {
 		t.Fatal(err)
 	}
@@ -438,6 +457,8 @@ func TestSaveTestRejectsInvalidStub(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := newTestStore(t)
+			saveRepo(t, s, "acme", "widgets")
+			saveTask(t, s, "acme", "widgets", "fix-bug")
 
 			test := Test{Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: tc.stub, Name: "Basic", Version: "1"}
 			if err := s.SaveTest(test); !errors.Is(err, ErrInvalidStub) {
@@ -466,6 +487,8 @@ func TestSaveTestRejectsMissingRequiredFields(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := newTestStore(t)
+			saveRepo(t, s, "acme", "widgets")
+			saveTask(t, s, "acme", "widgets", "fix-bug")
 
 			if err := s.SaveTest(tc.test); !errors.Is(err, ErrInvalidTest) {
 				t.Errorf("SaveTest error = %v, want ErrInvalidTest", err)
@@ -485,6 +508,8 @@ func TestSaveTestRejectsMissingRequiredFields(t *testing.T) {
 // two keys the same stub is refused and stored nowhere.
 func TestSaveTestRejectsDuplicateSchemaStub(t *testing.T) {
 	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
 
 	test := Test{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic",
@@ -507,6 +532,8 @@ func TestSaveTestRejectsDuplicateSchemaStub(t *testing.T) {
 // round trips with an empty schema.
 func TestSaveTestAllowsEmptySchema(t *testing.T) {
 	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
 	want := Test{
 		Org:         "acme",
 		Repo:        "widgets",
@@ -585,6 +612,9 @@ func TestTestAllowsScore(t *testing.T) {
 // tests, not one, because a test's identity includes its task stub.
 func TestSaveTestIdentityIncludesTask(t *testing.T) {
 	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
+	saveTask(t, s, "acme", "widgets", "other")
 	for _, task := range []string{"fix-bug", "other"} {
 		if err := s.SaveTest(Test{Org: "acme", Repo: "widgets", Task: task, Stub: "basic", Name: "Basic", Version: "1"}); err != nil {
 			t.Fatal(err)
@@ -607,6 +637,9 @@ func TestSaveTestIdentityIncludesTask(t *testing.T) {
 
 func TestListTests(t *testing.T) {
 	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
+	saveTask(t, s, "acme", "widgets", "other")
 	for _, test := range []Test{
 		{Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "two", Name: "Two", Version: "1"},
 		{Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "one", Name: "One", Version: "1"},
@@ -641,6 +674,8 @@ func TestGetTestMissing(t *testing.T) {
 // schema, leaves one test, and makes the old stub miss.
 func TestMoveTestRenamesTest(t *testing.T) {
 	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
 	stored := Test{
 		Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic",
 		Name: "Basic", Description: "A basic test", Version: "1",
@@ -655,6 +690,7 @@ func TestMoveTestRenamesTest(t *testing.T) {
 		t.Fatalf("MoveTest: %v", err)
 	}
 	want := stored
+	want.ID, want.TaskID = got.ID, got.TaskID
 	want.Stub = "smoke"
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("MoveTest = %#v, want %#v", got, want)
@@ -684,6 +720,8 @@ func TestMoveTestMissing(t *testing.T) {
 // stub and leaves both tests unchanged.
 func TestMoveTestConflict(t *testing.T) {
 	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
 	for _, test := range []Test{
 		{Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic", Name: "Basic", Version: "1"},
 		{Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "smoke", Name: "Smoke", Version: "1"},
@@ -712,6 +750,9 @@ func TestMoveTestConflict(t *testing.T) {
 // and leaves the same stub in another task alone.
 func TestMoveTestLeavesOtherTasks(t *testing.T) {
 	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
+	saveTask(t, s, "acme", "widgets", "other")
 	for _, test := range []Test{
 		{Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic", Name: "Basic", Version: "1"},
 		{Org: "acme", Repo: "widgets", Task: "other", Stub: "smoke", Name: "Smoke", Version: "1"},
@@ -747,6 +788,8 @@ func TestMoveTestRejectsInvalidStub(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := newTestStore(t)
+			saveRepo(t, s, "acme", "widgets")
+			saveTask(t, s, "acme", "widgets", "fix-bug")
 			want := Test{Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "basic", Name: "Basic", Version: "1"}
 			if err := s.SaveTest(want); err != nil {
 				t.Fatal(err)
@@ -759,6 +802,7 @@ func TestMoveTestRejectsInvalidStub(t *testing.T) {
 			if err != nil {
 				t.Fatalf("GetTest: %v", err)
 			}
+			want.ID, want.TaskID = got.ID, got.TaskID
 			if !reflect.DeepEqual(got, want) {
 				t.Errorf("test = %#v, want the unchanged test %#v", got, want)
 			}
@@ -770,6 +814,9 @@ func TestMoveTestRejectsInvalidStub(t *testing.T) {
 // unchanged under its ref.
 func TestSaveAndGetDatum(t *testing.T) {
 	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
+	saveTest(t, s, "acme", "widgets", "fix-bug", "basic")
 	body := []byte(`{"prompt":  "hi"}`)
 
 	ref, err := s.SaveDatum("acme", "widgets", "fix-bug", "basic", body)
@@ -785,6 +832,7 @@ func TestSaveAndGetDatum(t *testing.T) {
 		t.Fatalf("GetDatum: %v", err)
 	}
 	want := Datum{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Ref: ref, JSON: string(body)}
+	want.ID, want.TestID = got.ID, got.TestID
 	if got != want {
 		t.Errorf("GetDatum = %#v, want %#v", got, want)
 	}
@@ -795,6 +843,9 @@ func TestSaveAndGetDatum(t *testing.T) {
 // client gave them and fetches nothing.
 func TestSaveAndGetDatumFileReference(t *testing.T) {
 	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
+	saveTest(t, s, "acme", "widgets", "fix-bug", "basic")
 	body := []byte(`{"input": {"url": "https://example.com/input.txt", "checksum": "sha256:abc123"}}`)
 
 	ref, err := s.SaveDatum("acme", "widgets", "fix-bug", "basic", body)
@@ -828,6 +879,9 @@ func TestSaveAndGetDatumFileReference(t *testing.T) {
 // returns the same ref and leaves one datum.
 func TestSaveDatumSameJSONSameRef(t *testing.T) {
 	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
+	saveTest(t, s, "acme", "widgets", "fix-bug", "basic")
 	body := []byte(`{"prompt":"hi"}`)
 
 	first, err := s.SaveDatum("acme", "widgets", "fix-bug", "basic", body)
@@ -855,6 +909,9 @@ func TestSaveDatumSameJSONSameRef(t *testing.T) {
 // different ref and adds a second datum.
 func TestSaveDatumDifferentJSONDifferentRef(t *testing.T) {
 	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
+	saveTest(t, s, "acme", "widgets", "fix-bug", "basic")
 
 	first, err := s.SaveDatum("acme", "widgets", "fix-bug", "basic", []byte(`{"prompt":"hi"}`))
 	if err != nil {
@@ -881,6 +938,10 @@ func TestSaveDatumDifferentJSONDifferentRef(t *testing.T) {
 // data, not one, because a datum's identity includes its test.
 func TestSaveDatumIdentityIncludesTest(t *testing.T) {
 	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
+	saveTest(t, s, "acme", "widgets", "fix-bug", "basic")
+	saveTest(t, s, "acme", "widgets", "fix-bug", "other")
 	body := []byte(`{"prompt":"hi"}`)
 	for _, test := range []string{"basic", "other"} {
 		if _, err := s.SaveDatum("acme", "widgets", "fix-bug", test, body); err != nil {
@@ -914,6 +975,13 @@ func TestSaveDatumIdentityIncludesRepoAndTask(t *testing.T) {
 		{"gadgets", "fix-bug"},
 		{"widgets", "ship-it"},
 	}
+	for _, repo := range []string{"widgets", "gadgets"} {
+		saveRepo(t, s, "acme", repo)
+	}
+	for _, c := range coords {
+		saveTask(t, s, "acme", c.repo, c.task)
+		saveTest(t, s, "acme", c.repo, c.task, "basic")
+	}
 
 	for _, c := range coords {
 		ref, err := s.SaveDatum("acme", c.repo, c.task, "basic", body)
@@ -939,6 +1007,10 @@ func TestSaveDatumIdentityIncludesRepoAndTask(t *testing.T) {
 // TestListData checks ListData returns only a test's data, ordered by ref.
 func TestListData(t *testing.T) {
 	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
+	saveTest(t, s, "acme", "widgets", "fix-bug", "basic")
+	saveTest(t, s, "acme", "widgets", "fix-bug", "other")
 	want := map[string]string{}
 	for _, body := range []string{`{"n":1}`, `{"n":2}`} {
 		ref, err := s.SaveDatum("acme", "widgets", "fix-bug", "basic", []byte(body))

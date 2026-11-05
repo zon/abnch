@@ -77,6 +77,30 @@ func newTestStore(t *testing.T) *Store {
 	return s
 }
 
+// saveRepo stores a repo a test's task can link to.
+func saveRepo(t *testing.T, s *Store, org, repo string) {
+	t.Helper()
+	if err := s.SaveRepo(Repo{Org: org, Stub: repo, URL: "https://example.com/" + org + "/" + repo}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// saveTask stores a task a test's test or data can link to.
+func saveTask(t *testing.T, s *Store, org, repo, stub string) {
+	t.Helper()
+	if err := s.SaveTask(Task{Org: org, Repo: repo, Stub: stub, Name: stub}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// saveTest stores a test a test's data can link to.
+func saveTest(t *testing.T, s *Store, org, repo, task, stub string) {
+	t.Helper()
+	if err := s.SaveTest(Test{Org: org, Repo: repo, Task: task, Stub: stub, Name: stub, Version: "1"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func freePort(t *testing.T) int {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
