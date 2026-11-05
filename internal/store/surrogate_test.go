@@ -908,3 +908,153 @@ func TestMigrateMovesLegacyResultsAndScores(t *testing.T) {
 		t.Error("scores after migration do not have the id-linked columns only")
 	}
 }
+
+// TestDuplicateResultsKeepOneLinkedRow checks saving the same result body for a
+// datum again returns its ref, leaves one result, and keeps its linked records
+// even when the agent carries a different name.
+func TestDuplicateResultsKeepOneLinkedRow(t *testing.T) {
+	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
+	saveTest(t, s, "acme", "widgets", "fix-bug", "basic")
+	data := saveDatum(t, s, "acme", "widgets", "fix-bug", "basic", `{"prompt":"hi"}`)
+	result := Result{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Data: data,
+		Body:  `{"answer":"hi"}`,
+		Model: Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"},
+		Agent: Agent{Org: "acme", Repo: "widgets", Task: "fix-bug", Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main"},
+	}
+
+	first, err := s.SaveResult(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := s.GetResult("acme", "widgets", first)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	renamed := result
+	renamed.Agent.Name = "renamed-agent"
+	second, err := s.SaveResult(renamed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second != first {
+		t.Errorf("second ref = %q, want the first ref %q", second, first)
+	}
+
+	again, err := s.GetResult("acme", "widgets", first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.ID != saved.ID || again.DatumID != saved.DatumID || again.ModelID != saved.ModelID || again.AgentID != saved.AgentID {
+		t.Errorf("result after a second write = %#v, want the links and id of %#v", again, saved)
+	}
+	if again.Agent.ID != saved.Agent.ID {
+		t.Errorf("agent id after a second write = %d, want %d", again.Agent.ID, saved.Agent.ID)
+	}
+
+	for _, tc := range []struct {
+		name  string
+		model any
+	}{
+		{"results", &resultRow{}},
+		{"models", &Model{}},
+		{"agents", &Agent{}},
+	} {
+		var count int64
+		if err := s.db.Model(tc.model).Count(&count).Error; err != nil {
+			t.Fatal(err)
+		}
+		if count != 1 {
+			t.Errorf("%s after a second write = %d, want 1", tc.name, count)
+		}
+	}
+}
+
+// TestDuplicateScoresKeepOneLinkedRow checks saving the same score body for a
+// result again returns its ref, leaves one score, and keeps its linked records
+// even when the grader carries a different name.
+func TestDuplicateScoresKeepOneLinkedRow(t *testing.T) {
+	s := newTestStore(t)
+	resultRef := saveResultBase(t, s, "acme", "widgets", "fix-bug", "basic")
+	score := Score{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Result: resultRef,
+		Body:   map[string]float64{"correctness": 1},
+		Model:  Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"},
+		Grader: Grader{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Name: "llm-judge", Stub: "judge", Commit: "def456", Branch: "main"},
+	}
+
+	first, err := s.SaveScore(score)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := s.GetScore("acme", "widgets", first)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	renamed := score
+	renamed.Grader.Name = "renamed-judge"
+	second, err := s.SaveScore(renamed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second != first {
+		t.Errorf("second ref = %q, want the first ref %q", second, first)
+	}
+
+	again, err := s.GetScore("acme", "widgets", first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.ID != saved.ID || again.ResultID != saved.ResultID || again.ModelID != saved.ModelID || again.GraderID != saved.GraderID {
+		t.Errorf("score after a second write = %#v, want the links and id of %#v", again, saved)
+	}
+	if again.Grader.ID != saved.Grader.ID {
+		t.Errorf("grader id after a second write = %d, want %d", again.Grader.ID, saved.Grader.ID)
+	}
+
+	for _, tc := range []struct {
+		name  string
+		model any
+	}{
+		{"scores", &scoreRow{}},
+		{"models", &Model{}},
+		{"graders", &Grader{}},
+	} {
+		var count int64
+		if err := s.db.Model(tc.model).Count(&count).Error; err != nil {
+			t.Fatal(err)
+		}
+		if count != 1 {
+			t.Errorf("%s after a second write = %d, want 1", tc.name, count)
+		}
+	}
+}
+
+// TestRefsForExistingValuesStay checks the ref derivation keeps the values
+// results and scores already carry, so moving their links to ids leaves old
+// refs valid.
+func TestRefsForExistingValuesStay(t *testing.T) {
+	result := Result{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Data: "56ac1b0e4f0d", Body: `{"answer":"hi"}`,
+		Model: Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"},
+		Agent: Agent{Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main"},
+	}
+	if got, want := ResultRef(result), "572eab319157"; got != want {
+		t.Errorf("ResultRef = %q, want the existing ref %q", got, want)
+	}
+
+	score := Score{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Result: "572eab319157", Body: map[string]float64{"correctness": 1},
+		Model:  Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"},
+		Grader: Grader{Name: "llm-judge", Stub: "judge", Commit: "def456", Branch: "main"},
+	}
+	if got, want := ScoreRef(score), "3a2893e00114"; got != want {
+		t.Errorf("ScoreRef = %q, want the existing ref %q", got, want)
+	}
+}
