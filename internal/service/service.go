@@ -92,8 +92,9 @@ type Store interface {
 	// model and agent it carries, so saving the same JSON from the same model
 	// and agent again returns the same ref and leaves one result. It reports
 	// store.ErrInvalidResult when a run metric is negative, store.ErrInvalidModel
-	// when the carried model is incomplete, and store.ErrInvalidAgent when the
-	// carried agent is incomplete.
+	// when the model is missing or incomplete, store.ErrInvalidAgent when the
+	// agent is missing or incomplete, and store.ErrNotFound when the datum does
+	// not exist.
 	SaveResult(r store.Result) (string, error)
 	// GetScore returns the score with the given ref in a repo, or
 	// store.ErrNotFound.
@@ -105,8 +106,9 @@ type Store interface {
 	// result and the model and grader it carries, so saving the same body from
 	// the same model and grader again returns the same ref and leaves one score.
 	// It reports store.ErrInvalidScore when a run metric is negative,
-	// store.ErrInvalidModel when the carried model is incomplete, and
-	// store.ErrInvalidGrader when the carried grader is incomplete.
+	// store.ErrInvalidModel when the model is missing or incomplete,
+	// store.ErrInvalidGrader when the grader is missing or incomplete, and
+	// store.ErrNotFound when the result does not exist.
 	SaveScore(sc store.Score) (string, error)
 	// SaveRepo creates or replaces the repo with the given stubs.
 	SaveRepo(r store.Repo) error

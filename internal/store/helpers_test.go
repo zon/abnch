@@ -101,6 +101,50 @@ func saveTest(t *testing.T, s *Store, org, repo, task, stub string) {
 	}
 }
 
+// saveDatum stores JSON a result can link to and returns its ref.
+func saveDatum(t *testing.T, s *Store, org, repo, task, test, body string) string {
+	t.Helper()
+	ref, err := s.SaveDatum(org, repo, task, test, []byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ref
+}
+
+// saveResultBase stores a repo, task, test, datum, and result with default
+// provenance records and returns the result's ref.
+func saveResultBase(t *testing.T, s *Store, org, repo, task, test string) string {
+	t.Helper()
+	return saveResults(t, s, org, repo, task, test, 1)[0]
+}
+
+// resultSequence keeps each result a test stores at a distinct datum.
+var resultSequence int
+
+// saveResults stores count results in a test with default provenance records
+// and returns their refs.
+func saveResults(t *testing.T, s *Store, org, repo, task, test string, count int) []string {
+	t.Helper()
+	saveRepo(t, s, org, repo)
+	saveTask(t, s, org, repo, task)
+	saveTest(t, s, org, repo, task, test)
+	refs := make([]string, count)
+	for i := range refs {
+		resultSequence++
+		data := saveDatum(t, s, org, repo, task, test, fmt.Sprintf(`{"prompt":"%d"}`, resultSequence))
+		ref, err := s.SaveResult(Result{
+			Org: org, Repo: repo, Task: task, Test: test, Data: data, Body: `{"answer":"hi"}`,
+			Model: Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"},
+			Agent: Agent{Org: org, Repo: repo, Task: task, Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		refs[i] = ref
+	}
+	return refs
+}
+
 func freePort(t *testing.T) int {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

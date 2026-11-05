@@ -206,16 +206,22 @@ type Datum struct {
 }
 
 // Result is the body an agent produced for a datum, with the logs and run
-// metrics that came with it. It is identified by its repo, task stub, test
-// stub, datum ref, and ref, so two results with the same identity are the same
-// result. Local is the local branch that produced it, empty for a remote run.
+// metrics that came with it. It links to its datum, model, and agent by id and
+// is unique by those links and its ref. The service assigns its id, which never
+// changes. Org, Repo, Task, Test, and Data carry the linked records' stubs for
+// callers; the store does not persist them. Local is the local branch that
+// produced it, empty for a remote run.
 type Result struct {
-	Org          string `gorm:"primaryKey"`
-	Repo         string `gorm:"primaryKey"`
-	Task         string `gorm:"primaryKey"`
-	Test         string `gorm:"primaryKey"`
-	Data         string `gorm:"primaryKey"`
-	Ref          string `gorm:"primaryKey"`
+	ID           uint   `gorm:"primaryKey" json:"-"`
+	DatumID      uint   `gorm:"not null;uniqueIndex:idx_results_identity" json:"-"`
+	ModelID      uint   `gorm:"not null;uniqueIndex:idx_results_identity" json:"-"`
+	AgentID      uint   `gorm:"not null;uniqueIndex:idx_results_identity" json:"-"`
+	Org          string `gorm:"-"`
+	Repo         string `gorm:"-"`
+	Task         string `gorm:"-"`
+	Test         string `gorm:"-"`
+	Data         string `gorm:"-"`
+	Ref          string `gorm:"not null;uniqueIndex:idx_results_identity"`
 	Model        Model  `gorm:"-"`
 	Agent        Agent  `gorm:"-"`
 	Body         string
@@ -228,34 +234,41 @@ type Result struct {
 }
 
 // Validate reports whether the result's run metrics are zero or greater and its
-// model and agent, when carried, carry their required fields. A result that
+// model and agent are present and carry their required fields. A result that
 // omits a metric records zero. Its body, logs, and local branch may be empty.
 func (r Result) Validate() error {
 	if r.InputTokens < 0 || r.OutputTokens < 0 || r.TokenCost < 0 || r.Duration < 0 {
 		return ErrInvalidResult
 	}
-	if r.Model.Present() {
-		if err := r.Model.Validate(); err != nil {
-			return err
-		}
+	if !r.Model.Present() {
+		return ErrInvalidModel
 	}
-	if r.Agent.Present() {
-		return r.Agent.Validate()
+	if err := r.Model.Validate(); err != nil {
+		return err
 	}
-	return nil
+	if !r.Agent.Present() {
+		return ErrInvalidAgent
+	}
+	return r.Agent.Validate()
 }
 
 // Score is the body a grader produced for a result, with the logs and run
-// metrics that came with it. It is identified by its repo, task stub, test
-// stub, result ref, and ref, so two scores with the same identity are the same
-// score. Body holds a number per key of the result's test score schema.
+// metrics that came with it. It links to its result, model, and grader by id and
+// is unique by those links and its ref. The service assigns its id, which never
+// changes. Org, Repo, Task, Test, and Result carry the linked records' stubs for
+// callers; the store does not persist them. Body holds a number per key of the
+// result's test score schema.
 type Score struct {
-	Org          string             `gorm:"primaryKey"`
-	Repo         string             `gorm:"primaryKey"`
-	Task         string             `gorm:"primaryKey"`
-	Test         string             `gorm:"primaryKey"`
-	Result       string             `gorm:"primaryKey"`
-	Ref          string             `gorm:"primaryKey"`
+	ID           uint               `gorm:"primaryKey" json:"-"`
+	ResultID     uint               `gorm:"not null;uniqueIndex:idx_scores_identity" json:"-"`
+	ModelID      uint               `gorm:"not null;uniqueIndex:idx_scores_identity" json:"-"`
+	GraderID     uint               `gorm:"not null;uniqueIndex:idx_scores_identity" json:"-"`
+	Org          string             `gorm:"-"`
+	Repo         string             `gorm:"-"`
+	Task         string             `gorm:"-"`
+	Test         string             `gorm:"-"`
+	Result       string             `gorm:"-"`
+	Ref          string             `gorm:"not null;uniqueIndex:idx_scores_identity"`
 	Model        Model              `gorm:"-"`
 	Grader       Grader             `gorm:"-"`
 	Body         map[string]float64 `gorm:"serializer:json;type:jsonb"`
@@ -267,19 +280,20 @@ type Score struct {
 }
 
 // Validate reports whether the score's run metrics are zero or greater and its
-// model and grader, when carried, carry their required fields. A score that
+// model and grader are present and carry their required fields. A score that
 // omits a metric records zero. Its body, logs, and result may be empty.
 func (s Score) Validate() error {
 	if s.InputTokens < 0 || s.OutputTokens < 0 || s.TokenCost < 0 || s.Duration < 0 {
 		return ErrInvalidScore
 	}
-	if s.Model.Present() {
-		if err := s.Model.Validate(); err != nil {
-			return err
-		}
+	if !s.Model.Present() {
+		return ErrInvalidModel
 	}
-	if s.Grader.Present() {
-		return s.Grader.Validate()
+	if err := s.Model.Validate(); err != nil {
+		return err
 	}
-	return nil
+	if !s.Grader.Present() {
+		return ErrInvalidGrader
+	}
+	return s.Grader.Validate()
 }

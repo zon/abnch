@@ -866,22 +866,21 @@ func (f *fakeDB) SaveResult(r store.Result) (string, error) {
 	if f.saveResultErr != nil {
 		return "", f.saveResultErr
 	}
-	hasAgent := r.Agent.Present()
-	if hasAgent {
-		r.Agent.Org, r.Agent.Repo, r.Agent.Task = r.Org, r.Repo, r.Task
+	if !r.Model.Present() {
+		return "", store.ErrInvalidModel
+	}
+	if !r.Agent.Present() {
+		return "", store.ErrInvalidAgent
 	}
 	if err := r.Validate(); err != nil {
 		return "", err
 	}
-	if r.Model.Present() {
-		if err := f.SaveModel(r.Model); err != nil {
-			return "", err
-		}
+	r.Agent.Org, r.Agent.Repo, r.Agent.Task = r.Org, r.Repo, r.Task
+	if err := f.SaveModel(r.Model); err != nil {
+		return "", err
 	}
-	if hasAgent {
-		if err := f.SaveAgent(r.Agent); err != nil {
-			return "", err
-		}
+	if err := f.SaveAgent(r.Agent); err != nil {
+		return "", err
 	}
 	r.Ref = store.ResultRef(r)
 	for i, existing := range f.results {
@@ -923,22 +922,21 @@ func (f *fakeDB) SaveScore(sc store.Score) (string, error) {
 	if f.saveScoreErr != nil {
 		return "", f.saveScoreErr
 	}
-	hasGrader := sc.Grader.Present()
-	if hasGrader {
-		sc.Grader.Org, sc.Grader.Repo, sc.Grader.Task, sc.Grader.Test = sc.Org, sc.Repo, sc.Task, sc.Test
+	if !sc.Model.Present() {
+		return "", store.ErrInvalidModel
+	}
+	if !sc.Grader.Present() {
+		return "", store.ErrInvalidGrader
 	}
 	if err := sc.Validate(); err != nil {
 		return "", err
 	}
-	if sc.Model.Present() {
-		if err := f.SaveModel(sc.Model); err != nil {
-			return "", err
-		}
+	sc.Grader.Org, sc.Grader.Repo, sc.Grader.Task, sc.Grader.Test = sc.Org, sc.Repo, sc.Task, sc.Test
+	if err := f.SaveModel(sc.Model); err != nil {
+		return "", err
 	}
-	if hasGrader {
-		if err := f.SaveGrader(sc.Grader); err != nil {
-			return "", err
-		}
+	if err := f.SaveGrader(sc.Grader); err != nil {
+		return "", err
 	}
 	sc.Ref = store.ScoreRef(sc)
 	for i, existing := range f.scores {

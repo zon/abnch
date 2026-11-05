@@ -585,7 +585,7 @@ func TestMigrateMovesLegacyModelsAgentsAndGraders(t *testing.T) {
 	saveTest(t, s, "acme", "widgets", "fix-bug", "basic")
 
 	for _, stmt := range []string{
-		`DROP TABLE "agents", "graders", "models"`,
+		`DROP TABLE "results", "scores", "agents", "graders", "models"`,
 		`create table models (name text not null, provider text not null, variant text not null, primary key (name, provider, variant))`,
 		`create table agents (org text not null, repo text not null, task text not null, name text, stub text not null, commit text not null, branch text not null, version text not null, uncommitted boolean not null, primary key (org, repo, task, stub, commit, branch, version, uncommitted))`,
 		`create table graders (org text not null, repo text not null, task text not null, test text not null, name text, stub text not null, commit text not null, branch text not null, version text not null, uncommitted boolean not null, primary key (org, repo, task, test, stub, commit, branch, version, uncommitted))`,
@@ -628,5 +628,283 @@ func TestMigrateMovesLegacyModelsAgentsAndGraders(t *testing.T) {
 	}
 	if agent.Name != "claude-code" || grader.Name != "llm-judge" {
 		t.Errorf("migrated names = %q and %q, want them preserved", agent.Name, grader.Name)
+	}
+}
+
+// TestResultsAndScoresLinkByIDs checks results and scores store only ids for
+// their linked records and return those records and parent stubs when read.
+func TestResultsAndScoresLinkByIDs(t *testing.T) {
+	s := newTestStore(t)
+
+	for _, tc := range []struct {
+		model   any
+		present []string
+		absent  []string
+	}{
+		{
+			&Result{},
+			[]string{"id", "datum_id", "model_id", "agent_id"},
+			[]string{"org", "repo", "task", "test", "data", "name", "provider", "variant", "model_name", "model_provider", "model_variant", "agent_name", "agent_stub", "agent_commit", "agent_branch"},
+		},
+		{
+			&Score{},
+			[]string{"id", "result_id", "model_id", "grader_id"},
+			[]string{"org", "repo", "task", "test", "result", "name", "provider", "variant", "model_name", "model_provider", "model_variant", "grader_name", "grader_stub", "grader_commit", "grader_branch"},
+		},
+	} {
+		for _, column := range tc.present {
+			if !s.db.Migrator().HasColumn(tc.model, column) {
+				t.Errorf("%T has no %q column", tc.model, column)
+			}
+		}
+		for _, column := range tc.absent {
+			if s.db.Migrator().HasColumn(tc.model, column) {
+				t.Errorf("%T has a %q column, want it linked by id", tc.model, column)
+			}
+		}
+	}
+
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
+	saveTest(t, s, "acme", "widgets", "fix-bug", "basic")
+	dataRef := saveDatum(t, s, "acme", "widgets", "fix-bug", "basic", `{"prompt":"hi"}`)
+	datum, err := s.GetDatum("acme", "widgets", "fix-bug", "basic", dataRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resultRef, err := s.SaveResult(Result{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Data: dataRef,
+		Body:  `{"answer":"hi"}`,
+		Model: Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"},
+		Agent: Agent{Org: "acme", Repo: "widgets", Task: "fix-bug", Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	model, err := s.GetModel("claude-sonnet", "anthropic", "high")
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent, err := s.GetAgent(Agent{Org: "acme", Repo: "widgets", Task: "fix-bug", Stub: "claude", Commit: "abc123", Branch: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := s.GetResult("acme", "widgets", resultRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.DatumID != datum.ID || result.ModelID != model.ID || result.AgentID != agent.ID {
+		t.Errorf("result links = datum %d, model %d, agent %d, want %d, %d, and %d",
+			result.DatumID, result.ModelID, result.AgentID, datum.ID, model.ID, agent.ID)
+	}
+	if result.Data != dataRef || result.Model != model || result.Agent != agent {
+		t.Errorf("result = %#v, want its datum ref and linked records", result)
+	}
+
+	scoreRef, err := s.SaveScore(Score{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Result: resultRef,
+		Body:   map[string]float64{"correctness": 1},
+		Model:  Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"},
+		Grader: Grader{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Name: "llm-judge", Stub: "judge", Commit: "def456", Branch: "main"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	grader, err := s.GetGrader(Grader{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Stub: "judge", Commit: "def456", Branch: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var resultRow resultRow
+	if err := s.db.First(&resultRow, "ref = ?", resultRef).Error; err != nil {
+		t.Fatal(err)
+	}
+	var score scoreRow
+	if err := s.db.First(&score, "ref = ?", scoreRef).Error; err != nil {
+		t.Fatal(err)
+	}
+	if score.ResultID != resultRow.ID || score.ModelID != model.ID || score.GraderID != grader.ID {
+		t.Errorf("score links = result %d, model %d, grader %d, want %d, %d, and %d",
+			score.ResultID, score.ModelID, score.GraderID, resultRow.ID, model.ID, grader.ID)
+	}
+}
+
+// TestResultsAndScoresRequireLinkedRecords checks the store and database refuse
+// a result or score whose linked records are missing.
+func TestResultsAndScoresRequireLinkedRecords(t *testing.T) {
+	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
+	saveTest(t, s, "acme", "widgets", "fix-bug", "basic")
+	dataRef := saveDatum(t, s, "acme", "widgets", "fix-bug", "basic", `{"prompt":"hi"}`)
+	model := Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"}
+	agent := Agent{Org: "acme", Repo: "widgets", Task: "fix-bug", Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main"}
+	grader := Grader{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Name: "llm-judge", Stub: "judge", Commit: "def456", Branch: "main"}
+	result := Result{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Data: dataRef,
+		Body: `{"answer":"hi"}`, Model: model, Agent: agent,
+	}
+
+	missingDatum := result
+	missingDatum.Data = "missing"
+	if _, err := s.SaveResult(missingDatum); !errors.Is(err, ErrNotFound) {
+		t.Errorf("SaveResult with a missing datum error = %v, want ErrNotFound", err)
+	}
+	missingModel := result
+	missingModel.Model = Model{}
+	if _, err := s.SaveResult(missingModel); !errors.Is(err, ErrInvalidModel) {
+		t.Errorf("SaveResult without a model error = %v, want ErrInvalidModel", err)
+	}
+	missingAgent := result
+	missingAgent.Agent = Agent{}
+	if _, err := s.SaveResult(missingAgent); !errors.Is(err, ErrInvalidAgent) {
+		t.Errorf("SaveResult without an agent error = %v, want ErrInvalidAgent", err)
+	}
+
+	resultRef, err := s.SaveResult(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	savedModel, err := s.GetModel(model.Name, model.Provider, model.Variant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	savedAgent, err := s.GetAgent(agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var savedResult resultRow
+	if err := s.db.First(&savedResult, "ref = ?", resultRef).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	for _, row := range []resultRow{
+		{DatumID: 999999, ModelID: savedModel.ID, AgentID: savedAgent.ID, Ref: "orphan-datum"},
+		{DatumID: savedResult.DatumID, ModelID: 999999, AgentID: savedAgent.ID, Ref: "orphan-model"},
+		{DatumID: savedResult.DatumID, ModelID: savedModel.ID, AgentID: 999999, Ref: "orphan-agent"},
+	} {
+		if err := s.db.Create(&row).Error; err == nil {
+			t.Errorf("database accepted a result row with a missing link: %#v", row)
+		}
+	}
+
+	score := Score{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Result: resultRef,
+		Body: map[string]float64{"correctness": 1}, Model: model, Grader: grader,
+	}
+	missingResult := score
+	missingResult.Result = "missing"
+	if _, err := s.SaveScore(missingResult); !errors.Is(err, ErrNotFound) {
+		t.Errorf("SaveScore with a missing result error = %v, want ErrNotFound", err)
+	}
+	missingScoreModel := score
+	missingScoreModel.Model = Model{}
+	if _, err := s.SaveScore(missingScoreModel); !errors.Is(err, ErrInvalidModel) {
+		t.Errorf("SaveScore without a model error = %v, want ErrInvalidModel", err)
+	}
+	missingGrader := score
+	missingGrader.Grader = Grader{}
+	if _, err := s.SaveScore(missingGrader); !errors.Is(err, ErrInvalidGrader) {
+		t.Errorf("SaveScore without a grader error = %v, want ErrInvalidGrader", err)
+	}
+
+	scoreRef, err := s.SaveScore(score)
+	if err != nil {
+		t.Fatal(err)
+	}
+	savedGrader, err := s.GetGrader(grader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var savedScore scoreRow
+	if err := s.db.First(&savedScore, "ref = ?", scoreRef).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range []scoreRow{
+		{ResultID: 999999, ModelID: savedModel.ID, GraderID: savedGrader.ID, Ref: "orphan-result"},
+		{ResultID: savedScore.ResultID, ModelID: 999999, GraderID: savedGrader.ID, Ref: "orphan-score-model"},
+		{ResultID: savedScore.ResultID, ModelID: savedModel.ID, GraderID: 999999, Ref: "orphan-grader"},
+	} {
+		if err := s.db.Create(&row).Error; err == nil {
+			t.Errorf("database accepted a score row with a missing link: %#v", row)
+		}
+	}
+}
+
+// TestMigrateMovesLegacyResultsAndScores checks migration carries results and
+// scores from the schema that embedded their provenance values into the
+// id-linked tables.
+func TestMigrateMovesLegacyResultsAndScores(t *testing.T) {
+	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
+	saveTest(t, s, "acme", "widgets", "fix-bug", "basic")
+	dataRef := saveDatum(t, s, "acme", "widgets", "fix-bug", "basic", `{"prompt":"hi"}`)
+	model := Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"}
+	agent := Agent{Org: "acme", Repo: "widgets", Task: "fix-bug", Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main"}
+	grader := Grader{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Name: "llm-judge", Stub: "judge", Commit: "def456", Branch: "main"}
+	if err := s.SaveModel(model); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveAgent(agent); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveGrader(grader); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, stmt := range []string{
+		`DROP TABLE "scores", "results"`,
+		`create table results (
+			org text not null, repo text not null, task text not null, test text not null, data text not null, ref text not null,
+			name text, provider text, variant text,
+			agent_org text, agent_repo text, agent_task text, agent_name text, agent_stub text, agent_commit text,
+			agent_branch text, agent_version text, agent_uncommitted boolean,
+			body text, logs text, input_tokens integer, output_tokens integer, token_cost double precision, duration double precision, local text,
+			primary key (org, repo, task, test, data, ref))`,
+		`create table scores (
+			org text not null, repo text not null, task text not null, test text not null, result text not null, ref text not null,
+			name text, provider text, variant text,
+			grader_org text, grader_repo text, grader_task text, grader_test text, grader_name text, grader_stub text,
+			grader_commit text, grader_branch text, grader_version text, grader_uncommitted boolean,
+			body jsonb, logs text, input_tokens integer, output_tokens integer, token_cost double precision, duration double precision,
+			primary key (org, repo, task, test, result, ref))`,
+		`insert into results values ('acme', 'widgets', 'fix-bug', 'basic', '` + dataRef + `', 'resultref',
+			'claude-sonnet', 'anthropic', 'high',
+			'acme', 'widgets', 'fix-bug', 'claude-code', 'claude', 'abc123', 'main', '', false,
+			'{"answer":"hi"}', 'worked', 12, 3, 0.01, 1.5, 'main')`,
+		`insert into scores values ('acme', 'widgets', 'fix-bug', 'basic', 'resultref', 'scoreref',
+			'claude-sonnet', 'anthropic', 'high',
+			'acme', 'widgets', 'fix-bug', 'basic', 'llm-judge', 'judge', 'def456', 'main', '', false,
+			'{"correctness":1}', 'graded', 7, 2, 0.02, 0.5)`,
+	} {
+		if err := s.db.Exec(stmt).Error; err != nil {
+			t.Fatalf("%s: %v", stmt, err)
+		}
+	}
+
+	if err := s.Migrate(); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+
+	result, err := s.GetResult("acme", "widgets", "resultref")
+	if err != nil {
+		t.Fatalf("GetResult after migration: %v", err)
+	}
+	if result.Data != dataRef || result.Body != `{"answer":"hi"}` || result.Model.Name != model.Name || result.Agent.Commit != agent.Commit {
+		t.Errorf("migrated result = %#v, want its values and links preserved", result)
+	}
+	score, err := s.GetScore("acme", "widgets", "scoreref")
+	if err != nil {
+		t.Fatalf("GetScore after migration: %v", err)
+	}
+	if score.Result != "resultref" || score.Body["correctness"] != 1 || score.Model.Name != model.Name || score.Grader.Commit != grader.Commit {
+		t.Errorf("migrated score = %#v, want its values and links preserved", score)
+	}
+	if !s.db.Migrator().HasColumn(&Result{}, "datum_id") || s.db.Migrator().HasColumn(&Result{}, "org") {
+		t.Error("results after migration do not have the id-linked columns only")
+	}
+	if !s.db.Migrator().HasColumn(&Score{}, "result_id") || s.db.Migrator().HasColumn(&Score{}, "org") {
+		t.Error("scores after migration do not have the id-linked columns only")
 	}
 }
