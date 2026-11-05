@@ -291,6 +291,181 @@ func TestRenameKeepsIdsAndChildLinks(t *testing.T) {
 	}
 }
 
+// TestRenameTaskKeepsResultsAndScoresLinked checks renaming a task keeps its
+// test, data, results, scores, and agent linked and returns the same records
+// under the new stub.
+func TestRenameTaskKeepsResultsAndScoresLinked(t *testing.T) {
+	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
+	saveTest(t, s, "acme", "widgets", "fix-bug", "basic")
+	data := saveDatum(t, s, "acme", "widgets", "fix-bug", "basic", `{"prompt":"hi"}`)
+	result := Result{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Data: data,
+		Body:  `{"answer":"hi"}`,
+		Model: Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"},
+		Agent: Agent{Org: "acme", Repo: "widgets", Task: "fix-bug", Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main"},
+	}
+	score := Score{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic",
+		Body:   map[string]float64{"correctness": 1},
+		Model:  Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"},
+		Grader: Grader{Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Name: "llm-judge", Stub: "judge", Commit: "def456", Branch: "main"},
+	}
+	resultRef, err := s.SaveResult(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	score.Result = resultRef
+	scoreRef, err := s.SaveScore(score)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeResult, err := s.GetResult("acme", "widgets", resultRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeScore, err := s.GetScore("acme", "widgets", scoreRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := s.GetTask("acme", "widgets", "fix-bug")
+	if err != nil {
+		t.Fatal(err)
+	}
+	test, err := s.GetTest("acme", "widgets", "fix-bug", "basic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	datum, err := s.GetDatum("acme", "widgets", "fix-bug", "basic", data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent, err := s.GetAgent(result.Agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	moved, err := s.MoveTask("acme", "widgets", "fix-bug", "fix-typo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if moved.ID != task.ID {
+		t.Errorf("moved task id = %d, want %d", moved.ID, task.ID)
+	}
+	movedTest, err := s.GetTest("acme", "widgets", "fix-typo", "basic")
+	if err != nil {
+		t.Fatalf("GetTest under the renamed task: %v", err)
+	}
+	if movedTest.ID != test.ID || movedTest.Name != test.Name || movedTest.Version != test.Version {
+		t.Errorf("test after the task rename = %#v, want %#v", movedTest, test)
+	}
+	movedData, err := s.ListData("acme", "widgets", "fix-typo", "basic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(movedData) != 1 || movedData[0].ID != datum.ID || movedData[0].Ref != datum.Ref {
+		t.Errorf("data after the task rename = %#v, want the datum %#v", movedData, datum)
+	}
+
+	afterResult, err := s.GetResult("acme", "widgets", resultRef)
+	if err != nil {
+		t.Fatalf("GetResult after the task rename: %v", err)
+	}
+	if afterResult.ID != beforeResult.ID || afterResult.DatumID != beforeResult.DatumID ||
+		afterResult.ModelID != beforeResult.ModelID || afterResult.AgentID != beforeResult.AgentID ||
+		afterResult.Body != beforeResult.Body || afterResult.Data != beforeResult.Data ||
+		afterResult.Task != "fix-typo" {
+		t.Errorf("result after the task rename = %#v, want %#v under the new stub", afterResult, beforeResult)
+	}
+	afterScore, err := s.GetScore("acme", "widgets", scoreRef)
+	if err != nil {
+		t.Fatalf("GetScore after the task rename: %v", err)
+	}
+	if afterScore.ID != beforeScore.ID || afterScore.ResultID != beforeScore.ResultID ||
+		afterScore.ModelID != beforeScore.ModelID || afterScore.GraderID != beforeScore.GraderID ||
+		afterScore.Body["correctness"] != beforeScore.Body["correctness"] ||
+		afterScore.Task != "fix-typo" {
+		t.Errorf("score after the task rename = %#v, want %#v under the new stub", afterScore, beforeScore)
+	}
+
+	movedAgent := result.Agent
+	movedAgent.Task = "fix-typo"
+	gotAgent, err := s.GetAgent(movedAgent)
+	if err != nil {
+		t.Fatalf("GetAgent under the renamed task: %v", err)
+	}
+	if gotAgent.ID != agent.ID {
+		t.Errorf("agent id after the task rename = %d, want %d", gotAgent.ID, agent.ID)
+	}
+	for _, tc := range []struct {
+		name  string
+		model any
+	}{
+		{"results", &resultRow{}},
+		{"scores", &scoreRow{}},
+		{"agents", &Agent{}},
+	} {
+		var count int64
+		if err := s.db.Model(tc.model).Count(&count).Error; err != nil {
+			t.Fatal(err)
+		}
+		if count != 1 {
+			t.Errorf("%s after the task rename = %d, want 1", tc.name, count)
+		}
+	}
+}
+
+// TestResultAfterTaskRenameReusesAgent checks a later result for a renamed task
+// with the same agent values reuses the stored agent record.
+func TestResultAfterTaskRenameReusesAgent(t *testing.T) {
+	s := newTestStore(t)
+	saveRepo(t, s, "acme", "widgets")
+	saveTask(t, s, "acme", "widgets", "fix-bug")
+	saveTest(t, s, "acme", "widgets", "fix-bug", "basic")
+	firstData := saveDatum(t, s, "acme", "widgets", "fix-bug", "basic", `{"prompt":"hi"}`)
+	agent := Agent{Org: "acme", Repo: "widgets", Task: "fix-bug", Name: "claude-code", Stub: "claude", Commit: "abc123", Branch: "main"}
+	model := Model{Name: "claude-sonnet", Provider: "anthropic", Variant: "high"}
+	if _, err := s.SaveResult(Result{
+		Org: "acme", Repo: "widgets", Task: "fix-bug", Test: "basic", Data: firstData,
+		Body: `{"answer":"hi"}`, Model: model, Agent: agent,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	savedAgent, err := s.GetAgent(agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.MoveTask("acme", "widgets", "fix-bug", "fix-typo"); err != nil {
+		t.Fatal(err)
+	}
+
+	secondData := saveDatum(t, s, "acme", "widgets", "fix-typo", "basic", `{"prompt":"bye"}`)
+	renamedAgent := agent
+	renamedAgent.Task = "fix-typo"
+	secondRef, err := s.SaveResult(Result{
+		Org: "acme", Repo: "widgets", Task: "fix-typo", Test: "basic", Data: secondData,
+		Body: `{"answer":"bye"}`, Model: model, Agent: renamedAgent,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.GetResult("acme", "widgets", secondRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.AgentID != savedAgent.ID || second.Agent.ID != savedAgent.ID {
+		t.Errorf("second result agent = %d/%d, want the stored agent %d", second.AgentID, second.Agent.ID, savedAgent.ID)
+	}
+	var count int64
+	if err := s.db.Model(&Agent{}).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Errorf("agents after the second result = %d, want 1", count)
+	}
+}
+
 // TestMigrateMovesLegacyStubSchema checks migration carries the records of a
 // database that identified repos, tasks, tests, and data by stubs into the
 // id-linked tables.
