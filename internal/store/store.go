@@ -234,7 +234,7 @@ func moveLegacyData(tx *gorm.DB, legacy legacyTables) error {
 }
 
 // addIdentityIndexes adds the unique identities of models, agents, graders,
-// results, and scores and makes each agent's task and grader's test required.
+// results, and scores.
 func addIdentityIndexes(tx *gorm.DB) error {
 	for _, stmt := range []string{
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_models_identity ON "models" ("name", "provider", "variant")`,
@@ -242,8 +242,6 @@ func addIdentityIndexes(tx *gorm.DB) error {
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_graders_identity ON "graders" ("test_id", "stub", "commit", "branch", "version", "uncommitted")`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_results_identity ON "results" ("datum_id", "model_id", "agent_id", "ref")`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_scores_identity ON "scores" ("result_id", "model_id", "grader_id", "ref")`,
-		`ALTER TABLE "agents" ALTER COLUMN "task_id" SET NOT NULL`,
-		`ALTER TABLE "graders" ALTER COLUMN "test_id" SET NOT NULL`,
 	} {
 		if err := tx.Exec(stmt).Error; err != nil {
 			return err

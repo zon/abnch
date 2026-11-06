@@ -123,7 +123,7 @@ func (m Model) Present() bool {
 // uncommitted flag records false.
 type Agent struct {
 	ID          uint   `gorm:"primaryKey" json:"-"`
-	TaskID      uint   `json:"-"`
+	TaskID      uint   `gorm:"not null" json:"-"`
 	Org         string `gorm:"-" json:"org"`
 	Repo        string `gorm:"-" json:"repo"`
 	Task        string `gorm:"-" json:"task"`
@@ -160,7 +160,7 @@ func (a Agent) Present() bool {
 // uncommitted flag records false.
 type Grader struct {
 	ID          uint   `gorm:"primaryKey" json:"-"`
-	TestID      uint   `json:"-"`
+	TestID      uint   `gorm:"not null" json:"-"`
 	Org         string `gorm:"-" json:"org"`
 	Repo        string `gorm:"-" json:"repo"`
 	Task        string `gorm:"-" json:"task"`
