@@ -100,6 +100,24 @@ func TestVersionAdvancedForResultProvenance(t *testing.T) {
 	}
 }
 
+// TestVersionAdvancedForSurrogateIDs checks the version carries the Surrogate
+// IDs milestone's patch bump, so a later change cannot silently revert it below
+// the release the chart and image tag name.
+func TestVersionAdvancedForSurrogateIDs(t *testing.T) {
+	got := parseVersion(t, Version)
+	want := [3]int{3, 0, 3}
+
+	for i := range want {
+		if got[i] == want[i] {
+			continue
+		}
+		if got[i] < want[i] {
+			t.Errorf("Version = %q, want at least 3.0.3", Version)
+		}
+		return
+	}
+}
+
 func parseVersion(t *testing.T, value string) [3]int {
 	t.Helper()
 
